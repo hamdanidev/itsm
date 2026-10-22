@@ -1,0 +1,24 @@
+# Local tooling and test data
+.tools/
+.tmp/
+
+# Secrets
+.env
+.env.*
+!.env.example
+!frontend/.env.example
+
+# PocketBase runtime data: DB, uploads, logs, local backups
+backend/pb_data/
+
+# Backups are copied outside the app volume and must never be committed
+backups/
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db

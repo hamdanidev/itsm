@@ -1,0 +1,51 @@
+# Production edge.
+# For an internal CA / air-gapped deployment, replace the site address with
+# https://{$APP_DOMAIN} and add: tls internal
+{
+  http_port 8080
+  https_port 8443
+  admin off
+  email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+  encode zstd gzip
+
+  request_body {
+    max_size 12MB
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    -Server
+  }
+
+  handle /healthz {
+    respond "ok" 200
+  }
+
+  handle /api/* {
+    reverse_proxy pocketbase:8090 {
+      flush_interval -1
+      transport http {
+        read_timeout 360s
+      }
+    }
+  }
+
+  handle /assets/* {
+    root * /srv
+    header Cache-Control "public, max-age=31536000, immutable"
+    file_server
+  }
+
+  handle {
+    root * /srv
+    try_files {path} /index.html
+    file_server
+  }
+}

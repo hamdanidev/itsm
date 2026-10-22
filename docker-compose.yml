@@ -1,0 +1,119 @@
+name: healthcare-itsm
+
+services:
+  pocketbase:
+    build:
+      context: .
+      target: pocketbase
+      args:
+        PB_VERSION: ${PB_VERSION:-0.40.5}
+        PB_SHA256: ${PB_SHA256:-}
+    image: healthcare-itsm-backend:${PB_VERSION:-0.40.5}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file:
+      - .env
+    environment:
+      TZ: ${TZ:-Asia/Jakarta}
+      APP_ORIGIN: https://${APP_DOMAIN}
+      AUTOMIGRATE: "false"
+      GOMEMLIMIT: ${GOMEMLIMIT:-512MiB}
+    volumes:
+      - pocketbase_data:/pb/pb_data
+    ports:
+      - "127.0.0.1:8090:8090"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
+
+  web:
+    build:
+      context: .
+      target: web
+    image: healthcare-itsm-web:${PB_VERSION:-0.40.5}
+    restart: unless-stopped
+    depends_on:
+      pocketbase:
+        condition: service_healthy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:8080"
+      - "443:8443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -kfsS --resolve '${APP_DOMAIN}:8443:127.0.0.1' 'https://${APP_DOMAIN}:8443/healthz' || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
+
+  backup:
+    build:
+      context: .
+      target: backup
+    image: healthcare-itsm-backup:${PB_VERSION:-0.40.5}
+    restart: unless-stopped
+    volumes:
+      - pocketbase_data:/pb_data:ro
+      - ${BACKUP_HOST_DIR:-./backups}:/backups
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  pocketbase_data:
+    name: ${PB_VOLUME_NAME:-healthcare_itsm_pb_data}
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+    driver: bridge
