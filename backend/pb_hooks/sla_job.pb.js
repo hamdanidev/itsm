@@ -64,6 +64,7 @@ cronAdd("sla_breach_scan", "*/5 * * * *", () => {
               ? "SLA penyelesaian terlewati"
               : "SLA respons/approval terlewati";
           var notifyAssignee = String(ticket.get("assignee") || "");
+          var notifiedUsers = {};
 
           if (notifyAssignee) {
             notify.create(txApp, {
@@ -74,10 +75,14 @@ cronAdd("sla_breach_scan", "*/5 * * * *", () => {
               title: notifyTitle,
               body: notifyLabel,
             });
+            notifiedUsers[notifyAssignee] = true;
           }
 
           var breachLeads = notify.activeLeads(txApp, notifyTenant);
           for (var bi = 0; bi < breachLeads.length; bi++) {
+            if (notifiedUsers[breachLeads[bi].id]) continue;
+            notifiedUsers[breachLeads[bi].id] = true;
+
             notify.create(txApp, {
               tenant: notifyTenant,
               user: breachLeads[bi].id,

@@ -91,25 +91,35 @@ routerAdd(
 
       if (assigneeId) {
         var notify = require(__hooks + "/lib/notify.js");
+        var notifyTenant = String(current.get("tenant"));
+        var requesterId = String(current.get("requester") || "");
+        var notifyLabel = notify.ticketLabel(current);
+        var notified = {};
+
         notify.create(txApp, {
-          tenant: String(current.get("tenant")),
+          tenant: notifyTenant,
           user: assigneeId,
           ticket: current.id,
           actor: auth.id,
           type: "assigned",
           title: "Tiket ditugaskan kepada Anda",
-          body: notify.ticketLabel(current),
+          body: notifyLabel,
         });
+        notified[assigneeId] = true;
 
-        notify.create(txApp, {
-          tenant: String(current.get("tenant")),
-          user: String(current.get("requester") || ""),
-          ticket: current.id,
-          actor: auth.id,
-          type: "status",
-          title: "Tiket Anda sedang ditangani",
-          body: notify.ticketLabel(current),
-        });
+        // Requester dan assignee bisa orang yang sama.
+        if (requesterId && !notified[requesterId]) {
+          notify.create(txApp, {
+            tenant: notifyTenant,
+            user: requesterId,
+            ticket: current.id,
+            actor: auth.id,
+            type: "status",
+            title: "Tiket Anda sedang ditangani",
+            body: notifyLabel,
+          });
+          notified[requesterId] = true;
+        }
       }
 
       var meta = audit.requestMeta(e);

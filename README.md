@@ -262,6 +262,9 @@ daftar diperbarui realtime lewat subscribe ke collection `notifications`.
 
 - Notifikasi untuk diri sendiri tidak dibuat; klik notifikasi menandainya dibaca
   lalu membuka tiket terkait.
+- Penerima dideduplikasi per event. Bila requester dan assignee orang yang sama
+  (mis. staf membuat tiket untuk dirinya), atau assignee juga IT Lead, hanya
+  satu notifikasi yang dibuat.
 - Collection `notifications` hanya bisa dibaca/diubah pemiliknya (`user`), dan
   hanya server yang membuat/menghapus (create/delete rule `null`).
 - Notifikasi bukan pengganti email/WhatsApp; keduanya belum ada.

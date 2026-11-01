@@ -60,6 +60,7 @@ routerAdd(
       var notifyTitle =
         visibility === "internal" ? "Catatan internal baru" : "Komentar baru";
       var recipients = [];
+      var seen = {};
 
       if (visibility === "public") {
         recipients.push(String(current.get("requester") || ""));
@@ -67,9 +68,15 @@ routerAdd(
       recipients.push(String(current.get("assignee") || ""));
 
       for (var i = 0; i < recipients.length; i++) {
+        var userId = recipients[i];
+
+        // Requester dan assignee bisa orang yang sama; kirim satu saja.
+        if (!userId || seen[userId]) continue;
+        seen[userId] = true;
+
         notify.create(txApp, {
           tenant: String(current.get("tenant")),
-          user: recipients[i],
+          user: userId,
           ticket: current.id,
           actor: auth.id,
           type: "comment",
