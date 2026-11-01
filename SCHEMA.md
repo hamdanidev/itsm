@@ -27,12 +27,21 @@ bukan dari body request. Frontend guard bukan otorisasi.
 
 `name`, `code`, `timezone`, `is_active`, `created`, `updated`.
 
+Satu baris = satu organisasi/rumah sakit; menjadi batas isolasi seluruh data
+bisnis. Setiap user memiliki tepat satu `tenant`, dan backend mengambil tenant
+dari `e.auth` (bukan body request). `is_active = false` membuat semua user
+tenant tersebut tidak bisa login (rule auth user memakai `tenant.is_active`).
+Sidebar menampilkan `name` dan `code` dari record ini.
+
+`timezone` saat ini hanya disimpan; perhitungan SLA memakai `sla_policies.timezone`
+atau default `Asia/Jakarta` dan cron di-hardcode ke `Asia/Jakarta`.
+
 Rules:
 
 | Aksi | Rule |
 |---|---|
 | List/View | `AUTH && id = @request.auth.tenant` |
-| Create/Update/Delete | `null` |
+| Create/Update/Delete | `null` (superuser lewat Admin UI) |
 
 ### `users` (auth)
 
@@ -300,6 +309,8 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 - Pengaturan tidak mengelola user; provisioning akun tetap lewat Admin UI
   PocketBase.
 - Belum ada SSO.
+- `tenants.timezone` belum dipakai untuk perhitungan SLA; jam kerja masih
+  mengikuti policy atau default `Asia/Jakarta`.
 - Deteksi data pasien bersifat kebijakan + attestation, bukan DLP.
 - PocketBase berjalan sebagai satu instance; jangan scale horizontal dengan
   SQLite yang sama.

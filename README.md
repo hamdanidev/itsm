@@ -186,6 +186,23 @@ dengan aktor dan perubahan status.
   menulis event `escalate` ke timeline. Notifikasi baru sebatas in-app; email
   dan WhatsApp belum ada.
 
+## Tenant
+
+`tenants` adalah identitas organisasi (rumah sakit) sekaligus batas isolasi
+data. Setiap user memiliki tepat satu `tenant`; backend mengambil tenant dari
+`e.auth`, bukan dari body request, dan seluruh API rule memfilter
+`tenant = @request.auth.tenant`.
+
+- Satu baris seed: `Rumah Sakit Contoh` (`RS01`), `Asia/Jakarta`, aktif.
+- Sidebar menampilkan `name` dan `code` tenant (avatar diambil dari inisial
+  nama), bukan teks hardcoded.
+- Menonaktifkan tenant (`is_active = false`) memblokir login semua user tenant
+  tersebut karena rule auth user memakai `tenant.is_active`.
+- Membuat/mengubah tenant hanya lewat Admin UI PocketBase (superuser); belum
+  ada pengelolaan tenant in-app karena satu instalasi saat ini melayani satu RS.
+- `timezone` tenant disimpan tetapi belum dipakai untuk SLA; perhitungan jam
+  kerja memakai `sla_policies.timezone` atau default `Asia/Jakarta`.
+
 ## Dashboard dan antrean kerja
 
 Staff (IT Support/IT Lead) mendarat di `/dashboard` setelah login; requester

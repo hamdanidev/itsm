@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { useNotifications } from "../../app/providers/NotificationsProvider";
+import { useTenant } from "../../app/providers/TenantProvider";
 import { formatRelative, initials } from "../../lib/format";
 import { isLead, isStaff, roleLabel } from "../../lib/permissions";
 import { notificationIcon } from "../../features/notifications/notificationMeta";
@@ -13,6 +14,7 @@ function navClass({ isActive }) {
 
 export default function AppShell() {
   const { user, logout } = useAuth();
+  const { tenant } = useTenant();
   const {
     items: notifications,
     unread,
@@ -90,6 +92,11 @@ export default function AppShell() {
     logout();
     navigate("/login", { replace: true });
   }
+
+  const tenantName = tenant?.name || "Service Desk";
+  const tenantMeta = tenant?.code
+    ? `Kode ${tenant.code} · Layanan TI`
+    : "Layanan TI rumah sakit";
 
   return (
     <>
@@ -256,11 +263,15 @@ export default function AppShell() {
         >
           <div className="project-summary">
             <span className="project-avatar" aria-hidden="true">
-              SD
+              {initials(tenantName)}
             </span>
-            <div>
-              <div className="project-name">Service Desk</div>
-              <div className="project-meta">Layanan TI rumah sakit</div>
+            <div className="project-copy">
+              <div className="project-name" title={tenantName}>
+                {tenantName}
+              </div>
+              <div className="project-meta" title={tenantMeta}>
+                {tenantMeta}
+              </div>
             </div>
           </div>
 
