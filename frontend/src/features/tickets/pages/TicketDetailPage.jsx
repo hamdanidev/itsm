@@ -134,6 +134,12 @@ function eventMeta(event) {
         tone: "is-rejected",
         text: `SLA terlewati · ${SLA_FIELD_LABELS[changes.field] || changes.field || "tenggat"}`,
       };
+    case "escalate":
+      return {
+        icon: "bi-arrow-up-circle",
+        tone: "is-rejected",
+        text: `mengeskalasi tiket ke Level ${changes.level || "3"}`,
+      };
     default:
       return { icon: "bi-clock-history", tone: "", text: "memperbarui tiket" };
   }
@@ -174,7 +180,18 @@ function DetailField({ label, children }) {
   );
 }
 
-function SlaRow({ label, dueAt, breached, active }) {
+function SlaRow({ label, dueAt, breached, active, paused = false }) {
+  if (paused) {
+    return (
+      <div className="sla-row">
+        <span className="sla-row-label">{label}</span>
+        <span className="sla-row-value is-paused">
+          <i className="bi bi-pause-circle" aria-hidden="true" /> Dijeda
+        </span>
+      </div>
+    );
+  }
+
   const overdue =
     Boolean(breached) || (active && dueAt && new Date(dueAt) < new Date());
 
@@ -473,7 +490,23 @@ export default function TicketDetailPage() {
     return runAction(
       "reopen",
       () => transitionTicket(id, { status: "reopened" }),
-      "Tiket dibuka kembali."
+      "Tiket dibuka kembali. SLA penyelesaian dimulai ulang."
+    );
+  }
+
+  function handleWait() {
+    return runAction(
+      "wait",
+      () => transitionTicket(id, { status: "waiting" }),
+      "Tiket menunggu requester. SLA penyelesaian dijeda."
+    );
+  }
+
+  function handleResume() {
+    return runAction(
+      "resume",
+      () => transitionTicket(id, { status: "in_progress" }),
+      "Tiket dilanjutkan. Tenggat SLA digeser sesuai durasi jeda."
     );
   }
 
@@ -606,6 +639,12 @@ export default function TicketDetailPage() {
     ["assigned", "in_progress"].includes(status) &&
     (lead || assignedToMe) &&
     (!approvalRequired || approvalApproved);
+  const canWait =
+    staff &&
+    ["assigned", "in_progress"].includes(status) &&
+    (lead || assignedToMe) &&
+    (!approvalRequired || approvalApproved);
+  const canResume = staff && status === "waiting" && (lead || assignedToMe);
   const canClose = staff && status === "resolved";
   const canReopen =
     ["resolved", "closed"].includes(status) &&
@@ -619,15 +658,17 @@ export default function TicketDetailPage() {
 
   const primaryAction = canApprove
     ? "approve"
-    : canStart && status !== "in_progress"
-      ? "start"
-      : canResolve
-        ? "resolve"
-        : canClose
-          ? "close"
-          : canReopen
-            ? "reopen"
-            : "";
+    : canResume
+      ? "resume"
+      : canStart && status !== "in_progress"
+        ? "start"
+        : canResolve
+          ? "resolve"
+          : canClose
+            ? "close"
+            : canReopen
+              ? "reopen"
+              : "";
 
   const showActions = staff || canReopen;
 
@@ -658,6 +699,11 @@ export default function TicketDetailPage() {
               <Priority priority={ticket.priority} />
               {ticket.approval_status === "pending" && (
                 <span className="lozenge lozenge--neutral">Menunggu approval</span>
+              )}
+              {Number(ticket.escalation_level) >= 2 && (
+                <span className="lozenge status-reopened">
+                  Eskalasi L{ticket.escalation_level}
+                </span>
               )}
               <span className="issue-meta-sep" aria-hidden="true" />
               <span>Dibuka {formatDateTime(ticket.created)}</span>
@@ -694,6 +740,38 @@ export default function TicketDetailPage() {
                   <i className="bi bi-play-fill" aria-hidden="true" />
                 )}
                 Mulai kerjakan
+              </button>
+            )}
+
+            {canResume && (
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={handleResume}
+                disabled={Boolean(busyAction)}
+              >
+                {busyAction === "resume" ? (
+                  <span className="spinner" aria-hidden="true" />
+                ) : (
+                  <i className="bi bi-play-fill" aria-hidden="true" />
+                )}
+                Lanjutkan
+              </button>
+            )}
+
+            {canWait && (
+              <button
+                className="btn btn-outline"
+                type="button"
+                onClick={handleWait}
+                disabled={Boolean(busyAction)}
+              >
+                {busyAction === "wait" ? (
+                  <span className="spinner" aria-hidden="true" />
+                ) : (
+                  <i className="bi bi-pause-circle" aria-hidden="true" />
+                )}
+                Menunggu requester
               </button>
             )}
 
@@ -781,15 +859,19 @@ export default function TicketDetailPage() {
               !canResolve &&
               !canClose &&
               !canReopen &&
-              !canApprove && (
+              !canApprove &&
+              !canWait &&
+              !canResume && (
                 <span className="ticket-action-hint">
-                  {approvalRequired && !approvalApproved
-                    ? approvalRejected
-                      ? "Permintaan ditolak. IT Lead dapat menyetujui ulang."
-                      : "Menunggu approval IT Lead sebelum pekerjaan dapat dimulai."
-                    : status === "closed"
-                      ? "Tiket sudah ditutup."
-                      : "Tidak ada aksi status untuk Anda."}
+                  {status === "waiting"
+                    ? "Menunggu informasi dari requester. SLA penyelesaian dijeda."
+                    : approvalRequired && !approvalApproved
+                      ? approvalRejected
+                        ? "Permintaan ditolak. IT Lead dapat menyetujui ulang."
+                        : "Menunggu approval IT Lead sebelum pekerjaan dapat dimulai."
+                      : status === "closed"
+                        ? "Tiket sudah ditutup."
+                        : "Tidak ada aksi status untuk Anda."}
                 </span>
               )}
           </div>
@@ -1258,6 +1340,16 @@ export default function TicketDetailPage() {
                   <div>{ticket.resolution_summary}</div>
                 </DetailField>
               )}
+              {Number(ticket.sla_paused_minutes) > 0 && (
+                <DetailField label="Total jeda SLA">
+                  {ticket.sla_paused_minutes} menit
+                </DetailField>
+              )}
+              {Number(ticket.escalation_level) > 0 && (
+                <DetailField label="Eskalasi">
+                  Level {ticket.escalation_level}
+                </DetailField>
+              )}
               <DetailField label="Dibuat">
                 {formatDateTime(ticket.created)}
               </DetailField>
@@ -1292,7 +1384,16 @@ export default function TicketDetailPage() {
                   dueAt={ticket.resolution_due_at}
                   breached={ticket.resolution_breach_at}
                   active={active}
+                  paused={ticket.status === "waiting"}
                 />
+              )}
+
+              {ticket.status === "waiting" && ticket.sla_paused_at && (
+                <div className="sla-note is-paused" style={{ marginTop: 10 }}>
+                  <i className="bi bi-pause-circle" aria-hidden="true" />
+                  SLA dijeda sejak {formatDateTime(ticket.sla_paused_at)}.
+                  Tenggat digeser otomatis saat tiket dilanjutkan.
+                </div>
               )}
 
               <div style={{ marginTop: 12 }}>

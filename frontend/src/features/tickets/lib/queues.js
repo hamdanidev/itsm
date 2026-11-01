@@ -2,7 +2,12 @@
 // Semua tanggal memakai field `next_due_at` (SLA gate aktif) yang diisi hook
 // tickets.pb.js dan dipindahkan ke resolution/implementasi saat approval.
 
-export const ACTIVE_STATUSES = ["open", "assigned", "in_progress", "reopened"];
+// Tiket yang masih butuh aksi staf. `waiting` sengaja tidak termasuk: jam
+// penyelesaiannya dijeda sampai pekerjaan dilanjutkan.
+export const WORKING_STATUSES = ["open", "assigned", "in_progress", "reopened"];
+
+// Semua status yang belum selesai, termasuk yang menunggu requester.
+export const ACTIVE_STATUSES = [...WORKING_STATUSES, "waiting"];
 
 // Filter PocketBase untuk tiket yang masih butuh pekerjaan (resolved belum
 // ditutup, closed selesai).
@@ -12,6 +17,10 @@ const PRIORITY_RANK = { critical: 0, high: 1, normal: 2, low: 3 };
 
 export function isActive(ticket) {
   return Boolean(ticket) && ACTIVE_STATUSES.indexOf(ticket.status) >= 0;
+}
+
+export function isWorking(ticket) {
+  return Boolean(ticket) && WORKING_STATUSES.indexOf(ticket.status) >= 0;
 }
 
 export function isBreached(ticket) {

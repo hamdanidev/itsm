@@ -81,7 +81,26 @@ export function ApprovalLozenge({ status }) {
   );
 }
 
-export function SlaChip({ label, dueAt, breached, active = true, compact = false }) {
+export function SlaChip({
+  label,
+  dueAt,
+  breached,
+  active = true,
+  compact = false,
+  paused = false,
+}) {
+  if (paused) {
+    return (
+      <span
+        className="sla is-paused"
+        title={`${label}: dijeda selama tiket menunggu requester`}
+      >
+        <i className="bi bi-pause-circle" aria-hidden="true" />
+        {label}: dijeda
+      </span>
+    );
+  }
+
   if (!dueAt && !breached) {
     return (
       <span className="sla is-muted">

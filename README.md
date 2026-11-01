@@ -4,11 +4,12 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **Stage 6 activity slice** — autentikasi staff, intake tiga jenis
+Status saat ini: **Stage 7 SLA slice** — autentikasi staff, intake tiga jenis
 tiket, daftar tiket dengan pagination/filter/URL state, dashboard antrean kerja,
 detail tiket dengan riwayat aktivitas + pembaruan realtime, assignment, transisi
-status, approval IT Lead, komentar publik/internal, lampiran terproteksi, SLA
-awal + breach scan, dan audit log.
+status termasuk `waiting` dengan jeda SLA, recompute SLA saat reopen, eskalasi
+berjenjang, approval IT Lead, komentar publik/internal, lampiran terproteksi,
+SLA awal + breach scan, dan audit log.
 
 ## Stack
 
@@ -148,20 +149,40 @@ Di PowerShell: `$env:PB_DEBUG=1; npm run dev`.
 
 ## Alur tiket
 
-Status: `open → assigned → in_progress → resolved → closed`, dengan `reopened`
-dari `resolved`/`closed`.
+Status: `open → assigned → in_progress → resolved → closed`, dengan `waiting`
+(menunggu requester) dari `assigned`/`in_progress`, dan `reopened` dari
+`resolved`/`closed`.
 
 | Aksi | Requester | IT Support | IT Lead | Aturan |
 |---|---|---|---|---|
 | Assign | — | ke diri sendiri | ke staf IT mana pun / lepas | Hanya staf aktif di tenant yang sama |
 | Mulai kerjakan | — | assignee atau tiket belum di-assign | ya | Service/Change Request harus sudah approved; tiket tanpa assignee otomatis di-claim |
-| Selesaikan | — | assignee | ya | Wajib ringkasan resolusi ≥ 10 karakter + kode resolusi; approval harus approved untuk non-incident |
+| Menunggu requester | — | assignee | ya | Dari assigned/in_progress; jam penyelesaian dijeda, komentar tetap bisa ditambahkan |
+| Lanjutkan | — | assignee | ya | Dari waiting; tenggat penyelesaian digeser sebesar durasi jeda |
+| Selesaikan | — | assignee | ya | Wajib ringkasan resolusi ≥ 10 karakter + kode resolusi; approval harus approved untuk non-incident; tidak bisa dari waiting |
 | Tutup | — | ya | ya | Hanya dari status resolved |
-| Buka kembali | tiket sendiri | ya | ya | Dari resolved/closed; resolusi dibersihkan, `reopen_count` bertambah |
+| Buka kembali | tiket sendiri | ya | ya | Dari resolved/closed; resolusi dibersihkan, `reopen_count` bertambah, dan SLA penyelesaian dihitung ulang |
 | Approval | — | — | ya | Hanya sebelum pekerjaan dimulai; yang ditolak dapat disetujui ulang |
 
 Setiap aksi ditulis ke audit log (`assign`, `transition`, `approve`, `reject`)
 dengan aktor dan perubahan status.
+
+## SLA, jeda, dan eskalasi
+
+- Jam penyelesaian memakai kalender bisnis dari `sla_snapshot`/policy aktif
+  (Senin–Jumat 08:00–17:00 WIB, kritis 24/7, sadar hari libur).
+- Saat tiket masuk `waiting`, `sla_paused_at` diisi dan scan breach melewati
+  tiket tersebut. Saat dilanjutkan, `resolution_due_at` dan `next_due_at`
+  digeser persis selama jeda, dan totalnya dicatat di `sla_paused_minutes`.
+- Reopen memulai siklus SLA penyelesaian baru dari waktu reopen memakai policy
+  aktif. Breach dan level eskalasi lama dibersihkan, tetapi riwayat breach tetap
+  ada di audit log dan timeline.
+- Eskalasi berjenjang oleh scan 5 menit:
+  `1` = breach respons/approval, `2` = breach penyelesaian, `3` = breach
+  penyelesaian yang belum ditangani 4 jam. Level 2+ tampil sebagai badge
+  "Eskalasi Lx" di detail dan antrean dashboard, dan setiap kenaikan level
+  menulis event `escalate` ke timeline. Notifikasi baru sebatas in-app; email
+  dan WhatsApp belum ada.
 
 ## Dashboard dan antrean kerja
 
@@ -364,7 +385,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 |---|---|---|
 | POST | `/api/itsm/tickets` | Buat tiket (auth) |
 | POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee (staff) |
-| POST | `/api/itsm/tickets/{id}/transition` | Mulai, selesaikan, tutup, buka kembali |
+| POST | `/api/itsm/tickets/{id}/transition` | Mulai, menunggu/lanjutkan, selesaikan, tutup, buka kembali |
 | POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak (IT Lead) |
 | POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
 | POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran (multipart) |
@@ -399,6 +420,10 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 - Riwayat + realtime diverifikasi Playwright (14 check, dua browser): status dan
   komentar berubah tanpa reload, komentar internal tidak bocor ke requester,
   event internal tidak muncul di riwayat requester, indikator `Live` aktif.
+- SLA diverifikasi Playwright + API (19 check): status menunggu, jeda 90 menit
+  menggeser tenggat persis 90 menit, total jeda tercatat, reopen menghitung
+  ulang tenggat serta membersihkan breach/eskalasi, badge Eskalasi L3, dan
+  cron eskalasi menaikkan level 2 → 3 tanpa menyentuh tiket `waiting`.
 - Alur UI end-to-end: login, pencarian, filter prioritas, buat tiket, komentar,
   upload lampiran, logout, tanpa console error.
 - Alur UI tiket: support assign ke diri sendiri → mulai → selesaikan lewat modal
@@ -411,8 +436,8 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Scope berikutnya
 
-- Perhitungan ulang SLA resolution saat reopen dan eskalasi berjenjang.
+- Approval berjenjang dan delegasi saat IT Lead tidak tersedia.
 - Tren SLA mingguan/bulanan dan ekspor CSV.
 - Admin unit/kategori/SLA/holiday dari dalam aplikasi.
-- Notifikasi email/WhatsApp.
+- Notifikasi email/WhatsApp (eskalasi saat ini baru in-app).
 - SSO SIMRS.

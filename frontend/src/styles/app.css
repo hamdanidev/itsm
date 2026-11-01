@@ -1190,6 +1190,11 @@ button {
   color: var(--blue-pressed);
 }
 
+.status-waiting {
+  background: var(--yellow-bg);
+  color: #b54708;
+}
+
 .status-resolved {
   background: var(--green-bg);
   color: var(--green);
@@ -1277,6 +1282,10 @@ button {
 
 .sla.is-muted {
   color: var(--subtle);
+}
+
+.sla.is-paused {
+  color: #b54708;
 }
 
 /* Loading / empty / alerts */
@@ -1654,6 +1663,10 @@ button {
   color: #b54708;
 }
 
+.queue-flag.is-danger {
+  color: var(--red-text);
+}
+
 .queue-assignee {
   display: inline-flex;
   align-items: center;
@@ -1939,6 +1952,10 @@ button {
   color: var(--red);
 }
 
+.sla-row-value.is-paused {
+  color: #b54708;
+}
+
 .sla-note {
   display: flex;
   align-items: flex-start;
@@ -1950,6 +1967,10 @@ button {
 
 .sla-note.is-ok {
   color: var(--green);
+}
+
+.sla-note.is-paused {
+  color: #b54708;
 }
 
 .sla-note i {

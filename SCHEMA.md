@@ -105,7 +105,8 @@ Workflow: `assignee`, `assigned_at`, `assigned_by`, `first_response_at`,
 
 SLA: `sla_policy`, `sla_snapshot`, `response_due_at`, `approval_due_at`,
 `resolution_due_at`, `response_breach_at`, `approval_breach_at`,
-`resolution_breach_at`, `escalation_level`, `escalated_at`, `next_due_at`.
+`resolution_breach_at`, `escalation_level`, `escalated_at`, `next_due_at`,
+`sla_paused_at`, `sla_paused_minutes`.
 
 `next_due_at` adalah satu-satunya tenggat SLA yang masih menjadi gerbang
 pekerjaan: `approval_due_at` selama SR/CR belum diputuskan, lalu
@@ -181,17 +182,24 @@ tunduk pada list rule tiap collection.
 
 ```text
 open -> assigned -> in_progress -> resolved -> closed
-                                      |
-                                      +-> reopened
+           |             |                         |
+           |             +-> waiting -> in_progress
+           |                                       +-> reopened
+           +-------------------------------------------+
 ```
 
 Gate utama:
 
 - `assigned`: assignee wajib; SR/CR harus approved.
-- `in_progress`: assignee wajib.
+- `in_progress`: assignee wajib; dari `waiting` berarti melanjutkan pekerjaan
+  dan menggeser tenggat SLA sebesar durasi jeda.
+- `waiting`: hanya dari assigned/in_progress oleh assignee atau IT Lead;
+  `sla_paused_at` diisi dan jam penyelesaian dijeda. Resolve tidak diizinkan
+  langsung dari waiting.
 - `resolved`: resolution summary + code; CR butuh outcome dan actual_end.
 - `closed`: hanya dari resolved.
-- `reopened`: requester dalam 7 hari atau lead.
+- `reopened`: requester dalam 7 hari atau lead; memulai siklus SLA penyelesaian
+  baru (lihat di bawah).
 - Tidak ada hard delete. Duplikat ditutup dengan `resolution_code=duplicate`.
 
 ## Prioritas dan SLA
@@ -210,7 +218,16 @@ Clock SLA:
 - Change Request: response + approval; implementasi diukur dari jadwal.
 
 Jam kerja default: Senin–Jumat 08:00–17:00 Asia/Jakarta, dengan `holidays`.
-Kritis memakai 24/7. Tidak ada pause/waiting state di MVP.
+Kritis memakai 24/7.
+
+Jeda dan recompute:
+
+- `waiting` mengisi `sla_paused_at`; scan breach melewatkan tiket waiting.
+- Saat dilanjutkan, `resolution_due_at` dan `next_due_at` digeser sebesar
+  `now - sla_paused_at`, lalu durasi itu ditambahkan ke `sla_paused_minutes`.
+- Reopen menghitung ulang `resolution_due_at` dari waktu reopen memakai policy
+  aktif (fallback policy bila tidak ada), membersihkan `resolution_breach_at`,
+  `escalation_level`, dan `escalated_at`. Riwayat breach tetap di audit log.
 
 ## Custom routes
 
@@ -218,7 +235,7 @@ Kritis memakai 24/7. Tidak ada pause/waiting state di MVP.
 |---|---|---|
 | POST | `/api/itsm/tickets` | Buat tiket |
 | POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee |
-| POST | `/api/itsm/tickets/{id}/transition` | Mulai, selesaikan, tutup, buka kembali |
+| POST | `/api/itsm/tickets/{id}/transition` | Mulai, menunggu/lanjutkan, selesaikan, tutup, buka kembali |
 | POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak (IT Lead) |
 | POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
 | POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran |
@@ -226,7 +243,7 @@ Kritis memakai 24/7. Tidak ada pause/waiting state di MVP.
 
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side.
 Service/Change Request harus berstatus approval `approved` sebelum pekerjaan bisa
-dimulai atau diselesaikan. Setiap aksi menulis audit log.
+dimulai, dijeda, atau diselesaikan. Setiap aksi menulis audit log.
 
 ## SLA breach scan
 
@@ -235,13 +252,21 @@ dimulai atau diselesaikan. Setiap aksi menulis audit log.
 menaikkan `escalation_level` dan menulis audit `sla_breach`. Job idempoten dan
 memproses batch berulang sampai tidak ada tiket overdue.
 
+Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
+
+| Level | Pemicu |
+|---|---|
+| 1 | `response_breach_at` atau `approval_breach_at` terisi |
+| 2 | `resolution_breach_at` terisi |
+| 3 | breach penyelesaian > 4 jam dan belum ditangani; audit `escalate` |
+
 ## Known limitations
 
-- SLA resolution belum dihitung ulang saat tiket dibuka kembali.
 - Approval masih satu level (IT Lead), belum berjenjang.
+- Eskalasi Level 3 baru terlihat in-app (badge + timeline + audit); belum ada
+  email/WhatsApp.
 - Dashboard belum punya tren historis atau ekspor; agregatnya dihitung di
   client dari tiket aktif per tenant (bukan seluruh riwayat).
-- Belum ada notifikasi email/WhatsApp.
 - Belum ada SSO.
 - Deteksi data pasien bersifat kebijakan + attestation, bukan DLP.
 - PocketBase berjalan sebagai satu instance; jangan scale horizontal dengan

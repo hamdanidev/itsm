@@ -128,6 +128,7 @@ routerAdd(
   (e) => {
     var guards = require(__hooks + "/lib/guards.js");
     var audit = require(__hooks + "/lib/audit.js");
+    var sla = require(__hooks + "/lib/sla.js");
     var RESOLUTION_CODES = [
       "fixed",
       "workaround",
@@ -147,7 +148,9 @@ routerAdd(
     var staff = guards.isStaff(auth);
 
     if (
-      ["in_progress", "resolved", "closed", "reopened"].indexOf(target) < 0
+      ["in_progress", "waiting", "resolved", "closed", "reopened"].indexOf(
+        target
+      ) < 0
     ) {
       throw new BadRequestError("Status tujuan tidak valid");
     }
@@ -166,6 +169,7 @@ routerAdd(
     var summary = guards.cleanText(body.resolution_summary, 5000);
     var code = String(body.resolution_code || "");
     var result;
+    var reopenSla = "";
 
     if (target === "resolved") {
       if (summary.length < 10) {
@@ -187,7 +191,7 @@ routerAdd(
       var now = new Date().toISOString();
 
       if (target === "in_progress") {
-        if (["open", "assigned", "reopened"].indexOf(from) < 0) {
+        if (["open", "assigned", "reopened", "waiting"].indexOf(from) < 0) {
           throw new BadRequestError(
             "Tiket tidak dapat dimulai dari status " + from
           );
@@ -214,7 +218,83 @@ routerAdd(
           current.set("assigned_at", now);
           current.set("assigned_by", auth.id);
         }
+
+        // Melanjutkan dari waiting menggeser tenggat penyelesaian persis
+        // sebesar durasi jeda, lalu mencatat total jeda.
+        if (from === "waiting") {
+          var pausedAt = String(current.get("sla_paused_at") || "");
+
+          if (pausedAt) {
+            var pausedMs =
+              new Date(now).getTime() -
+              new Date(String(pausedAt).replace(" ", "T")).getTime();
+
+            if (pausedMs > 0) {
+              var resolutionDue = String(
+                current.get("resolution_due_at") || ""
+              );
+              if (resolutionDue) {
+                current.set(
+                  "resolution_due_at",
+                  new Date(
+                    new Date(String(resolutionDue).replace(" ", "T")).getTime() +
+                      pausedMs
+                  ).toISOString()
+                );
+              }
+
+              var nextDue = String(current.get("next_due_at") || "");
+              if (nextDue) {
+                current.set(
+                  "next_due_at",
+                  new Date(
+                    new Date(String(nextDue).replace(" ", "T")).getTime() +
+                      pausedMs
+                  ).toISOString()
+                );
+              }
+
+              current.set(
+                "sla_paused_minutes",
+                (Number(current.get("sla_paused_minutes")) || 0) +
+                  Math.round(pausedMs / 60000)
+              );
+            }
+
+            current.set("sla_paused_at", "");
+          }
+        }
+
         current.set("status", "in_progress");
+      } else if (target === "waiting") {
+        if (["assigned", "in_progress"].indexOf(from) < 0) {
+          throw new BadRequestError(
+            "Hanya tiket assigned atau in_progress yang dapat menunggu requester"
+          );
+        }
+        if (
+          String(current.get("type")) !== "incident" &&
+          String(current.get("approval_status")) !== "approved"
+        ) {
+          throw new BadRequestError(
+            "Permintaan harus disetujui IT Lead sebelum menunggu requester"
+          );
+        }
+        if (!assignee) {
+          throw new BadRequestError(
+            "Tugaskan tiket ke staf IT sebelum menunggu requester"
+          );
+        }
+        if (assignee !== auth.id && !lead) {
+          throw new ForbiddenError(
+            "Hanya assignee atau IT Lead yang dapat menjeda tiket ini"
+          );
+        }
+
+        current.set("status", "waiting");
+        if (!String(current.get("sla_paused_at") || "")) {
+          current.set("sla_paused_at", now);
+        }
       } else if (target === "resolved") {
         if (["assigned", "in_progress"].indexOf(from) < 0) {
           throw new BadRequestError(
@@ -276,6 +356,36 @@ routerAdd(
         current.set("resolved_by", "");
         current.set("resolution_summary", "");
         current.set("resolution_code", "");
+
+        // Reopen memulai siklus SLA penyelesaian baru: hitung ulang tenggat
+        // dari sekarang memakai policy aktif, lalu bersihkan breach lama.
+        // Riwayat breach sebelumnya tetap tersimpan di audit log.
+        var policy = null;
+        var policyId = String(current.get("sla_policy") || "");
+        if (policyId) {
+          try {
+            policy = txApp.findRecordById("sla_policies", policyId);
+          } catch (err) {
+            policy = null;
+          }
+        }
+
+        var due = sla.computeDue(
+          new Date(now),
+          String(current.get("type")),
+          String(current.get("priority")),
+          policy,
+          sla.loadHolidays(txApp, String(current.get("tenant") || ""))
+        );
+
+        if (due.resolution) {
+          reopenSla = due.resolution.toISOString();
+          current.set("resolution_due_at", reopenSla);
+          current.set("next_due_at", reopenSla);
+          current.set("resolution_breach_at", "");
+          current.set("escalation_level", 0);
+          current.set("escalated_at", "");
+        }
       }
 
       current.set("last_activity_at", now);
@@ -293,6 +403,8 @@ routerAdd(
           from: from,
           to: String(current.get("status")),
           resolution_code: target === "resolved" ? code : "",
+          sla_recomputed: reopenSla ? true : false,
+          resolution_due_at: reopenSla,
         },
         ip: meta.ip,
         user_agent: meta.user_agent,
@@ -309,6 +421,9 @@ routerAdd(
       closed_at: String(result.get("closed_at") || ""),
       reopened_at: String(result.get("reopened_at") || ""),
       reopen_count: Number(result.get("reopen_count")) || 0,
+      resolution_due_at: String(result.get("resolution_due_at") || ""),
+      next_due_at: String(result.get("next_due_at") || ""),
+      sla_paused_minutes: Number(result.get("sla_paused_minutes")) || 0,
     });
   },
   $apis.requireAuth()

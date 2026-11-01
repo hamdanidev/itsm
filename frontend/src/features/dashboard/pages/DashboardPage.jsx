@@ -24,6 +24,7 @@ import {
   isActive,
   isBreached,
   isDueSoon,
+  isWorking,
   nextDueOf,
 } from "../../tickets/lib/queues";
 
@@ -140,6 +141,11 @@ function QueueItem({ ticket, showAssignee = false }) {
             <span>{unit || "Tanpa unit"}</span>
             {ticket.approval_status === "pending" && (
               <span className="queue-flag">Butuh approval</span>
+            )}
+            {Number(ticket.escalation_level) >= 2 && (
+              <span className="queue-flag is-danger">
+                Eskalasi L{ticket.escalation_level}
+              </span>
             )}
             {showAssignee && (
               <span className="queue-assignee">
@@ -273,7 +279,9 @@ export default function DashboardPage() {
   }, [load]);
 
   const model = useMemo(() => {
-    const working = tickets.filter(isActive);
+    const active = tickets.filter(isActive);
+    const working = active.filter(isWorking);
+    const waiting = active.filter((ticket) => ticket.status === "waiting");
     const mine = working
       .filter((ticket) => ticket.assignee === user?.id)
       .sort(compareUrgency)
@@ -287,16 +295,22 @@ export default function DashboardPage() {
       .sort(compareUrgency)
       .slice(0, 6);
     return {
+      active,
       working,
+      waiting,
       mine,
       unassigned,
       attention,
       counts: {
-        active: working.length,
+        active: active.length,
         critical: working.filter((ticket) => ticket.priority === "critical")
           .length,
         breached: working.filter(isBreached).length,
         unassigned: working.filter((ticket) => !ticket.assignee).length,
+        waiting: waiting.length,
+        escalation: active.filter(
+          (ticket) => Number(ticket.escalation_level) >= 2
+        ).length,
         waitingApproval: working.filter(
           (ticket) => ticket.approval_status === "pending"
         ).length,
@@ -306,11 +320,11 @@ export default function DashboardPage() {
   }, [tickets, resolvedCount, user?.id]);
 
   const units = useMemo(
-    () => groupByUnit(model.working).slice(0, 6),
-    [model.working]
+    () => groupByUnit(model.active).slice(0, 6),
+    [model.active]
   );
-  const ages = useMemo(() => groupByAge(model.working), [model.working]);
-  const unitTotal = model.working.length;
+  const ages = useMemo(() => groupByAge(model.active), [model.active]);
+  const unitTotal = model.active.length;
 
   return (
     <>
@@ -353,9 +367,16 @@ export default function DashboardPage() {
               label="Tiket aktif"
               value={model.counts.active}
               hint={
-                model.counts.waitingClose
-                  ? `${model.counts.waitingClose} selesai, menunggu ditutup`
-                  : "Tidak ada yang menunggu ditutup"
+                [
+                  model.counts.waitingClose
+                    ? `${model.counts.waitingClose} menunggu ditutup`
+                    : "",
+                  model.counts.waiting
+                    ? `${model.counts.waiting} menunggu requester`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "Tidak ada yang menunggu"
               }
             />
             <KpiCard

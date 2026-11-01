@@ -20,6 +20,7 @@ const statusTabs = [
   { value: "open", label: "Open" },
   { value: "assigned", label: "Assigned" },
   { value: "in_progress", label: "In Progress" },
+  { value: "waiting", label: "Menunggu" },
   { value: "resolved", label: "Resolved" },
   { value: "closed", label: "Closed" },
   { value: "reopened", label: "Reopened" },
@@ -572,6 +573,7 @@ export default function TicketListPage() {
                               dueAt={ticket.resolution_due_at}
                               breached={ticket.resolution_breach_at}
                               active={isOpen(ticket)}
+                              paused={ticket.status === "waiting"}
                               compact
                             />
                           </div>

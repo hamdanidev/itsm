@@ -65,6 +65,7 @@ export function statusLabel(status) {
     open: "Open",
     assigned: "Assigned",
     in_progress: "In Progress",
+    waiting: "Menunggu",
     resolved: "Resolved",
     closed: "Closed",
     reopened: "Reopened",

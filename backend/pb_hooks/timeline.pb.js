@@ -78,7 +78,7 @@ routerAdd(
       var log = records[i];
       var action = String(log.get("action") || "");
 
-      if (action === "login" || action === "escalate") continue;
+      if (action === "login") continue;
 
       var changes = asObject(log.get("changes"));
 
