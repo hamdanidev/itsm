@@ -153,6 +153,13 @@ export default function AppShell() {
           <nav aria-label="Navigasi utama">
             <div className="sidebar-heading">Ruang kerja</div>
 
+            {isStaff(user) && (
+              <NavLink className={navClass} to="/dashboard">
+                <i className="bi bi-grid-1x2" aria-hidden="true" />
+                Ringkasan
+              </NavLink>
+            )}
+
             <NavLink
               className={({ isActive }) =>
                 `sidebar-link${isActive || ticketDetailActive ? " is-active" : ""}`
@@ -168,18 +175,6 @@ export default function AppShell() {
               <i className="bi bi-plus-square" aria-hidden="true" />
               Buat tiket
             </NavLink>
-
-            {isStaff(user) && (
-              <span
-                className="sidebar-link is-disabled"
-                aria-disabled="true"
-                title="Belum tersedia"
-              >
-                <i className="bi bi-grid" aria-hidden="true" />
-                Dashboard
-                <span className="sidebar-badge">Soon</span>
-              </span>
-            )}
           </nav>
 
           <div className="sidebar-footer">

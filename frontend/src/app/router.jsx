@@ -3,9 +3,11 @@ import { useAuth } from "./providers/AuthProvider";
 import AppShell from "../components/layout/AppShell";
 import EmptyState from "../components/ui/EmptyState";
 import LoginPage from "../features/auth/LoginPage";
+import DashboardPage from "../features/dashboard/pages/DashboardPage";
 import TicketListPage from "../features/tickets/pages/TicketListPage";
 import TicketCreatePage from "../features/tickets/pages/TicketCreatePage";
 import TicketDetailPage from "../features/tickets/pages/TicketDetailPage";
+import { isStaff } from "../lib/permissions";
 
 function FullPageLoader() {
   return (
@@ -28,6 +30,20 @@ function RequireAuth({ children }) {
   }
 
   return children;
+}
+
+function RequireStaff({ children }) {
+  const { user } = useAuth();
+
+  if (!isStaff(user)) return <Navigate to="/tickets" replace />;
+
+  return children;
+}
+
+function HomeRedirect() {
+  const { user } = useAuth();
+
+  return <Navigate to={isStaff(user) ? "/dashboard" : "/tickets"} replace />;
 }
 
 function NotFoundPage() {
@@ -58,7 +74,15 @@ export default function AppRoutes() {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to="/tickets" replace />} />
+        <Route index element={<HomeRedirect />} />
+        <Route
+          path="/dashboard"
+          element={
+            <RequireStaff>
+              <DashboardPage />
+            </RequireStaff>
+          }
+        />
         <Route path="/tickets" element={<TicketListPage />} />
         <Route path="/tickets/new" element={<TicketCreatePage />} />
         <Route path="/tickets/:id" element={<TicketDetailPage />} />

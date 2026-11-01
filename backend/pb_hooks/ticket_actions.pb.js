@@ -381,6 +381,18 @@ routerAdd(
       current.set("approved_at", now);
       current.set("approval_note", note);
       current.set("last_activity_at", now);
+
+      if (decision === "approved") {
+        // Setelah approval, gerbang SLA berpindah ke penyelesaian (SR/incident)
+        // atau jadwal implementasi (CR).
+        var nextDue =
+          String(current.get("type")) === "change_request"
+            ? String(current.get("planned_end") || "") ||
+              String(current.get("resolution_due_at") || "")
+            : String(current.get("resolution_due_at") || "");
+        if (nextDue) current.set("next_due_at", nextDue);
+      }
+
       txApp.save(current);
 
       var meta = audit.requestMeta(e);

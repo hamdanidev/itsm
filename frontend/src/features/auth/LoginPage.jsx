@@ -15,7 +15,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const from = location.state?.from?.pathname || "/tickets";
+  const from = location.state?.from?.pathname || "/";
 
   useEffect(() => {
     document.title = "Masuk · Healthcare ITSM";

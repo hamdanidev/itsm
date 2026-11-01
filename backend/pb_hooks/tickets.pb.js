@@ -153,6 +153,16 @@ routerAdd(
       if (due.resolution) {
         ticket.set("resolution_due_at", due.resolution.toISOString());
       }
+
+      // SLA gate yang masih berlaku: approval untuk SR/CR, resolution untuk
+      // incident. Dipakai untuk pengurutan "SLA terdekat" tanpa perlu
+      // mengurutkan tiga kolom tanggal yang bisa kosong.
+      var nextDue =
+        type === "incident"
+          ? due.resolution
+          : due.approval || due.resolution;
+      if (nextDue) ticket.set("next_due_at", nextDue.toISOString());
+
       ticket.set("sla_snapshot", due.snapshot);
 
       txApp.save(ticket);

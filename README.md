@@ -4,10 +4,10 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **Stage 4 vertical slice** — autentikasi staff, intake tiga jenis
-tiket, daftar tiket, detail tiket, assignment, transisi status, approval IT Lead,
-komentar publik/internal, lampiran terproteksi, SLA awal + breach scan, dan audit
-log.
+Status saat ini: **Stage 5 operational slice** — autentikasi staff, intake tiga jenis
+tiket, daftar tiket dengan pagination/filter/URL state, dashboard antrean kerja,
+detail tiket, assignment, transisi status, approval IT Lead, komentar
+publik/internal, lampiran terproteksi, SLA awal + breach scan, dan audit log.
 
 ## Stack
 
@@ -140,6 +140,10 @@ Di PowerShell: `$env:PB_DEBUG=1; npm run dev`.
 - Upload lampiran; cek tombol unduh.
 - Login sebagai lead; buka audit log lewat API/Admin UI.
 - Tunggu/paksa cron `sla_breach_scan`; cek `response_breach_at` dan audit.
+- Login sebagai staff; buka `/dashboard`: kartu KPI, antrean "Tiket saya",
+  "Belum di-assign", dan "Perlu perhatian" harus sesuai data tiket.
+- Klik "Lihat semua" pada antrean; filter, chip, dan pagination di daftar tiket
+  harus mengikuti URL.
 
 ## Alur tiket
 
@@ -157,6 +161,41 @@ dari `resolved`/`closed`.
 
 Setiap aksi ditulis ke audit log (`assign`, `transition`, `approve`, `reject`)
 dengan aktor dan perubahan status.
+
+## Dashboard dan antrean kerja
+
+Staff (IT Support/IT Lead) mendarat di `/dashboard` setelah login; requester
+tetap diarahkan ke `/tickets` dan tidak melihat menu Ringkasan.
+
+| Kartu / panel | Isi |
+|---|---|
+| Tiket aktif | semua tiket yang belum `resolved`/`closed` |
+| Kritis | prioritas `critical` pada tiket aktif |
+| SLA lewat | salah satu `*_breach_at` terisi |
+| Belum di-assign | tiket aktif tanpa assignee |
+| Menunggu approval | `approval_status = pending` |
+| Antrean saya | assignee = user, urut breach lalu tenggat terdekat |
+| Perlu perhatian | breach atau jatuh tempo ≤ 24 jam |
+| Beban per unit / Usia tiket | agregat tiket aktif per unit dan umur |
+
+Daftar tiket menerima query param berikut sehingga tautan dari dashboard selalu
+mereproduksi tampilan yang sama:
+
+| Param | Nilai |
+|---|---|
+| `scope` | `active` (belum resolved/closed) |
+| `status` | `open`, `assigned`, `in_progress`, `resolved`, `closed`, `reopened` |
+| `priority` | `critical`, `high`, `normal`, `low` |
+| `assignee` | `mine`, `unassigned` |
+| `sla` | `breached` |
+| `approval` | `pending` |
+| `q` | pencarian nomor tiket / judul |
+| `sort` | `created`, `created_asc`, `updated`, `due` |
+| `page` | halaman (25/50/100 per halaman) |
+
+`sort=due` memakai field `next_due_at` — SLA gate yang masih berlaku
+(approval untuk SR/CR, resolution untuk incident). Tanpa field ini Change
+Request akan selalu muncul di atas karena tidak punya resolution SLA.
 
 ## Production
 
@@ -330,6 +369,9 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 - `npm run build` sukses.
 - UI diverifikasi dengan Playwright pada viewport 1440, 1280, 1024, 768, dan
   390 px: login, list, detail, create, empty state, menu, drawer mobile.
+- Dashboard dan antrean diverifikasi Playwright (23 check): KPI, panel antrean,
+  chip filter, pagination, sort SLA, sinkronisasi pencarian ke URL, guard role
+  requester, dan layout 390 px.
 - Alur UI end-to-end: login, pencarian, filter prioritas, buat tiket, komentar,
   upload lampiran, logout, tanpa console error.
 - Alur UI tiket: support assign ke diri sendiri → mulai → selesaikan lewat modal
@@ -343,7 +385,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 ## Scope berikutnya
 
 - Perhitungan ulang SLA resolution saat reopen dan eskalasi berjenjang.
-- Dashboard per unit, SLA breach, critical open.
-- Admin unit/kategori/SLA/holiday.
+- Tren SLA mingguan/bulanan dan ekspor CSV.
+- Admin unit/kategori/SLA/holiday dari dalam aplikasi.
 - Notifikasi email/WhatsApp.
 - SSO SIMRS.

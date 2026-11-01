@@ -105,7 +105,12 @@ Workflow: `assignee`, `assigned_at`, `assigned_by`, `first_response_at`,
 
 SLA: `sla_policy`, `sla_snapshot`, `response_due_at`, `approval_due_at`,
 `resolution_due_at`, `response_breach_at`, `approval_breach_at`,
-`resolution_breach_at`, `escalation_level`, `escalated_at`.
+`resolution_breach_at`, `escalation_level`, `escalated_at`, `next_due_at`.
+
+`next_due_at` adalah satu-satunya tenggat SLA yang masih menjadi gerbang
+pekerjaan: `approval_due_at` selama SR/CR belum diputuskan, lalu
+`resolution_due_at` (incident/SR) atau `planned_end` (CR) setelah disetujui.
+Field ini diisi hook saat create/approval dan dipakai untuk `sort=due`.
 
 Approval: `approval_status`, `approved_by`, `approved_at`, `approval_note`.
 
@@ -227,7 +232,9 @@ memproses batch berulang sampai tidak ada tiket overdue.
 
 - SLA resolution belum dihitung ulang saat tiket dibuka kembali.
 - Approval masih satu level (IT Lead), belum berjenjang.
-- Belum ada dashboard dan notifikasi email/WhatsApp.
+- Dashboard belum punya tren historis atau ekspor; agregatnya dihitung di
+  client dari tiket aktif per tenant (bukan seluruh riwayat).
+- Belum ada notifikasi email/WhatsApp.
 - Belum ada SSO.
 - Deteksi data pasien bersifat kebijakan + attestation, bukan DLP.
 - PocketBase berjalan sebagai satu instance; jangan scale horizontal dengan
