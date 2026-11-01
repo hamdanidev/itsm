@@ -4,10 +4,11 @@ import AppShell from "../components/layout/AppShell";
 import EmptyState from "../components/ui/EmptyState";
 import LoginPage from "../features/auth/LoginPage";
 import DashboardPage from "../features/dashboard/pages/DashboardPage";
+import AdminPage from "../features/admin/pages/AdminPage";
 import TicketListPage from "../features/tickets/pages/TicketListPage";
 import TicketCreatePage from "../features/tickets/pages/TicketCreatePage";
 import TicketDetailPage from "../features/tickets/pages/TicketDetailPage";
-import { isStaff } from "../lib/permissions";
+import { isLead, isStaff } from "../lib/permissions";
 
 function FullPageLoader() {
   return (
@@ -36,6 +37,14 @@ function RequireStaff({ children }) {
   const { user } = useAuth();
 
   if (!isStaff(user)) return <Navigate to="/tickets" replace />;
+
+  return children;
+}
+
+function RequireLead({ children }) {
+  const { user } = useAuth();
+
+  if (!isLead(user)) return <Navigate to="/tickets" replace />;
 
   return children;
 }
@@ -81,6 +90,14 @@ export default function AppRoutes() {
             <RequireStaff>
               <DashboardPage />
             </RequireStaff>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <RequireLead>
+              <AdminPage />
+            </RequireLead>
           }
         />
         <Route path="/tickets" element={<TicketListPage />} />

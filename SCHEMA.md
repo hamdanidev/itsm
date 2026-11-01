@@ -67,12 +67,14 @@ Rules:
 | Update | `LEAD && TENANT` |
 | Delete | `null` (nonaktifkan dengan `is_active=false`) |
 
+Dikelola dari `/admin` (tab Unit). Hard delete tidak tersedia dari UI.
+
 ### `ticket_categories`
 
 `tenant`, `name`, `code`, `kind` (`all/incident/service_request/change_request`),
 `is_active`.
 
-Rules sama dengan `units`.
+Rules sama dengan `units`. Dikelola dari `/admin` (tab Kategori).
 
 ### `sla_policies`
 
@@ -81,13 +83,15 @@ Rules sama dengan `units`.
 `business_days` JSON, `business_start`, `business_end`, `timezone`, `version`,
 `is_active`.
 
-Unique `(tenant, ticket_type, priority)`.
+Unique `(tenant, ticket_type, priority)` — satu kebijakan per kombinasi.
+Dikelola dari `/admin` (tab Kebijakan SLA). Perubahan hanya untuk tiket baru.
 
 Rules sama dengan `units`.
 
 ### `holidays`
 
 `tenant`, `date`, `name`, `is_active`. Unique `(tenant, date)`.
+Dikelola dari `/admin` (tab Hari libur); memengaruhi perhitungan SLA jam kerja.
 
 Rules sama dengan `units`.
 
@@ -171,6 +175,12 @@ Rules:
 Request hooks juga menolak create/update/delete audit dari API. Hanya
 `txApp.save` internal yang menulis. `changes` tidak memuat deskripsi, body
 komentar, isi lampiran, atau data pasien.
+
+Perubahan data master dari `/admin` (units, ticket_categories, sla_policies,
+holidays) dicatat lewat `pb_hooks/admin_audit.pb.js` dengan `action` `create`
+atau `update`, `collection_name`/`record_id` record yang diubah, dan `changes`
+berupa diff field (`{from, to}`). Baris ini tidak punya `ticket` karena bukan
+aktivitas tiket.
 
 Halaman detail tiket membaca riwayat lewat route `/api/itsm/tickets/{id}/timeline`,
 bukan lewat list rule di atas. Route memproyeksikan audit menjadi event yang aman
@@ -267,6 +277,8 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
   email/WhatsApp.
 - Dashboard belum punya tren historis atau ekspor; agregatnya dihitung di
   client dari tiket aktif per tenant (bukan seluruh riwayat).
+- Pengaturan tidak mengelola user; provisioning akun tetap lewat Admin UI
+  PocketBase.
 - Belum ada SSO.
 - Deteksi data pasien bersifat kebijakan + attestation, bukan DLP.
 - PocketBase berjalan sebagai satu instance; jangan scale horizontal dengan

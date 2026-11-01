@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { initials } from "../../lib/format";
-import { isStaff, roleLabel } from "../../lib/permissions";
+import { isLead, isStaff, roleLabel } from "../../lib/permissions";
 import BrandMark from "../ui/BrandMark";
 
 function navClass({ isActive }) {
@@ -175,6 +175,13 @@ export default function AppShell() {
               <i className="bi bi-plus-square" aria-hidden="true" />
               Buat tiket
             </NavLink>
+
+            {isLead(user) && (
+              <NavLink className={navClass} to="/admin">
+                <i className="bi bi-sliders" aria-hidden="true" />
+                Pengaturan
+              </NavLink>
+            )}
           </nav>
 
           <div className="sidebar-footer">

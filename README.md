@@ -4,12 +4,13 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **Stage 7 SLA slice** — autentikasi staff, intake tiga jenis
+Status saat ini: **Stage 8 admin slice** — autentikasi staff, intake tiga jenis
 tiket, daftar tiket dengan pagination/filter/URL state, dashboard antrean kerja,
 detail tiket dengan riwayat aktivitas + pembaruan realtime, assignment, transisi
 status termasuk `waiting` dengan jeda SLA, recompute SLA saat reopen, eskalasi
 berjenjang, approval IT Lead, komentar publik/internal, lampiran terproteksi,
-SLA awal + breach scan, dan audit log.
+pengaturan unit/kategori/SLA/hari libur dari dalam aplikasi, SLA awal + breach
+scan, dan audit log.
 
 ## Stack
 
@@ -239,6 +240,31 @@ sla_breach — dan menyembunyikan komentar/lampiran internal dari requester.
 Realtime tetap menghormati API rule: requester hanya menerima event komentar
 publik pada tiket yang boleh dia lihat.
 
+## Pengaturan (admin in-app)
+
+IT Lead mengelola data master lewat `/admin`; menu **Pengaturan** hanya tampil
+untuk role `it_lead`, dan requester/IT Support yang membuka URL-nya dialihkan ke
+daftar tiket.
+
+| Tab | Isi | Catatan |
+|---|---|---|
+| Unit | nama, kode, jenis (klinis/penunjang/manajemen) | dipakai pada form intake |
+| Kategori | nama, kode, jenis tiket | filter pilihan kategori per tipe |
+| Kebijakan SLA | tipe, prioritas, respons/approval/penyelesaian, kalender | unik per `(tipe, prioritas)` |
+| Hari libur | tanggal + nama | memengaruhi SLA jam kerja |
+
+- Semua data memakai `tenant` dari user, bukan dari body bebas.
+- Tidak ada hard delete dari UI. Tombol **Nonaktifkan** mengubah `is_active`
+  agar tiket lama tetap valid; `deleteRule` tetap `null` (superuser saja).
+- Ada 12 kombinasi tipe × prioritas. Bila semuanya sudah punya kebijakan,
+  tombol tambah SLA dinonaktifkan dan UI mengarahkan untuk mengedit yang ada.
+- Perubahan kebijakan hanya berlaku untuk tiket baru; tiket lama memakai
+  `sla_snapshot` saat dibuat.
+- Setiap create/update data master menulis audit (`collection_name`,
+  `record_id`, dan diff field yang berubah) lewat `pb_hooks/admin_audit.pb.js`.
+- Provisioning akun pengguna tetap lewat Admin UI PocketBase; pengaturan ini
+  tidak mengelola user.
+
 ## Production
 
 Docker **hanya** dipakai untuk production / verifikasi tingkat production.
@@ -424,6 +450,11 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
   menggeser tenggat persis 90 menit, total jeda tercatat, reopen menghitung
   ulang tenggat serta membersihkan breach/eskalasi, badge Eskalasi L3, dan
   cron eskalasi menaikkan level 2 → 3 tanpa menyentuh tiket `waiting`.
+- Pengaturan diverifikasi Playwright (21 check): IT Lead bisa membuat/mengubah/
+  menonaktifkan unit dan kategori, mengubah kebijakan SLA, menambah hari libur,
+  kode duplikat ditolak dengan pesan jelas, tombol tambah SLA nonaktif saat 12
+  kombinasi terisi, perubahan tercatat di audit, dan requester/support dialihkan
+  keluar dari `/admin`.
 - Alur UI end-to-end: login, pencarian, filter prioritas, buat tiket, komentar,
   upload lampiran, logout, tanpa console error.
 - Alur UI tiket: support assign ke diri sendiri → mulai → selesaikan lewat modal
@@ -438,6 +469,5 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 - Approval berjenjang dan delegasi saat IT Lead tidak tersedia.
 - Tren SLA mingguan/bulanan dan ekspor CSV.
-- Admin unit/kategori/SLA/holiday dari dalam aplikasi.
 - Notifikasi email/WhatsApp (eskalasi saat ini baru in-app).
 - SSO SIMRS.

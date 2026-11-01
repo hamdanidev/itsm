@@ -1761,6 +1761,133 @@ button {
 }
 
 /* --------------------------------------------------------------------------
+   Admin / pengaturan
+   -------------------------------------------------------------------------- */
+
+.admin-panel {
+  margin-bottom: 12px;
+}
+
+.admin-table {
+  min-width: 1060px;
+  table-layout: auto;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 8px 10px;
+}
+
+.admin-table .col-code {
+  width: 140px;
+}
+
+.admin-table .col-status {
+  width: 118px;
+}
+
+.admin-table .col-num {
+  width: 96px;
+}
+
+.admin-table .col-actions {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  width: auto;
+  background: #fff;
+  box-shadow: -1px 0 0 var(--n30);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.admin-table th.col-actions {
+  background: var(--n10);
+}
+
+.admin-table tbody tr:hover .col-actions {
+  background: #f7f8f9;
+}
+
+.admin-table tbody tr.is-inactive td {
+  color: var(--muted);
+}
+
+.admin-table tbody tr.is-inactive .admin-name {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.admin-name {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.admin-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.admin-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.admin-note i {
+  margin-top: 1px;
+}
+
+.admin-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.day-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.day-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--n40);
+  border-radius: 14px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.day-chip.is-on {
+  background: var(--blue-bg);
+  border-color: var(--focus);
+  color: var(--blue-pressed);
+}
+
+.day-chip input {
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+/* --------------------------------------------------------------------------
    Issue detail
    -------------------------------------------------------------------------- */
 
