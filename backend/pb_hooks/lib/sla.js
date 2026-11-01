@@ -183,17 +183,20 @@ function computeDue(start, type, priority, policy, holidays) {
   var startMs = start instanceof Date ? start.getTime() : new Date(start).getTime();
   if (isNaN(startMs)) throw new Error("Invalid SLA start date");
 
+  // `holidays` datang sebagai records; addBusinessMinutes butuh set tanggal.
+  var holidayKeys = holidaySet(holidays);
+
   var responseMinutes = numberValue(usePolicy, "response_minutes", 0);
   var approvalMinutes = numberValue(usePolicy, "approval_minutes", 0);
   var resolutionMinutes = numberValue(usePolicy, "resolution_minutes", 0);
 
-  var responseMs = addMinutes(startMs, responseMinutes, usePolicy, holidays);
-  var approvalMs = addMinutes(startMs, approvalMinutes, usePolicy, holidays);
+  var responseMs = addMinutes(startMs, responseMinutes, usePolicy, holidayKeys);
+  var approvalMs = addMinutes(startMs, approvalMinutes, usePolicy, holidayKeys);
   var resolutionMs = addMinutes(
     startMs,
     resolutionMinutes,
     usePolicy,
-    holidays
+    holidayKeys
   );
 
   var days = daysFrom(value(usePolicy, "business_days", [1, 2, 3, 4, 5]));
