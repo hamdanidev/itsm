@@ -5,6 +5,7 @@ import {
   assignTicket,
   createComment,
   decideTicketApproval,
+  fetchTimeline,
   getAttachmentUrl,
   getErrorMessage,
   transitionTicket,
@@ -16,11 +17,13 @@ import {
   impactLabel,
   initials,
   isOpen,
+  statusLabel,
   typeLabel,
 } from "../../../lib/format";
 import { isLead, isStaff } from "../../../lib/permissions";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import Modal from "../../../components/ui/Modal";
+import useTicketRealtime from "../lib/useTicketRealtime";
 import {
   ApprovalLozenge,
   Priority,
@@ -47,6 +50,120 @@ const STAFF_ROLE_LABELS = {
   it_support: "IT Support",
   it_lead: "IT Lead",
 };
+
+const RESOLUTION_LABELS = Object.fromEntries(RESOLUTION_OPTIONS);
+
+const SLA_FIELD_LABELS = {
+  response_due_at: "batas respons",
+  approval_due_at: "batas approval",
+  resolution_due_at: "batas penyelesaian",
+};
+
+function eventMeta(event) {
+  const changes = event.changes || {};
+
+  switch (event.action) {
+    case "create":
+      return {
+        icon: "bi-plus-circle",
+        tone: "is-create",
+        text: `membuat ${typeLabel(changes.type)}`,
+      };
+    case "assign": {
+      const from = changes.from_name;
+      const to = changes.to_name;
+      let text = "memperbarui assignment";
+
+      if (to && from) text = `memindahkan assignment dari ${from} ke ${to}`;
+      else if (to) text = `menugaskan tiket ke ${to}`;
+      else if (from) text = `melepas assignment dari ${from}`;
+
+      return { icon: "bi-person-check", tone: "is-assign", text };
+    }
+    case "transition": {
+      const code =
+        changes.to === "resolved" && changes.resolution_code
+          ? ` · ${RESOLUTION_LABELS[changes.resolution_code] || changes.resolution_code}`
+          : "";
+      return {
+        icon:
+          changes.to === "closed"
+            ? "bi-archive"
+            : changes.to === "resolved"
+              ? "bi-check2-circle"
+              : changes.to === "reopened"
+                ? "bi-arrow-counterclockwise"
+                : "bi-arrow-right-circle",
+        tone: "is-status",
+        text: `${statusLabel(changes.from)} → ${statusLabel(changes.to)}${code}`,
+      };
+    }
+    case "approve":
+      return {
+        icon: "bi-patch-check",
+        tone: "is-approved",
+        text: "menyetujui permintaan",
+      };
+    case "reject":
+      return {
+        icon: "bi-x-circle",
+        tone: "is-rejected",
+        text: "menolak permintaan",
+      };
+    case "comment":
+      return {
+        icon: "bi-chat-left-text",
+        tone: "is-comment",
+        text:
+          changes.visibility === "internal"
+            ? "menambahkan komentar internal"
+            : "menambahkan komentar publik",
+      };
+    case "attachment":
+      return {
+        icon: "bi-paperclip",
+        tone: "is-comment",
+        text:
+          changes.visibility === "internal"
+            ? "menambahkan lampiran internal"
+            : "menambahkan lampiran",
+      };
+    case "sla_breach":
+      return {
+        icon: "bi-exclamation-triangle",
+        tone: "is-rejected",
+        text: `SLA terlewati · ${SLA_FIELD_LABELS[changes.field] || changes.field || "tenggat"}`,
+      };
+    default:
+      return { icon: "bi-clock-history", tone: "", text: "memperbarui tiket" };
+  }
+}
+
+function TimelineEvent({ event }) {
+  const meta = eventMeta(event);
+
+  return (
+    <li className="history-item">
+      <span className={`history-icon ${meta.tone}`} aria-hidden="true">
+        <i className={`bi ${meta.icon}`} />
+      </span>
+      <div className="history-main">
+        <div className="history-text">
+          {event.actor?.name ? (
+            <>
+              <strong>{event.actor.name}</strong> {meta.text}
+            </>
+          ) : (
+            <>Sistem {meta.text}</>
+          )}
+        </div>
+        <div className="history-time" title={formatDateTime(event.created)}>
+          {formatRelative(event.created)}
+        </div>
+      </div>
+    </li>
+  );
+}
 
 function DetailField({ label, children }) {
   return (
@@ -117,10 +234,14 @@ export default function TicketDetailPage() {
   const { user } = useAuth();
   const staff = isStaff(user);
   const fileInputRef = useRef(null);
+  const realtimeTimer = useRef(null);
 
   const [ticket, setTicket] = useState(null);
   const [comments, setComments] = useState([]);
   const [attachments, setAttachments] = useState([]);
+  const [timeline, setTimeline] = useState([]);
+  const [timelineError, setTimelineError] = useState("");
+  const [activityTab, setActivityTab] = useState("comments");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -180,10 +301,40 @@ export default function TicketDetailPage() {
     }
   }, [id]);
 
+  const loadTimeline = useCallback(async () => {
+    try {
+      const result = await fetchTimeline(id);
+      setTimeline(result?.items || []);
+      setTimelineError("");
+    } catch (err) {
+      setTimelineError(getErrorMessage(err));
+    }
+  }, [id]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([loadData(), loadTimeline()]);
+  }, [loadData, loadTimeline]);
+
+  const handleRealtime = useCallback(() => {
+    if (realtimeTimer.current) clearTimeout(realtimeTimer.current);
+    realtimeTimer.current = setTimeout(() => {
+      refresh();
+    }, 150);
+  }, [refresh]);
+
+  const realtimeConnected = useTicketRealtime(id, handleRealtime);
+
   useEffect(() => {
     setLoading(true);
-    loadData();
-  }, [loadData]);
+    refresh();
+  }, [refresh]);
+
+  useEffect(
+    () => () => {
+      if (realtimeTimer.current) clearTimeout(realtimeTimer.current);
+    },
+    []
+  );
 
   useEffect(() => {
     if (!staff) return undefined;
@@ -226,7 +377,7 @@ export default function TicketDetailPage() {
       await createComment(id, commentBody.trim(), commentVisibility);
       setCommentBody("");
       setCommentVisibility("public");
-      await loadData();
+      await refresh();
     } catch (err) {
       setCommentError(getErrorMessage(err));
     } finally {
@@ -254,7 +405,7 @@ export default function TicketDetailPage() {
       setSelectedFile(null);
       setUploadVisibility("public");
       if (fileInputRef.current) fileInputRef.current.value = "";
-      await loadData();
+      await refresh();
     } catch (err) {
       setUploadError(getErrorMessage(err));
     } finally {
@@ -281,7 +432,7 @@ export default function TicketDetailPage() {
 
     try {
       await action();
-      await loadData();
+      await refresh();
       setActionNotice(successMessage);
       return true;
     } catch (err) {
@@ -883,11 +1034,72 @@ export default function TicketDetailPage() {
 
           <section className="panel">
             <div className="panel-head">
-              <div className="panel-title">Aktivitas</div>
-              <span className="panel-count">{comments.length} komentar</span>
+              <div
+                className="activity-tabs"
+                role="tablist"
+                aria-label="Aktivitas tiket"
+              >
+                <button
+                  className={`activity-tab${
+                    activityTab === "comments" ? " is-active" : ""
+                  }`}
+                  type="button"
+                  role="tab"
+                  aria-selected={activityTab === "comments"}
+                  onClick={() => setActivityTab("comments")}
+                >
+                  Komentar
+                  <span className="tab-count">{comments.length}</span>
+                </button>
+                <button
+                  className={`activity-tab${
+                    activityTab === "history" ? " is-active" : ""
+                  }`}
+                  type="button"
+                  role="tab"
+                  aria-selected={activityTab === "history"}
+                  onClick={() => setActivityTab("history")}
+                >
+                  Riwayat
+                  <span className="tab-count">{timeline.length}</span>
+                </button>
+              </div>
+
+              <span
+                className={`live-status${realtimeConnected ? " is-live" : ""}`}
+                title={
+                  realtimeConnected
+                    ? "Pembaruan realtime aktif"
+                    : "Realtime tidak terhubung"
+                }
+              >
+                <span className="live-dot" aria-hidden="true" />
+                {realtimeConnected ? "Live" : "Offline"}
+              </span>
             </div>
             <div className="panel-body">
-              {comments.length === 0 ? (
+              {activityTab === "history" ? (
+                <div className="history">
+                  {timeline.length === 0 ? (
+                    <div className="muted">
+                      {timelineError || "Belum ada riwayat aktivitas."}
+                    </div>
+                  ) : (
+                    <>
+                      {timelineError && (
+                        <div className="history-time" style={{ marginBottom: 8 }}>
+                          {timelineError}
+                        </div>
+                      )}
+                      <ul className="history-list">
+                        {timeline.map((event) => (
+                          <TimelineEvent key={event.id} event={event} />
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              ) : comments.length === 0 ? (
                 <div className="muted">Belum ada komentar.</div>
               ) : (
                 <div className="activity-list">
@@ -922,7 +1134,7 @@ export default function TicketDetailPage() {
                 </div>
               )}
 
-              {canComment ? (
+              {activityTab === "comments" && canComment ? (
                 <>
                   {commentError && (
                     <div className="alert alert--error" style={{ marginTop: 16, marginBottom: 0 }}>
@@ -995,12 +1207,12 @@ export default function TicketDetailPage() {
                     </div>
                   </form>
                 </>
-              ) : (
+              ) : activityTab === "comments" ? (
                 <div className="alert alert--info" style={{ marginTop: 16, marginBottom: 0 }}>
                   <i className="bi bi-lock" aria-hidden="true" />
                   <div>Tiket sudah ditutup. Komentar baru tidak dapat ditambahkan.</div>
                 </div>
-              )}
+              ) : null}
             </div>
           </section>
         </div>

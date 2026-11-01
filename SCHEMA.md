@@ -171,6 +171,12 @@ Request hooks juga menolak create/update/delete audit dari API. Hanya
 `txApp.save` internal yang menulis. `changes` tidak memuat deskripsi, body
 komentar, isi lampiran, atau data pasien.
 
+Halaman detail tiket membaca riwayat lewat route `/api/itsm/tickets/{id}/timeline`,
+bukan lewat list rule di atas. Route memproyeksikan audit menjadi event yang aman
+untuk requester: komentar/lampiran `internal` disembunyikan dan `ip`/`user_agent`
+tidak pernah dikirim. Realtime `subscribe` pada tiket/komentar/lampiran tetap
+tunduk pada list rule tiap collection.
+
 ## State machine
 
 ```text
@@ -216,6 +222,7 @@ Kritis memakai 24/7. Tidak ada pause/waiting state di MVP.
 | POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak (IT Lead) |
 | POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
 | POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran |
+| GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
 
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side.
 Service/Change Request harus berstatus approval `approved` sebelum pekerjaan bisa

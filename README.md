@@ -4,10 +4,11 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **Stage 5 operational slice** — autentikasi staff, intake tiga jenis
+Status saat ini: **Stage 6 activity slice** — autentikasi staff, intake tiga jenis
 tiket, daftar tiket dengan pagination/filter/URL state, dashboard antrean kerja,
-detail tiket, assignment, transisi status, approval IT Lead, komentar
-publik/internal, lampiran terproteksi, SLA awal + breach scan, dan audit log.
+detail tiket dengan riwayat aktivitas + pembaruan realtime, assignment, transisi
+status, approval IT Lead, komentar publik/internal, lampiran terproteksi, SLA
+awal + breach scan, dan audit log.
 
 ## Stack
 
@@ -197,6 +198,26 @@ mereproduksi tampilan yang sama:
 (approval untuk SR/CR, resolution untuk incident). Tanpa field ini Change
 Request akan selalu muncul di atas karena tidak punya resolution SLA.
 
+## Riwayat aktivitas dan realtime
+
+Halaman detail tiket punya tab **Riwayat** di samping komentar. Datanya berasal
+dari `audit_logs` lewat route `GET /api/itsm/tickets/{id}/timeline`, bukan dari
+list rule audit (yang tetap khusus IT Lead). Route memproyeksikan satu event per
+aksi — create, assign, transition, approve/reject, comment, attachment,
+sla_breach — dan menyembunyikan komentar/lampiran internal dari requester.
+
+- Tiap event berisi aktor, aksi, perubahan yang aman ditampilkan, dan waktu.
+  IP dan user-agent tidak pernah dikirim ke client.
+- Riwayat dimuat ulang otomatis saat tiket berubah.
+- Detail tiket berlangganan realtime untuk record tiket, komentar, dan lampiran
+  (`subscribe` PocketBase). Event hanya memicu muat ulang data dengan debounce
+  150 ms, jadi status, komentar, dan lampiran tampil tanpa refresh manual.
+- Indikator `Live` di panel aktivitas menunjukkan koneksi SSE aktif; jika
+  terputus, tampil `Offline` dan halaman tetap bisa dipakai.
+
+Realtime tetap menghormati API rule: requester hanya menerima event komentar
+publik pada tiket yang boleh dia lihat.
+
 ## Production
 
 Docker **hanya** dipakai untuk production / verifikasi tingkat production.
@@ -321,6 +342,8 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 - Action bar tiket di bawah judul: transisi status, assignment, dan approval,
   dengan modal Jira-style untuk resolusi dan approval.
 - Tabel issue yang padat, sticky-free, dengan skeleton loading.
+- Panel aktivitas tiket memakai tab **Komentar / Riwayat** dan indikator `Live`
+  saat koneksi realtime PocketBase aktif.
 - Login bergaya Atlassian: kartu putih di atas latar netral, tanpa gradient/hero.
 - Token dan seluruh komponen ada di `frontend/src/styles/app.css`; tidak ada
   dependency UI framework.
@@ -345,6 +368,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak (IT Lead) |
 | POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
 | POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran (multipart) |
+| GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
 | GET | `/api/collections/tickets/records` | List tiket sesuai API rules |
 | GET | `/api/collections/ticket_comments/records` | List komentar sesuai rules |
 | GET | `/api/collections/ticket_attachments/records` | List lampiran sesuai rules |
@@ -372,6 +396,9 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 - Dashboard dan antrean diverifikasi Playwright (23 check): KPI, panel antrean,
   chip filter, pagination, sort SLA, sinkronisasi pencarian ke URL, guard role
   requester, dan layout 390 px.
+- Riwayat + realtime diverifikasi Playwright (14 check, dua browser): status dan
+  komentar berubah tanpa reload, komentar internal tidak bocor ke requester,
+  event internal tidak muncul di riwayat requester, indikator `Live` aktif.
 - Alur UI end-to-end: login, pencarian, filter prioritas, buat tiket, komentar,
   upload lampiran, logout, tanpa console error.
 - Alur UI tiket: support assign ke diri sendiri → mulai → selesaikan lewat modal

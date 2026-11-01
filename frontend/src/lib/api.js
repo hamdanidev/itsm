@@ -84,6 +84,10 @@ export async function decideTicketApproval(ticketId, decision, note) {
   });
 }
 
+export async function fetchTimeline(ticketId) {
+  return pb.send(`/api/itsm/tickets/${ticketId}/timeline`);
+}
+
 export async function uploadAttachment(ticketId, file, visibility = "public") {
   const formData = new FormData();
   formData.append("file", file);
