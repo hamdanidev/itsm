@@ -11,6 +11,9 @@
 # PocketBase runtime data: DB, uploads, logs, local backups
 backend/pb_data/
 
+# PocketBase binary hasil unduhan dev tooling (scripts/dev.mjs)
+backend/.bin/
+
 # Backups are copied outside the app volume and must never be committed
 backups/
 

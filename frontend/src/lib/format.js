@@ -9,6 +9,12 @@ const dateFormatter = new Intl.DateTimeFormat("id-ID", {
   timeZone: "Asia/Jakarta",
 });
 
+const dayMonthFormatter = new Intl.DateTimeFormat("id-ID", {
+  day: "numeric",
+  month: "short",
+  timeZone: "Asia/Jakarta",
+});
+
 export function formatDateTime(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -21,6 +27,13 @@ export function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return dateFormatter.format(date);
+}
+
+export function formatDayMonth(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return dayMonthFormatter.format(date);
 }
 
 export function formatRelative(value) {
@@ -47,24 +60,6 @@ export function isOpen(ticket) {
   return ticket && !["resolved", "closed"].includes(ticket.status);
 }
 
-export function isBreached(ticket, field = "resolution") {
-  if (!ticket) return false;
-  return Boolean(ticket[`${field}_breach_at`]);
-}
-
-export function slaTone(ticket, field = "resolution") {
-  if (!ticket) return "secondary";
-  if (ticket[`${field}_breach_at`]) return "danger";
-
-  const due = ticket[`${field}_due_at`];
-  if (!due || !isOpen(ticket)) return "secondary";
-
-  const remainingMs = new Date(due).getTime() - Date.now();
-  if (remainingMs <= 0) return "danger";
-  if (remainingMs <= 60 * 60 * 1000) return "warning";
-  return "success";
-}
-
 export function statusLabel(status) {
   return {
     open: "Open",
@@ -76,17 +71,6 @@ export function statusLabel(status) {
   }[status] || status || "—";
 }
 
-export function statusClass(status) {
-  return {
-    open: "itsm-badge-open",
-    assigned: "itsm-badge-assigned",
-    in_progress: "itsm-badge-progress",
-    resolved: "itsm-badge-resolved",
-    closed: "itsm-badge-closed",
-    reopened: "itsm-badge-reopened",
-  }[status] || "text-bg-secondary";
-}
-
 export function priorityLabel(priority) {
   return {
     critical: "Kritis",
@@ -94,15 +78,6 @@ export function priorityLabel(priority) {
     normal: "Normal",
     low: "Rendah",
   }[priority] || priority || "—";
-}
-
-export function priorityClass(priority) {
-  return {
-    critical: "itsm-priority-critical",
-    high: "itsm-priority-high",
-    normal: "itsm-priority-normal",
-    low: "itsm-priority-low",
-  }[priority] || "text-bg-secondary";
 }
 
 export function typeLabel(type) {

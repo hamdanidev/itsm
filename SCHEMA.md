@@ -203,13 +203,18 @@ Kritis memakai 24/7. Tidak ada pause/waiting state di MVP.
 
 ## Custom routes
 
-| Method | Path |
-|---|---|
-| POST | `/api/itsm/tickets` |
-| POST | `/api/itsm/tickets/{id}/comments` |
-| POST | `/api/itsm/tickets/{id}/attachments` |
+| Method | Path | Keterangan |
+|---|---|---|
+| POST | `/api/itsm/tickets` | Buat tiket |
+| POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee |
+| POST | `/api/itsm/tickets/{id}/transition` | Mulai, selesaikan, tutup, buka kembali |
+| POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak (IT Lead) |
+| POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
+| POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran |
 
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side.
+Service/Change Request harus berstatus approval `approved` sebelum pekerjaan bisa
+dimulai atau diselesaikan. Setiap aksi menulis audit log.
 
 ## SLA breach scan
 
@@ -220,7 +225,8 @@ memproses batch berulang sampai tidak ada tiket overdue.
 
 ## Known limitations
 
-- Belum ada assignment/transition/approval route.
+- SLA resolution belum dihitung ulang saat tiket dibuka kembali.
+- Approval masih satu level (IT Lead), belum berjenjang.
 - Belum ada dashboard dan notifikasi email/WhatsApp.
 - Belum ada SSO.
 - Deteksi data pasien bersifat kebijakan + attestation, bukan DLP.

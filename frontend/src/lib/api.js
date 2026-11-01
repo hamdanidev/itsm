@@ -63,6 +63,27 @@ export async function createComment(ticketId, body, visibility) {
   });
 }
 
+export async function assignTicket(ticketId, assignee) {
+  return pb.send(`/api/itsm/tickets/${ticketId}/assign`, {
+    method: "POST",
+    body: { assignee },
+  });
+}
+
+export async function transitionTicket(ticketId, payload) {
+  return pb.send(`/api/itsm/tickets/${ticketId}/transition`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function decideTicketApproval(ticketId, decision, note) {
+  return pb.send(`/api/itsm/tickets/${ticketId}/approval`, {
+    method: "POST",
+    body: { decision, note },
+  });
+}
+
 export async function uploadAttachment(ticketId, file, visibility = "public") {
   const formData = new FormData();
   formData.append("file", file);

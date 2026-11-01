@@ -1,0 +1,21 @@
+{
+  "name": "healthcare-itsm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Healthcare ITSM - dev tooling tanpa Docker (PocketBase native + Vite)",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:pb": "node scripts/dev.mjs --pb-only",
+    "dev:web": "node scripts/dev.mjs --web-only",
+    "pb:download": "node scripts/pocketbase.mjs download",
+    "pb:serve": "node scripts/pocketbase.mjs serve",
+    "pb:superuser": "node scripts/pocketbase.mjs superuser create",
+    "pb:migrate": "node scripts/pocketbase.mjs migrate",
+    "build": "npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview"
+  }
+}

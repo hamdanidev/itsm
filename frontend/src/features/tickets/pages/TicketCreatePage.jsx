@@ -6,26 +6,23 @@ import { pb } from "../../../lib/pocketbase";
 import { createTicket, getErrorMessage } from "../../../lib/api";
 import {
   impactLabel,
-  priorityLabel,
   typeLabel,
 } from "../../../lib/format";
+import { Priority, TypeIcon } from "../components/Badges";
 
 const ticketTypes = [
   {
     value: "incident",
-    icon: "bi-bug",
     title: "Incident",
     description: "Bug, error, atau gangguan SIMRS yang sedang terjadi.",
   },
   {
     value: "service_request",
-    icon: "bi-person-check",
     title: "Service Request",
     description: "Permintaan akses, reset password, atau bantuan rutin.",
   },
   {
     value: "change_request",
-    icon: "bi-arrow-repeat",
     title: "Change Request",
     description: "Perubahan alur, fitur, konfigurasi, atau integrasi.",
   },
@@ -59,6 +56,12 @@ const impactToPriority = {
   clinical_workflow: "high",
   operational: "normal",
   convenience: "low",
+};
+
+const APPROVAL_TEXT = {
+  incident: "Tidak perlu",
+  service_request: "IT Lead",
+  change_request: "IT Lead",
 };
 
 export default function TicketCreatePage() {
@@ -186,20 +189,20 @@ export default function TicketCreatePage() {
   return (
     <>
       <PageHeader
-        eyebrow="Intake"
-        title="Buat tiket baru"
+        breadcrumb={[{ label: "Tiket", to: "/tickets" }, { label: "Buat tiket" }]}
+        title="Buat tiket"
         description="Pilih jenis tiket, jelaskan dampaknya, dan sertakan informasi yang cukup untuk tim IT."
         actions={
-          <Link className="btn btn-outline-secondary" to="/tickets">
-            <i className="bi bi-arrow-left me-2" />
+          <Link className="btn btn-subtle" to="/tickets">
+            <i className="bi bi-arrow-left" aria-hidden="true" />
             Kembali
           </Link>
         }
       />
 
       {!loadingLookups && !unit && (
-        <div className="alert alert-warning d-flex gap-2">
-          <i className="bi bi-exclamation-triangle-fill" />
+        <div className="alert alert--warning" role="alert">
+          <i className="bi bi-exclamation-triangle" aria-hidden="true" />
           <div>
             Akun Anda belum memiliki unit. Hubungi superuser/IT administrator
             untuk melengkapi profil sebelum membuat tiket.
@@ -208,369 +211,355 @@ export default function TicketCreatePage() {
       )}
 
       {error && (
-        <div className="alert alert-danger d-flex gap-2" role="alert">
-          <i className="bi bi-exclamation-triangle-fill" />
+        <div className="alert alert--error" role="alert">
+          <i className="bi bi-exclamation-triangle" aria-hidden="true" />
           <div>{error}</div>
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
-        <div className="row g-4">
-          <div className="col-12 col-xl-8">
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-body p-4">
-                <h2 className="h6 text-uppercase text-secondary fw-bold letter-spacing mb-3">
-                  1. Jenis tiket
-                </h2>
-                <div className="row g-3">
-                  {ticketTypes.map((item) => (
-                    <div className="col-12 col-md-4" key={item.value}>
-                      <button
-                        type="button"
-                        className={`ticket-type-card w-100 h-100 ${
-                          type === item.value ? "selected" : ""
-                        }`}
-                        onClick={() => setType(item.value)}
-                        aria-pressed={type === item.value}
-                      >
-                        <span className="ticket-type-icon">
-                          <i className={`bi ${item.icon}`} />
-                        </span>
-                        <span className="fw-semibold d-block mt-2">
-                          {item.title}
-                        </span>
-                        <span className="small text-secondary d-block mt-1">
-                          {item.description}
-                        </span>
-                      </button>
-                    </div>
-                  ))}
+      <form className="create-grid" onSubmit={handleSubmit}>
+        <div className="create-main">
+          <div className="form-card">
+            <section className="form-section">
+              <h2 className="form-section-title">Jenis tiket</h2>
+              <p className="form-section-hint">
+                Jenis tiket menentukan alur approval dan kebijakan SLA yang
+                berlaku.
+              </p>
+
+              <div className="type-options">
+                {ticketTypes.map((item) => {
+                  const selected = type === item.value;
+
+                  return (
+                    <button
+                      key={item.value}
+                      type="button"
+                      className={`type-option${selected ? " is-selected" : ""}`}
+                      onClick={() => setType(item.value)}
+                      aria-pressed={selected}
+                    >
+                      {selected && (
+                        <i
+                          className="bi bi-check-lg type-check"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <TypeIcon type={item.value} large />
+                      <span className="type-option-title">{item.title}</span>
+                      <span className="type-option-desc">{item.description}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="form-section">
+              <h2 className="form-section-title">Detail masalah atau permintaan</h2>
+              <p className="form-section-hint">
+                Semakin jelas deskripsi, semakin cepat tiket ditriase.
+              </p>
+
+              <div className="field-row">
+                <label className="form-label" htmlFor="title">
+                  Judul <span className="req">*</span>
+                </label>
+                <input
+                  id="title"
+                  className="input"
+                  placeholder="Contoh: Modul pendaftaran gagal menyimpan kunjungan"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  maxLength={160}
+                  minLength={5}
+                  required
+                />
+                <div className="hint">
+                  Ringkas dan spesifik. Jangan sebut nama, NIK, atau nomor rekam
+                  medis pasien.
                 </div>
               </div>
-            </div>
 
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-body p-4">
-                <h2 className="h6 text-uppercase text-secondary fw-bold letter-spacing mb-3">
-                  2. Detail masalah atau permintaan
-                </h2>
+              <div className="field-row">
+                <label className="form-label" htmlFor="description">
+                  Deskripsi <span className="req">*</span>
+                </label>
+                <textarea
+                  id="description"
+                  className="textarea"
+                  rows={6}
+                  placeholder="Apa yang terjadi, kapan mulai terjadi, modul/unit terdampak, pesan error, dan langkah yang sudah dicoba."
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  maxLength={10000}
+                  minLength={10}
+                  required
+                />
+                <div className="char-count">
+                  <span>Semakin jelas, semakin cepat ditriase.</span>
+                  <span>{description.length}/10.000</span>
+                </div>
+              </div>
 
-                <div className="mb-3">
-                  <label className="form-label fw-semibold" htmlFor="title">
-                    Judul <span className="text-danger">*</span>
+              <div className="form-grid" style={{ marginTop: 16 }}>
+                <div>
+                  <label className="form-label" htmlFor="category">
+                    Modul / kategori
+                  </label>
+                  <select
+                    id="category"
+                    className="select"
+                    value={category}
+                    onChange={(event) => setCategory(event.target.value)}
+                    disabled={loadingLookups}
+                  >
+                    <option value="">Pilih kategori (opsional)</option>
+                    {categories.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label" htmlFor="unit">
+                    Unit
                   </label>
                   <input
-                    id="title"
-                    className="form-control form-control-lg"
-                    placeholder="Contoh: Modul pendaftaran gagal menyimpan kunjungan"
-                    value={title}
-                    onChange={(event) => setTitle(event.target.value)}
-                    maxLength={160}
-                    minLength={5}
-                    required
+                    id="unit"
+                    className="input"
+                    value={unit?.name || "Belum ditentukan"}
+                    readOnly
+                    disabled
                   />
-                  <div className="form-text">
-                    Ringkas dan spesifik. Jangan sebut nama, NIK, atau nomor
-                    rekam medis pasien.
-                  </div>
-                </div>
-
-                <div className="mb-3">
-                  <label className="form-label fw-semibold" htmlFor="description">
-                    Deskripsi <span className="text-danger">*</span>
-                  </label>
-                  <textarea
-                    id="description"
-                    className="form-control"
-                    rows={7}
-                    placeholder="Apa yang terjadi, kapan mulai terjadi, modul/unit terdampak, pesan error, dan langkah yang sudah dicoba."
-                    value={description}
-                    onChange={(event) => setDescription(event.target.value)}
-                    maxLength={10000}
-                    minLength={10}
-                    required
-                  />
-                  <div className="d-flex justify-content-between form-text">
-                    <span>Semakin jelas, semakin cepat ditriase.</span>
-                    <span>{description.length}/10.000</span>
-                  </div>
-                </div>
-
-                <div className="row g-3">
-                  <div className="col-12 col-md-6">
-                    <label className="form-label fw-semibold" htmlFor="category">
-                      Modul / kategori
-                    </label>
-                    <select
-                      id="category"
-                      className="form-select"
-                      value={category}
-                      onChange={(event) => setCategory(event.target.value)}
-                      disabled={loadingLookups}
-                    >
-                      <option value="">Pilih kategori (opsional)</option>
-                      {categories.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="col-12 col-md-6">
-                    <label className="form-label fw-semibold">Unit</label>
-                    <input
-                      className="form-control"
-                      value={unit?.name || "Belum ditentukan"}
-                      readOnly
-                      disabled
-                    />
-                    <div className="form-text">
-                      Unit mengikuti profil akun Anda.
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <div className="d-flex justify-content-between align-items-center mb-2">
-                    <label className="form-label fw-semibold mb-0">
-                      Dampak klinis <span className="text-danger">*</span>
-                    </label>
-                    <span className={`badge priority-preview priority-${derivedPriority}`}>
-                      Prioritas awal: {priorityLabel(derivedPriority)}
-                    </span>
-                  </div>
-                  <div className="d-grid gap-2">
-                    {impacts.map((item) => (
-                      <button
-                        key={item.value}
-                        type="button"
-                        className={`impact-option text-start ${
-                          impact === item.value ? "selected" : ""
-                        }`}
-                        onClick={() => setImpact(item.value)}
-                        aria-pressed={impact === item.value}
-                      >
-                        <span className="fw-semibold d-block">{item.title}</span>
-                        <span className="small text-secondary">
-                          {item.description}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                  <div className="hint">Unit mengikuti profil akun Anda.</div>
                 </div>
               </div>
-            </div>
+            </section>
+
+            <section className="form-section">
+              <div className="form-section-head">
+                <div>
+                  <h2 className="form-section-title">
+                    Dampak klinis <span className="req">*</span>
+                  </h2>
+                  <p className="form-section-hint">
+                    Prioritas awal dihitung dari dampak. Tim IT dapat
+                    menyesuaikannya setelah triage.
+                  </p>
+                </div>
+                <span className="priority-preview">
+                  Prioritas awal: <Priority priority={derivedPriority} />
+                </span>
+              </div>
+
+              <div className="impact-options">
+                {impacts.map((item) => {
+                  const selected = impact === item.value;
+
+                  return (
+                    <button
+                      key={item.value}
+                      type="button"
+                      className={`impact-option${selected ? " is-selected" : ""}`}
+                      onClick={() => setImpact(item.value)}
+                      aria-pressed={selected}
+                    >
+                      <span className="radio-dot" aria-hidden="true" />
+                      <span>
+                        <span className="impact-title">{item.title}</span>
+                        <span className="impact-desc">{item.description}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
 
             {type === "change_request" && (
-              <div className="card border-0 shadow-sm mb-4">
-                <div className="card-body p-4">
-                  <h2 className="h6 text-uppercase text-secondary fw-bold letter-spacing mb-3">
-                    3. Rencana perubahan
-                  </h2>
-                  <div className="alert alert-info small d-flex gap-2">
-                    <i className="bi bi-info-circle-fill" />
-                    <div>
-                      Perubahan tidak akan disetujui sebelum ada rencana
-                      implementasi, rollback plan, dan jadwal yang jelas.
-                    </div>
-                  </div>
+              <section className="form-section">
+                <h2 className="form-section-title">Rencana perubahan</h2>
+                <p className="form-section-hint">
+                  Perubahan tidak akan disetujui sebelum ada rencana implementasi,
+                  rollback plan, dan jadwal yang jelas.
+                </p>
 
-                  <div className="row g-3">
-                    <div className="col-12 col-md-4">
-                      <label className="form-label fw-semibold" htmlFor="risk">
-                        Risiko
-                      </label>
-                      <select
-                        id="risk"
-                        className="form-select"
-                        value={changeRisk}
-                        onChange={(event) => setChangeRisk(event.target.value)}
-                      >
-                        <option value="low">Rendah</option>
-                        <option value="medium">Sedang</option>
-                        <option value="high">Tinggi</option>
-                      </select>
-                    </div>
-                    <div className="col-12 col-md-4">
-                      <label
-                        className="form-label fw-semibold"
-                        htmlFor="plannedStart"
-                      >
-                        Mulai rencana
-                      </label>
-                      <input
-                        id="plannedStart"
-                        type="datetime-local"
-                        className="form-control"
-                        value={plannedStart}
-                        onChange={(event) => setPlannedStart(event.target.value)}
-                      />
-                    </div>
-                    <div className="col-12 col-md-4">
-                      <label
-                        className="form-label fw-semibold"
-                        htmlFor="plannedEnd"
-                      >
-                        Selesai rencana
-                      </label>
-                      <input
-                        id="plannedEnd"
-                        type="datetime-local"
-                        className="form-control"
-                        value={plannedEnd}
-                        min={plannedStart || undefined}
-                        onChange={(event) => setPlannedEnd(event.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-3">
-                    <label
-                      className="form-label fw-semibold"
-                      htmlFor="implementationPlan"
-                    >
-                      Rencana implementasi
+                <div className="form-grid form-grid--3">
+                  <div>
+                    <label className="form-label" htmlFor="risk">
+                      Risiko
                     </label>
-                    <textarea
-                      id="implementationPlan"
-                      className="form-control"
-                      rows={4}
-                      placeholder="Langkah perubahan, modul terdampak, dan pihak yang terlibat."
-                      value={implementationPlan}
-                      onChange={(event) =>
-                        setImplementationPlan(event.target.value)
-                      }
-                      maxLength={10000}
+                    <select
+                      id="risk"
+                      className="select"
+                      value={changeRisk}
+                      onChange={(event) => setChangeRisk(event.target.value)}
+                    >
+                      <option value="low">Rendah</option>
+                      <option value="medium">Sedang</option>
+                      <option value="high">Tinggi</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="form-label" htmlFor="plannedStart">
+                      Mulai rencana
+                    </label>
+                    <input
+                      id="plannedStart"
+                      type="datetime-local"
+                      className="input"
+                      value={plannedStart}
+                      onChange={(event) => setPlannedStart(event.target.value)}
                     />
                   </div>
 
-                  <div className="mt-3">
-                    <label
-                      className="form-label fw-semibold"
-                      htmlFor="rollbackPlan"
-                    >
-                      Rollback plan
+                  <div>
+                    <label className="form-label" htmlFor="plannedEnd">
+                      Selesai rencana
                     </label>
-                    <textarea
-                      id="rollbackPlan"
-                      className="form-control"
-                      rows={4}
-                      placeholder="Cara mengembalikan kondisi jika perubahan gagal."
-                      value={rollbackPlan}
-                      onChange={(event) => setRollbackPlan(event.target.value)}
-                      maxLength={10000}
+                    <input
+                      id="plannedEnd"
+                      type="datetime-local"
+                      className="input"
+                      value={plannedEnd}
+                      min={plannedStart || undefined}
+                      onChange={(event) => setPlannedEnd(event.target.value)}
                     />
                   </div>
                 </div>
-              </div>
+
+                <div className="field-row" style={{ marginTop: 16 }}>
+                  <label className="form-label" htmlFor="implementationPlan">
+                    Rencana implementasi
+                  </label>
+                  <textarea
+                    id="implementationPlan"
+                    className="textarea"
+                    rows={4}
+                    placeholder="Langkah perubahan, modul terdampak, dan pihak yang terlibat."
+                    value={implementationPlan}
+                    onChange={(event) => setImplementationPlan(event.target.value)}
+                    maxLength={10000}
+                  />
+                </div>
+
+                <div className="field-row">
+                  <label className="form-label" htmlFor="rollbackPlan">
+                    Rollback plan
+                  </label>
+                  <textarea
+                    id="rollbackPlan"
+                    className="textarea"
+                    rows={4}
+                    placeholder="Cara mengembalikan kondisi jika perubahan gagal."
+                    value={rollbackPlan}
+                    onChange={(event) => setRollbackPlan(event.target.value)}
+                    maxLength={10000}
+                  />
+                </div>
+              </section>
             )}
 
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-body p-4">
-                <h2 className="h6 text-uppercase text-secondary fw-bold letter-spacing mb-3">
-                  {type === "change_request" ? "4" : "3"}. Konfirmasi data
-                </h2>
-                <div className="privacy-check">
-                  <div className="form-check">
+            <section className="form-section">
+              <h2 className="form-section-title">Konfirmasi data</h2>
+              <p className="form-section-hint">
+                Tiket tidak boleh memuat identitas pasien.
+              </p>
+
+              <div className="callout callout--warning">
+                <i className="bi bi-shield-exclamation" aria-hidden="true" />
+                <div>
+                  <label className="checkline" htmlFor="confirmData">
                     <input
-                      className="form-check-input"
-                      type="checkbox"
                       id="confirmData"
+                      type="checkbox"
                       checked={confirmed}
                       onChange={(event) => setConfirmed(event.target.checked)}
                       required
                     />
-                    <label className="form-check-label" htmlFor="confirmData">
-                      Saya memastikan tiket ini <strong>tidak memuat</strong>{" "}
-                      nama pasien, NIK, nomor rekam medis, alamat, atau data
-                      identitas pasien lainnya.
-                    </label>
-                  </div>
-                  <div className="small text-secondary mt-2">
+                    <span>
+                      Saya memastikan tiket ini <strong>tidak memuat</strong> nama
+                      pasien, NIK, nomor rekam medis, alamat, atau data identitas
+                      pasien lainnya.
+                    </span>
+                  </label>
+                  <div className="hint">
                     Jika membutuhkan data pasien, gunakan kanal aman yang
                     ditentukan rumah sakit. Jangan mengunggah screenshot yang
                     masih menampilkan identitas pasien.
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div className="d-flex justify-content-end gap-2 mb-5">
-              <Link className="btn btn-outline-secondary" to="/tickets">
+            <div className="form-actions">
+              <Link className="btn btn-subtle" to="/tickets">
                 Batal
               </Link>
               <button
-                className="btn btn-primary btn-lg"
+                className="btn btn-primary"
                 type="submit"
                 disabled={submitting || loadingLookups || !unit}
               >
                 {submitting ? (
                   <>
-                    <span className="spinner-border spinner-border-sm me-2" />
+                    <span className="spinner" aria-hidden="true" />
                     Mengirim...
                   </>
                 ) : (
                   <>
-                    Kirim tiket
-                    <i className="bi bi-send ms-2" />
+                    Buat tiket
+                    <i className="bi bi-arrow-right" aria-hidden="true" />
                   </>
                 )}
               </button>
             </div>
           </div>
+        </div>
 
-          <div className="col-12 col-xl-4">
-            <div className="card border-0 shadow-sm mb-4 sticky-sidebar">
-              <div className="card-body p-4">
-                <h2 className="h6 fw-bold mb-3">
-                  <i className="bi bi-clipboard-check text-primary me-2" />
-                  Ringkasan
-                </h2>
-                <dl className="row small mb-0 gy-2">
-                  <dt className="col-5 text-secondary">Jenis</dt>
-                  <dd className="col-7 mb-0 fw-medium">{typeLabel(type)}</dd>
-
-                  <dt className="col-5 text-secondary">Dampak</dt>
-                  <dd className="col-7 mb-0 fw-medium">{impactLabel(impact)}</dd>
-
-                  <dt className="col-5 text-secondary">Prioritas awal</dt>
-                  <dd className="col-7 mb-0">
-                    <span className={`badge priority-preview priority-${derivedPriority}`}>
-                      {priorityLabel(derivedPriority)}
-                    </span>
-                  </dd>
-
-                  <dt className="col-5 text-secondary">Unit</dt>
-                  <dd className="col-7 mb-0">{unit?.name || "—"}</dd>
-
-                  <dt className="col-5 text-secondary">Approval</dt>
-                  <dd className="col-7 mb-0">
-                    {type === "incident" ? "Tidak perlu" : "IT Lead"}
-                  </dd>
-                </dl>
-
-                <div className="alert alert-light border small mt-4 mb-0">
-                  <i className="bi bi-info-circle text-primary me-2" />
-                  Prioritas awal dihitung dari dampak. Tim IT dapat
-                  menyesuaikannya setelah triage.
-                </div>
-              </div>
+        <aside className="create-side">
+          <section className="panel">
+            <div className="panel-head">
+              <div className="panel-title">Ringkasan</div>
             </div>
+            <div className="panel-body">
+              <dl className="summary-list">
+                <div className="summary-row">
+                  <dt>Jenis</dt>
+                  <dd>{typeLabel(type)}</dd>
+                </div>
+                <div className="summary-row">
+                  <dt>Dampak</dt>
+                  <dd>{impactLabel(impact)}</dd>
+                </div>
+                <div className="summary-row">
+                  <dt>Prioritas awal</dt>
+                  <dd>
+                    <Priority priority={derivedPriority} />
+                  </dd>
+                </div>
+                <div className="summary-row">
+                  <dt>Unit</dt>
+                  <dd>{unit?.name || "—"}</dd>
+                </div>
+                <div className="summary-row">
+                  <dt>Approval</dt>
+                  <dd>{APPROVAL_TEXT[type]}</dd>
+                </div>
+              </dl>
+            </div>
+          </section>
 
-            <div className="card border-0 shadow-sm">
-              <div className="card-body p-4">
-                <h2 className="h6 fw-bold mb-2">
-                  <i className="bi bi-paperclip text-primary me-2" />
-                  Lampiran
-                </h2>
-                <p className="small text-secondary mb-0">
-                  Lampiran dapat ditambahkan setelah tiket dibuat. Maksimal 3
-                  file, 10 MB per file. Jangan unggah data pasien.
-                </p>
-              </div>
+          <div className="callout callout--info">
+            <i className="bi bi-info-circle" aria-hidden="true" />
+            <div>
+              Lampiran dapat ditambahkan setelah tiket dibuat. Maksimal 3 file,
+              10 MB per file. Jangan unggah data pasien.
             </div>
           </div>
-        </div>
+        </aside>
       </form>
     </>
   );

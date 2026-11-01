@@ -4,33 +4,42 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **Stage 3 vertical slice** — autentikasi staff, intake tiga jenis
-tiket, daftar tiket, detail tiket, komentar publik/internal, lampiran terproteksi,
-SLA awal + breach scan, dan audit log.
+Status saat ini: **Stage 4 vertical slice** — autentikasi staff, intake tiga jenis
+tiket, daftar tiket, detail tiket, assignment, transisi status, approval IT Lead,
+komentar publik/internal, lampiran terproteksi, SLA awal + breach scan, dan audit
+log.
 
 ## Stack
 
-- Frontend: React 19 + Vite + Bootstrap 5 (JavaScript)
+- Frontend: React 19 + Vite 8 + CSS (tanpa framework UI)
 - Backend: PocketBase v0.40.5 (API, auth, realtime, file storage, Admin UI)
-- Container: Docker + Docker Compose + Caddy
-- Data: SQLite di named volume `healthcare_itsm_pb_data`
+- Development: PocketBase native binary + Vite, **tanpa Docker**
+- Production: Docker + Docker Compose + Caddy
+- Data: SQLite di `backend/pb_data` (dev) atau named volume
+  `healthcare_itsm_pb_data` (production)
 
 ## Struktur
 
 ```text
 healthcare-itsm/
 ├── frontend/                  # React + Vite
+│   └── src/styles/app.css     # design system (Atlassian/Jira-inspired)
 ├── backend/
 │   ├── pb_migrations/         # schema + seed (committed)
 │   ├── pb_hooks/              # Goja hooks/routes (committed)
-│   └── pb_data/               # gitignored, named volume in Docker
+│   ├── pb_data/               # gitignored, data lokal dev
+│   └── .bin/                  # gitignored, binary PocketBase hasil unduhan
+├── scripts/
+│   ├── dev.mjs                # jalankan PocketBase + Vite tanpa Docker
+│   ├── pocketbase.mjs         # CLI download/serve/superuser/migrate
+│   └── lib/pocketbase.mjs     # resolver binary, checksum, args serve
 ├── docker/
 │   ├── Caddyfile
 │   ├── entrypoint.sh
 │   └── backup.sh
-├── docker-compose.yml         # production
-├── docker-compose.dev.yml     # PocketBase only; Vite on host
-├── Dockerfile
+├── docker-compose.yml         # production (TLS + backup)
+├── Dockerfile                 # production image
+├── package.json               # dev tooling root
 ├── .env.example
 ├── README.md
 └── SCHEMA.md
@@ -38,30 +47,42 @@ healthcare-itsm/
 
 ## Prasyarat
 
-- Docker Engine + Docker Compose v2
-- Node.js 20.19+ (disarankan 22/24) untuk frontend dev
-- Domain yang mengarah ke server (production) dan port 80/443 terbuka
+- **Development:** Node.js 20.19+ (disarankan 22/24). Docker tidak diperlukan.
+- **Production:** Docker Engine + Docker Compose v2, domain yang mengarah ke
+  server, dan port 80/443 terbuka.
 
 ## Development
 
-### 1. Jalankan PocketBase
+### 1. Jalankan PocketBase + frontend
 
 ```bash
-cp .env.example .env
-docker compose -f docker-compose.dev.yml up -d --build
+npm install --prefix frontend
+npm run dev
 ```
 
-PocketBase: <http://127.0.0.1:8090>  
-Admin UI: <http://127.0.0.1:8090/_/>
+`npm run dev` akan:
 
-Data dev memakai named volume terpisah: `healthcare_itsm_pb_data_dev`.
+1. Mengunduh PocketBase v0.40.5 untuk OS/arsitektur Anda ke `backend/.bin/`
+   (sekali saja) dan memverifikasi SHA-256 dari rilis resmi.
+2. Menjalankan PocketBase dengan `backend/pb_data`, `backend/pb_migrations`,
+   `backend/pb_hooks`, dan `--automigrate=true`.
+3. Menjalankan Vite di <http://localhost:5173> dengan proxy `/api` dan `/_` ke
+   PocketBase, sehingga tidak ada CORS terbuka.
+
+URL:
+
+- Frontend: <http://localhost:5173>
+- PocketBase Admin UI: <http://127.0.0.1:8090/_/>
+- Healthcheck: <http://127.0.0.1:8090/api/health>
+
+Data dev tersimpan di `backend/pb_data/` dan tidak ikut ter-commit.
 
 ### 2. Buat superuser
 
+Jalankan sekali setelah data dev pertama kali dibuat:
+
 ```bash
-docker compose -f docker-compose.dev.yml exec pocketbase \
-  /usr/local/bin/pocketbase superuser create admin@itsm.local 'PasswordKuat123!' \
-  --dir=/pb/pb_data
+npm run pb:superuser -- admin@itsm.local "PasswordKuat123!"
 ```
 
 ### 3. Buat akun staff
@@ -82,29 +103,65 @@ Lewat Admin UI (`Collections > users`), buat record dengan field:
 Catatan: `users.createRule` sengaja dikunci. Provisioning akun dilakukan oleh
 superuser lewat Admin UI pada MVP ini. IT Lead adalah role bisnis, bukan superuser.
 
-### 4. Jalankan frontend
+### 4. Perintah dev lain
 
 ```bash
-cd frontend
-npm install
-npm run dev
+npm run dev:pb       # PocketBase saja
+npm run dev:web      # Vite saja (PocketBase harus sudah jalan)
+npm run pb:download  # unduh/segarkan binary saja
+npm run pb:serve     # PocketBase foreground dengan opsi dev
+npm run pb:migrate -- collections
 ```
 
-Frontend: <http://127.0.0.1:5173>  
-Vite mem-proxy `/api` ke PocketBase, jadi tidak ada CORS terbuka.
+Reset data lokal: hentikan dev, hapus `backend/pb_data/`, lalu jalankan
+`npm run dev` lagi dan buat superuser.
+
+Debug query SQL PocketBase:
+
+```bash
+PB_DEBUG=1 npm run dev
+```
+
+Di PowerShell: `$env:PB_DEBUG=1; npm run dev`.
+
+`PB_VERSION`, `PB_HTTP`, dan `DEV_ORIGINS` dapat diatur lewat environment atau
+`.env` (opsional; default sudah cocok untuk dev).
 
 ### 5. Cek cepat
 
 - Login sebagai requester.
 - Buat tiket Incident / Service Request / Change Request.
 - Buka detail; tambahkan komentar publik.
-- Login sebagai support; tambahkan komentar internal.
-- Login sebagai requester; pastikan komentar internal tidak terlihat.
+- Login sebagai support; tugaskan tiket ke diri sendiri, mulai kerjakan, lalu
+  selesaikan dengan ringkasan resolusi.
+- Login sebagai lead; setujui/tolak Service Request atau Change Request.
+- Sebagai requester; buka kembali tiket resolved/closed milik sendiri.
+- Pastikan komentar internal tidak terlihat oleh requester.
 - Upload lampiran; cek tombol unduh.
 - Login sebagai lead; buka audit log lewat API/Admin UI.
 - Tunggu/paksa cron `sla_breach_scan`; cek `response_breach_at` dan audit.
 
+## Alur tiket
+
+Status: `open → assigned → in_progress → resolved → closed`, dengan `reopened`
+dari `resolved`/`closed`.
+
+| Aksi | Requester | IT Support | IT Lead | Aturan |
+|---|---|---|---|---|
+| Assign | — | ke diri sendiri | ke staf IT mana pun / lepas | Hanya staf aktif di tenant yang sama |
+| Mulai kerjakan | — | assignee atau tiket belum di-assign | ya | Service/Change Request harus sudah approved; tiket tanpa assignee otomatis di-claim |
+| Selesaikan | — | assignee | ya | Wajib ringkasan resolusi ≥ 10 karakter + kode resolusi; approval harus approved untuk non-incident |
+| Tutup | — | ya | ya | Hanya dari status resolved |
+| Buka kembali | tiket sendiri | ya | ya | Dari resolved/closed; resolusi dibersihkan, `reopen_count` bertambah |
+| Approval | — | — | ya | Hanya sebelum pekerjaan dimulai; yang ditolak dapat disetujui ulang |
+
+Setiap aksi ditulis ke audit log (`assign`, `transition`, `approve`, `reject`)
+dengan aktor dan perubahan status.
+
 ## Production
+
+Docker **hanya** dipakai untuk production / verifikasi tingkat production.
+Development tidak memerlukan Docker.
 
 ### 1. Siapkan server
 
@@ -195,14 +252,10 @@ file baru di `backend/pb_migrations/`. Review dan commit file tersebut.
 
 ```bash
 # snapshot seluruh collection
-docker compose -f docker-compose.dev.yml exec pocketbase \
-  /usr/local/bin/pocketbase migrate collections \
-  --dir=/pb/pb_data --migrationsDir=/pb/pb_migrations --hooksDir=/pb/pb_hooks
+npm run pb:migrate -- collections
 
 # migration kosong
-docker compose -f docker-compose.dev.yml exec pocketbase \
-  /usr/local/bin/pocketbase migrate create "add_something" \
-  --dir=/pb/pb_data --migrationsDir=/pb/pb_migrations --hooksDir=/pb/pb_hooks
+npm run pb:migrate -- create "add_something"
 ```
 
 Production memakai `--automigrate=false`. Jangan mengubah skema lewat Admin UI di
@@ -216,7 +269,22 @@ lewat Caddy. `VITE_API_BASE_URL` hanya diperlukan bila API sengaja dipisah ke
 origin lain.
 
 Dev memakai proxy Vite untuk `/api` dan `/_`. PocketBase dijalankan dengan
-`--origins` eksplisit (lihat `docker/entrypoint.sh`), bukan `*`.
+`--origins` eksplisit (lihat `scripts/lib/pocketbase.mjs`), bukan `*`.
+
+## Desain antarmuka
+
+UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
+
+- Top bar putih 56 px + sidebar project 240 px dengan border tipis.
+- Warna aksen Atlassian Blue `#0052CC`, teks `#172B4D`, border `#DFE1E6`.
+- Status memakai lozenge kecil (uppercase, 11 px, radius 2 px), prioritas memakai
+  ikon chevron, bukan badge pil.
+- Action bar tiket di bawah judul: transisi status, assignment, dan approval,
+  dengan modal Jira-style untuk resolusi dan approval.
+- Tabel issue yang padat, sticky-free, dengan skeleton loading.
+- Login bergaya Atlassian: kartu putih di atas latar netral, tanpa gradient/hero.
+- Token dan seluruh komponen ada di `frontend/src/styles/app.css`; tidak ada
+  dependency UI framework.
 
 ## Keamanan dan data pasien
 
@@ -233,6 +301,9 @@ Dev memakai proxy Vite untuk `/api` dan `/_`. PocketBase dijalankan dengan
 | Method | Path | Keterangan |
 |---|---|---|
 | POST | `/api/itsm/tickets` | Buat tiket (auth) |
+| POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee (staff) |
+| POST | `/api/itsm/tickets/{id}/transition` | Mulai, selesaikan, tutup, buka kembali |
+| POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak (IT Lead) |
 | POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
 | POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran (multipart) |
 | GET | `/api/collections/tickets/records` | List tiket sesuai API rules |
@@ -243,7 +314,7 @@ Dev memakai proxy Vite untuk `/api` dan `/_`. PocketBase dijalankan dengan
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Migrasi schema + seed diterapkan pada PocketBase v0.40.5.
+- Migrasi schema + seed diterapkan pada PocketBase v0.40.5 native (Windows).
 - Login requester/support/lead.
 - Create Incident, Service Request, dan Change Request via custom route.
 - SLA due date dihitung; cron `sla_breach_scan` menandai breach + audit.
@@ -251,14 +322,27 @@ Dev memakai proxy Vite untuk `/api` dan `/_`. PocketBase dijalankan dengan
 - First response terisi saat staff memberi komentar publik.
 - Upload lampiran dan download protected file dengan token.
 - Audit log hanya terlihat IT Lead; create audit ditolak.
+- Assignment, transisi status, approval, resolution, dan reopen diuji lewat API:
+  aturan role, approval gating, validasi ringkasan resolusi, dan audit.
+- Approval gating diuji: Service/Change Request `pending`/`rejected` tidak dapat
+  dimulai atau diselesaikan; approval hanya sebelum pekerjaan dimulai; request
+  yang ditolak dapat disetujui ulang.
 - `npm run build` sukses.
-- Docker image backend/web/backup berhasil dibangun; stack HTTPS berjalan;
-  SPA fallback, healthcheck, dan backup ZIP (DB + storage) terverifikasi.
+- UI diverifikasi dengan Playwright pada viewport 1440, 1280, 1024, 768, dan
+  390 px: login, list, detail, create, empty state, menu, drawer mobile.
+- Alur UI end-to-end: login, pencarian, filter prioritas, buat tiket, komentar,
+  upload lampiran, logout, tanpa console error.
+- Alur UI tiket: support assign ke diri sendiri → mulai → selesaikan lewat modal
+  → tutup; lead setujui/tolak; requester buka kembali tiket sendiri.
+- Docker image backend/web/backup berhasil dibangun dan diverifikasi.
+- Image backend dijalankan dengan volume kosong: migrasi + seed berjalan, hooks
+  termuat, health 200, dan route assign/transition/approval terdaftar.
+- Image web dijalankan dengan Caddy: `/healthz`, security headers, dan halaman
+  login production build terverifikasi lewat HTTPS.
 
 ## Scope berikutnya
 
-- Assignment dan state transition UI/route.
-- Approval Service Request / Change Request.
+- Perhitungan ulang SLA resolution saat reopen dan eskalasi berjenjang.
 - Dashboard per unit, SLA breach, critical open.
 - Admin unit/kategori/SLA/holiday.
 - Notifikasi email/WhatsApp.

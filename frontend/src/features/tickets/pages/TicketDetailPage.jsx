@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { pb } from "../../../lib/pocketbase";
 import {
+  assignTicket,
   createComment,
+  decideTicketApproval,
   getAttachmentUrl,
   getErrorMessage,
+  transitionTicket,
   uploadAttachment,
 } from "../../../lib/api";
 import {
-  approvalLabel,
   formatDateTime,
   formatRelative,
   impactLabel,
@@ -16,20 +18,56 @@ import {
   isOpen,
   typeLabel,
 } from "../../../lib/format";
-import { isStaff } from "../../../lib/permissions";
+import { isLead, isStaff } from "../../../lib/permissions";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import Modal from "../../../components/ui/Modal";
 import {
-  PriorityBadge,
-  SlaPill,
-  StatusBadge,
-  TypeBadge,
+  ApprovalLozenge,
+  Priority,
+  StatusLozenge,
+  TypeIcon,
 } from "../components/Badges";
 
-function DetailRow({ label, children }) {
+const RISK_LABELS = {
+  low: "Rendah",
+  medium: "Sedang",
+  high: "Tinggi",
+};
+
+const RESOLUTION_OPTIONS = [
+  ["fixed", "Diperbaiki"],
+  ["workaround", "Workaround"],
+  ["duplicate", "Duplikat"],
+  ["not_reproducible", "Tidak dapat direproduksi"],
+  ["rejected", "Ditolak"],
+  ["other", "Lainnya"],
+];
+
+const STAFF_ROLE_LABELS = {
+  it_support: "IT Support",
+  it_lead: "IT Lead",
+};
+
+function DetailField({ label, children }) {
   return (
-    <div className="detail-row">
+    <div className="detail-field">
       <div className="detail-label">{label}</div>
       <div className="detail-value">{children || "—"}</div>
+    </div>
+  );
+}
+
+function SlaRow({ label, dueAt, breached, active }) {
+  const overdue =
+    Boolean(breached) || (active && dueAt && new Date(dueAt) < new Date());
+
+  return (
+    <div className="sla-row">
+      <span className="sla-row-label">{label}</span>
+      <span className={`sla-row-value${overdue ? " is-late" : ""}`}>
+        {dueAt ? formatDateTime(dueAt) : "—"}
+        {overdue ? " · lewat" : ""}
+      </span>
     </div>
   );
 }
@@ -38,34 +76,37 @@ function AttachmentItem({ attachment, onDownload, downloading }) {
   const isInternal = attachment.visibility === "internal";
 
   return (
-    <div className="attachment-item">
-      <div className="attachment-icon">
-        <i className="bi bi-file-earmark-text" />
-      </div>
-      <div className="flex-grow-1 min-w-0">
-        <div className="fw-medium text-truncate">
+    <div className="attachment">
+      <span className="attachment-icon">
+        <i className="bi bi-file-earmark-text" aria-hidden="true" />
+      </span>
+      <div className="min-w-0 attachment-copy">
+        <div className="attachment-name">
           {attachment.original_name || attachment.file}
         </div>
-        <div className="small text-secondary">
+        <div className="attachment-meta">
           {attachment.expand?.uploader?.name || "—"} ·{" "}
           {formatDateTime(attachment.created)}
           {isInternal && (
-            <span className="badge text-bg-warning ms-2">Internal</span>
+            <span className="lozenge lozenge--neutral" style={{ marginLeft: 6 }}>
+              Internal
+            </span>
           )}
         </div>
       </div>
       <button
-        className="btn btn-sm btn-outline-secondary"
+        className="btn btn-outline btn-sm"
         type="button"
         onClick={() => onDownload(attachment)}
         disabled={downloading === attachment.id}
         title="Unduh lampiran"
       >
         {downloading === attachment.id ? (
-          <span className="spinner-border spinner-border-sm" />
+          <span className="spinner spinner--dark" aria-hidden="true" />
         ) : (
-          <i className="bi bi-download" />
+          <i className="bi bi-download" aria-hidden="true" />
         )}
+        <span className="visually-hidden">Unduh</span>
       </button>
     </div>
   );
@@ -93,6 +134,19 @@ export default function TicketDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [downloading, setDownloading] = useState("");
+
+  const [staffList, setStaffList] = useState([]);
+  const [assignTarget, setAssignTarget] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [actionNotice, setActionNotice] = useState("");
+  const [busyAction, setBusyAction] = useState("");
+
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const [resolutionSummary, setResolutionSummary] = useState("");
+  const [resolutionCode, setResolutionCode] = useState("fixed");
+
+  const [approvalDecision, setApprovalDecision] = useState("");
+  const [approvalNote, setApprovalNote] = useState("");
 
   const loadData = useCallback(async () => {
     setError("");
@@ -130,6 +184,33 @@ export default function TicketDetailPage() {
     setLoading(true);
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!staff) return undefined;
+
+    let active = true;
+
+    pb.collection("users")
+      .getFullList({
+        filter:
+          'is_active = true && (role = "it_support" || role = "it_lead")',
+        sort: "name",
+      })
+      .then((list) => {
+        if (active) setStaffList(list);
+      })
+      .catch(() => {
+        if (active) setStaffList([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [staff]);
+
+  useEffect(() => {
+    if (ticket) setAssignTarget(ticket.assignee || "");
+  }, [ticket?.id, ticket?.assignee]);
 
   async function handleCommentSubmit(event) {
     event.preventDefault();
@@ -193,24 +274,156 @@ export default function TicketDetailPage() {
     }
   }
 
+  async function runAction(key, action, successMessage) {
+    setActionError("");
+    setActionNotice("");
+    setBusyAction(key);
+
+    try {
+      await action();
+      await loadData();
+      setActionNotice(successMessage);
+      return true;
+    } catch (err) {
+      setActionError(getErrorMessage(err));
+      return false;
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleAssignTo(value) {
+    const ok = await runAction(
+      "assign",
+      () => assignTicket(id, value),
+      value ? "Assignee diperbarui." : "Assignment dilepas."
+    );
+
+    if (ok) setAssignTarget(value);
+  }
+
+  function handleStart() {
+    return runAction(
+      "start",
+      () => transitionTicket(id, { status: "in_progress" }),
+      "Tiket mulai dikerjakan."
+    );
+  }
+
+  function handleClose() {
+    return runAction(
+      "close",
+      () => transitionTicket(id, { status: "closed" }),
+      "Tiket ditutup."
+    );
+  }
+
+  function handleReopen() {
+    return runAction(
+      "reopen",
+      () => transitionTicket(id, { status: "reopened" }),
+      "Tiket dibuka kembali."
+    );
+  }
+
+  function openResolve() {
+    setActionError("");
+    setActionNotice("");
+    setResolveOpen(true);
+  }
+
+  function closeResolve() {
+    if (busyAction) return;
+    setResolveOpen(false);
+    setActionError("");
+  }
+
+  async function handleResolve(event) {
+    event.preventDefault();
+
+    if (resolutionSummary.trim().length < 10) {
+      setActionError("Ringkasan resolusi wajib diisi minimal 10 karakter.");
+      return;
+    }
+
+    const ok = await runAction(
+      "resolve",
+      () =>
+        transitionTicket(id, {
+          status: "resolved",
+          resolution_summary: resolutionSummary.trim(),
+          resolution_code: resolutionCode,
+        }),
+      "Tiket ditandai selesai."
+    );
+
+    if (ok) {
+      setResolveOpen(false);
+      setResolutionSummary("");
+      setResolutionCode("fixed");
+      setActionError("");
+    }
+  }
+
+  function openApproval(decision) {
+    setActionError("");
+    setActionNotice("");
+    setApprovalNote("");
+    setApprovalDecision(decision);
+  }
+
+  function closeApproval() {
+    if (busyAction) return;
+    setApprovalDecision("");
+    setActionError("");
+  }
+
+  async function handleApproval() {
+    if (!approvalDecision) return;
+
+    if (approvalDecision === "rejected" && approvalNote.trim().length < 5) {
+      setActionError("Alasan penolakan wajib diisi minimal 5 karakter.");
+      return;
+    }
+
+    const ok = await runAction(
+      "approval",
+      () =>
+        decideTicketApproval(
+          id,
+          approvalDecision,
+          approvalNote.trim()
+        ),
+      approvalDecision === "approved"
+        ? "Permintaan disetujui."
+        : "Permintaan ditolak."
+    );
+
+    if (ok) {
+      setApprovalDecision("");
+      setApprovalNote("");
+      setActionError("");
+    }
+  }
+
   if (loading) {
     return (
-      <div className="py-5 text-center">
-        <div className="spinner-border text-primary" role="status" />
-        <div className="small text-secondary mt-2">Memuat tiket...</div>
+      <div className="page-state">
+        <span className="spinner spinner--dark spinner--lg" role="status" />
+        <div className="centered-text">Memuat tiket...</div>
       </div>
     );
   }
 
   if (error || !ticket) {
     return (
-      <div className="card border-0 shadow-sm">
-        <div className="card-body p-5 text-center">
-          <div className="display-6 text-danger mb-3">
-            <i className="bi bi-exclamation-triangle" />
+      <div className="list-panel">
+        <div className="empty">
+          <div className="empty-icon">
+            <i className="bi bi-exclamation-triangle" aria-hidden="true" />
           </div>
-          <h1 className="h4">Tiket tidak dapat dibuka</h1>
-          <p className="text-secondary">
+          <div className="empty-title">Tiket tidak dapat dibuka</div>
+          <p className="empty-text">
             {error || "Tiket tidak ditemukan atau Anda tidak memiliki akses."}
           </p>
           <Link className="btn btn-primary" to="/tickets">
@@ -224,123 +437,358 @@ export default function TicketDetailPage() {
   const active = isOpen(ticket);
   const canComment = ticket.status !== "closed";
   const canUpload = canComment && attachments.length < 3;
+  const risk = RISK_LABELS[ticket.change_risk] || "Belum ditentukan";
+
+  const lead = isLead(user);
+  const status = ticket.status;
+  const approvalRequired = ticket.type !== "incident";
+  const approvalApproved = ticket.approval_status === "approved";
+  const approvalRejected = ticket.approval_status === "rejected";
+  const assignedToMe = Boolean(ticket.assignee) && ticket.assignee === user?.id;
+  const canStart =
+    staff &&
+    ["open", "assigned", "reopened"].includes(status) &&
+    (lead || !ticket.assignee || assignedToMe) &&
+    (!approvalRequired || approvalApproved);
+  const canResolve =
+    staff &&
+    ["assigned", "in_progress"].includes(status) &&
+    (lead || assignedToMe) &&
+    (!approvalRequired || approvalApproved);
+  const canClose = staff && status === "resolved";
+  const canReopen =
+    ["resolved", "closed"].includes(status) &&
+    (staff || ticket.requester === user?.id);
+  const canAssign = staff && !["resolved", "closed"].includes(status);
+  const canApprove =
+    lead &&
+    approvalRequired &&
+    !approvalApproved &&
+    ["open", "assigned", "reopened"].includes(status);
+
+  const primaryAction = canApprove
+    ? "approve"
+    : canStart && status !== "in_progress"
+      ? "start"
+      : canResolve
+        ? "resolve"
+        : canClose
+          ? "close"
+          : canReopen
+            ? "reopen"
+            : "";
+
+  const showActions = staff || canReopen;
 
   return (
     <>
-      <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
-        <div>
-          <Link
-            className="small text-decoration-none text-secondary d-inline-flex align-items-center gap-1 mb-2"
-            to="/tickets"
-          >
-            <i className="bi bi-arrow-left" />
-            Kembali ke daftar tiket
-          </Link>
-          <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
-            <span className="ticket-no">{ticket.ticket_no}</span>
-            <StatusBadge status={ticket.status} />
-            <PriorityBadge priority={ticket.priority} compact />
-            <TypeBadge type={ticket.type} />
+      <nav className="breadcrumb" aria-label="Breadcrumb">
+        <Link to="/tickets">Tiket</Link>
+        <span className="sep" aria-hidden="true">
+          /
+        </span>
+        <span>{ticket.ticket_no}</span>
+      </nav>
+
+      <div className="issue-head">
+        <div className="issue-head-top">
+          <div style={{ minWidth: 0 }}>
+            <div className="issue-key-line">
+              <TypeIcon type={ticket.type} large />
+              <span className="issue-key">{ticket.ticket_no}</span>
+              <span aria-hidden="true">·</span>
+              <span>{typeLabel(ticket.type)}</span>
+            </div>
+
+            <h1 className="issue-title">{ticket.title}</h1>
+
+            <div className="issue-meta-line">
+              <StatusLozenge status={ticket.status} />
+              <Priority priority={ticket.priority} />
+              {ticket.approval_status === "pending" && (
+                <span className="lozenge lozenge--neutral">Menunggu approval</span>
+              )}
+              <span className="issue-meta-sep" aria-hidden="true" />
+              <span>Dibuka {formatDateTime(ticket.created)}</span>
+              <span>
+                oleh {ticket.expand?.requester?.name || "—"}
+              </span>
+            </div>
           </div>
-          <h1 className="h3 fw-bold mb-1">{ticket.title}</h1>
-          <div className="text-secondary small">
-            Dibuat oleh {ticket.expand?.requester?.name || "—"} ·{" "}
-            {formatDateTime(ticket.created)} WIB
+
+          <div className="page-actions">
+            <Link className="btn btn-subtle" to="/tickets">
+              <i className="bi bi-arrow-left" aria-hidden="true" />
+              Kembali
+            </Link>
           </div>
-        </div>
-        <div className="d-flex flex-column align-items-end gap-2">
-          <SlaPill
-            label="Respon"
-            dueAt={ticket.response_due_at}
-            breached={ticket.response_breach_at}
-            active={active}
-          />
-          <SlaPill
-            label="Selesai"
-            dueAt={ticket.resolution_due_at}
-            breached={ticket.resolution_breach_at}
-            active={active}
-          />
         </div>
       </div>
 
-      <div className="row g-4">
-        <div className="col-12 col-xl-8">
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-body p-4">
-              <div className="d-flex align-items-center justify-content-between mb-3">
-                <h2 className="h6 text-uppercase text-secondary fw-bold letter-spacing mb-0">
-                  Deskripsi
-                </h2>
-                <span className="small text-secondary">
-                  <i className="bi bi-shield-check text-success me-1" />
-                  Attestasi tanpa data pasien
+      {showActions && (
+        <div className="ticket-actions">
+          <div className="ticket-actions-main">
+            {canStart && (
+              <button
+                className={`btn ${
+                  primaryAction === "start" ? "btn-primary" : "btn-outline"
+                }`}
+                type="button"
+                onClick={handleStart}
+                disabled={Boolean(busyAction)}
+              >
+                {busyAction === "start" ? (
+                  <span className="spinner" aria-hidden="true" />
+                ) : (
+                  <i className="bi bi-play-fill" aria-hidden="true" />
+                )}
+                Mulai kerjakan
+              </button>
+            )}
+
+            {canResolve && (
+              <button
+                className={`btn ${
+                  primaryAction === "resolve" ? "btn-primary" : "btn-outline"
+                }`}
+                type="button"
+                onClick={openResolve}
+                disabled={Boolean(busyAction)}
+              >
+                <i className="bi bi-check2" aria-hidden="true" />
+                Selesaikan
+              </button>
+            )}
+
+            {canClose && (
+              <button
+                className={`btn ${
+                  primaryAction === "close" ? "btn-primary" : "btn-outline"
+                }`}
+                type="button"
+                onClick={handleClose}
+                disabled={Boolean(busyAction)}
+              >
+                {busyAction === "close" ? (
+                  <span className="spinner" aria-hidden="true" />
+                ) : (
+                  <i className="bi bi-archive" aria-hidden="true" />
+                )}
+                Tutup tiket
+              </button>
+            )}
+
+            {canReopen && (
+              <button
+                className={`btn ${
+                  primaryAction === "reopen" ? "btn-primary" : "btn-outline"
+                }`}
+                type="button"
+                onClick={handleReopen}
+                disabled={Boolean(busyAction)}
+              >
+                {busyAction === "reopen" ? (
+                  <span className="spinner" aria-hidden="true" />
+                ) : (
+                  <i className="bi bi-arrow-counterclockwise" aria-hidden="true" />
+                )}
+                Buka kembali
+              </button>
+            )}
+
+            {canApprove && (
+              <>
+                <button
+                  className={`btn ${
+                    primaryAction === "approve"
+                      ? "btn-primary"
+                      : "btn-outline btn-approve"
+                  }`}
+                  type="button"
+                  onClick={() => openApproval("approved")}
+                  disabled={Boolean(busyAction)}
+                >
+                  <i className="bi bi-check-lg" aria-hidden="true" />
+                  {approvalRejected ? "Setujui ulang" : "Setujui"}
+                </button>
+
+                {!approvalRejected && (
+                  <button
+                    className="btn btn-outline-danger"
+                    type="button"
+                    onClick={() => openApproval("rejected")}
+                    disabled={Boolean(busyAction)}
+                  >
+                    <i className="bi bi-x-lg" aria-hidden="true" />
+                    Tolak
+                  </button>
+                )}
+              </>
+            )}
+
+            {!canStart &&
+              !canResolve &&
+              !canClose &&
+              !canReopen &&
+              !canApprove && (
+                <span className="ticket-action-hint">
+                  {approvalRequired && !approvalApproved
+                    ? approvalRejected
+                      ? "Permintaan ditolak. IT Lead dapat menyetujui ulang."
+                      : "Menunggu approval IT Lead sebelum pekerjaan dapat dimulai."
+                    : status === "closed"
+                      ? "Tiket sudah ditutup."
+                      : "Tidak ada aksi status untuk Anda."}
                 </span>
-              </div>
-              <div className="ticket-description">{ticket.description}</div>
-            </div>
+              )}
           </div>
 
-          {ticket.type === "change_request" && (
-            <div className="card border-0 shadow-sm mb-4">
-              <div className="card-body p-4">
-                <h2 className="h6 text-uppercase text-secondary fw-bold letter-spacing mb-3">
-                  Rencana perubahan
-                </h2>
-                <div className="row g-3">
-                  <div className="col-12 col-md-4">
-                    <div className="mini-label">Risiko</div>
-                    <div className="fw-medium">
-                      {ticket.change_risk || "Belum ditentukan"}
-                    </div>
-                  </div>
-                  <div className="col-12 col-md-4">
-                    <div className="mini-label">Jadwal mulai</div>
-                    <div className="fw-medium">
-                      {formatDateTime(ticket.planned_start)}
-                    </div>
-                  </div>
-                  <div className="col-12 col-md-4">
-                    <div className="mini-label">Jadwal selesai</div>
-                    <div className="fw-medium">
-                      {formatDateTime(ticket.planned_end)}
-                    </div>
-                  </div>
-                  <div className="col-12 col-md-6">
-                    <div className="mini-label">Rencana implementasi</div>
-                    <div className="pre-wrap small">
-                      {ticket.implementation_plan || "Belum diisi"}
-                    </div>
-                  </div>
-                  <div className="col-12 col-md-6">
-                    <div className="mini-label">Rollback plan</div>
-                    <div className="pre-wrap small">
-                      {ticket.rollback_plan || "Belum diisi"}
-                    </div>
-                  </div>
-                </div>
-              </div>
+          {canAssign && (
+            <div className="ticket-actions-assign">
+              <span className="ticket-actions-label">Assignee</span>
+
+              {lead ? (
+                <>
+                  <select
+                    className="select select-sm"
+                    aria-label="Pilih assignee"
+                    value={assignTarget}
+                    onChange={(event) => setAssignTarget(event.target.value)}
+                    disabled={Boolean(busyAction)}
+                  >
+                    <option value="">Belum di-assign</option>
+                    {staffList.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.name} ·{" "}
+                        {STAFF_ROLE_LABELS[person.role] || person.role}
+                      </option>
+                    ))}
+                  </select>
+                  {(ticket.assignee || assignTarget) && (
+                    <button
+                      className="btn btn-outline btn-sm"
+                      type="button"
+                      onClick={() => handleAssignTo(assignTarget)}
+                      disabled={
+                        Boolean(busyAction) ||
+                        assignTarget === (ticket.assignee || "")
+                      }
+                    >
+                      {busyAction === "assign" ? (
+                        <span
+                          className="spinner spinner--dark"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <i className="bi bi-person-plus" aria-hidden="true" />
+                      )}
+                      {assignTarget ? "Tugaskan" : "Lepas assignment"}
+                    </button>
+                  )}
+                </>
+              ) : ticket.assignee === user?.id ? (
+                <span className="ticket-action-hint">Ditugaskan ke Anda</span>
+              ) : (
+                <button
+                  className="btn btn-outline btn-sm"
+                  type="button"
+                  onClick={() => handleAssignTo(user.id)}
+                  disabled={Boolean(busyAction)}
+                >
+                  {busyAction === "assign" ? (
+                    <span className="spinner spinner--dark" aria-hidden="true" />
+                  ) : (
+                    <i className="bi bi-person-check" aria-hidden="true" />
+                  )}
+                  Tugaskan ke saya
+                </button>
+              )}
             </div>
           )}
+        </div>
+      )}
 
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <h2 className="h6 text-uppercase text-secondary fw-bold letter-spacing mb-0">
-                  Lampiran
-                </h2>
-                <span className="small text-secondary">
-                  {attachments.length}/3
-                </span>
+      {actionError && !resolveOpen && !approvalDecision && (
+        <div className="alert alert--error" role="alert">
+          <i className="bi bi-exclamation-triangle" aria-hidden="true" />
+          <div>{actionError}</div>
+        </div>
+      )}
+
+      {actionNotice && !resolveOpen && !approvalDecision && (
+        <div className="alert alert--success" role="status">
+          <i className="bi bi-check-circle" aria-hidden="true" />
+          <div>{actionNotice}</div>
+        </div>
+      )}
+
+      {ticket.approval_status === "rejected" && (
+        <div className="alert alert--error" role="alert">
+          <i className="bi bi-x-circle" aria-hidden="true" />
+          <div>
+            <strong>Permintaan ini ditolak.</strong>{" "}
+            {ticket.approval_note || "Lihat catatan approval."}
+          </div>
+        </div>
+      )}
+
+      <div className="issue-grid">
+        <div className="issue-main">
+          <section className="panel">
+            <div className="panel-head">
+              <div className="panel-title">Deskripsi</div>
+              <span className="panel-count">
+                <i className="bi bi-shield-check" aria-hidden="true" /> Attestasi
+                tanpa data pasien
+              </span>
+            </div>
+            <div className="panel-body">
+              <div className="description">{ticket.description}</div>
+            </div>
+          </section>
+
+          {ticket.type === "change_request" && (
+            <section className="panel">
+              <div className="panel-head">
+                <div className="panel-title">Rencana perubahan</div>
               </div>
-
-              {attachments.length === 0 ? (
-                <div className="text-secondary small py-2">
-                  <i className="bi bi-paperclip me-1" />
-                  Belum ada lampiran.
+              <div className="panel-body">
+                <div className="meta-grid meta-grid--3">
+                  <DetailField label="Risiko">{risk}</DetailField>
+                  <DetailField label="Jadwal mulai">
+                    {formatDateTime(ticket.planned_start)}
+                  </DetailField>
+                  <DetailField label="Jadwal selesai">
+                    {formatDateTime(ticket.planned_end)}
+                  </DetailField>
                 </div>
+
+                <div className="meta-grid" style={{ marginTop: 16 }}>
+                  <DetailField label="Rencana implementasi">
+                    <div className="description">
+                      {ticket.implementation_plan || "Belum diisi"}
+                    </div>
+                  </DetailField>
+                  <DetailField label="Rollback plan">
+                    <div className="description">
+                      {ticket.rollback_plan || "Belum diisi"}
+                    </div>
+                  </DetailField>
+                </div>
+              </div>
+            </section>
+          )}
+
+          <section className="panel">
+            <div className="panel-head">
+              <div className="panel-title">Lampiran</div>
+              <span className="panel-count">{attachments.length}/3</span>
+            </div>
+            <div className="panel-body">
+              {attachments.length === 0 ? (
+                <div className="muted">Belum ada lampiran.</div>
               ) : (
-                <div className="d-grid gap-2">
+                <div className="attachment-list">
                   {attachments.map((attachment) => (
                     <AttachmentItem
                       key={attachment.id}
@@ -353,34 +801,47 @@ export default function TicketDetailPage() {
               )}
 
               {canUpload && (
-                <form className="mt-4 border-top pt-3" onSubmit={handleUpload}>
+                <form className="attach-form" onSubmit={handleUpload}>
                   {uploadError && (
-                    <div className="alert alert-danger py-2 small">
-                      {uploadError}
+                    <div className="alert alert--error" role="alert">
+                      <i className="bi bi-exclamation-triangle" aria-hidden="true" />
+                      <div>{uploadError}</div>
                     </div>
                   )}
-                  <div className="row g-2 align-items-end">
-                    <div className="col-12 col-md-6">
-                      <label className="form-label small fw-semibold">
-                        Tambah lampiran
+
+                  <div className="attach-form-row">
+                    <div className="attach-file">
+                      <span className="form-label">Tambah lampiran</span>
+                      <label className="file-input">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          className="visually-hidden"
+                          accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.log"
+                          onChange={(event) =>
+                            setSelectedFile(event.target.files?.[0] || null)
+                          }
+                        />
+                        <span className="btn btn-outline btn-sm">
+                          <i className="bi bi-paperclip" aria-hidden="true" />
+                          Pilih file
+                        </span>
+                        <span className="file-input-name">
+                          {selectedFile
+                            ? selectedFile.name
+                            : "Tidak ada file dipilih"}
+                        </span>
                       </label>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        className="form-control form-control-sm"
-                        accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.log"
-                        onChange={(event) =>
-                          setSelectedFile(event.target.files?.[0] || null)
-                        }
-                      />
                     </div>
+
                     {staff && (
-                      <div className="col-6 col-md-3">
-                        <label className="form-label small fw-semibold">
+                      <div className="attach-visibility">
+                        <label className="form-label" htmlFor="uploadVisibility">
                           Visibilitas
                         </label>
                         <select
-                          className="form-select form-select-sm"
+                          id="uploadVisibility"
+                          className="select select-sm"
                           value={uploadVisibility}
                           onChange={(event) =>
                             setUploadVisibility(event.target.value)
@@ -391,79 +852,68 @@ export default function TicketDetailPage() {
                         </select>
                       </div>
                     )}
-                    <div className="col-6 col-md-3">
-                      <button
-                        className="btn btn-outline-primary btn-sm w-100"
-                        type="submit"
-                        disabled={uploading}
-                      >
-                        {uploading ? (
-                          <span className="spinner-border spinner-border-sm" />
-                        ) : (
-                          <>
-                            <i className="bi bi-upload me-1" />
-                            Unggah
-                          </>
-                        )}
-                      </button>
-                    </div>
+
+                    <button
+                      className="btn btn-outline"
+                      type="submit"
+                      disabled={uploading}
+                    >
+                      {uploading ? (
+                        <span className="spinner spinner--dark" aria-hidden="true" />
+                      ) : (
+                        <i className="bi bi-upload" aria-hidden="true" />
+                      )}
+                      Unggah
+                    </button>
                   </div>
-                  <div className="form-text">
+
+                  <div className="hint">
                     PDF, PNG, JPEG, WebP, TXT, atau LOG. Maksimal 10 MB.
                   </div>
                 </form>
               )}
 
               {!canUpload && canComment && (
-                <div className="alert alert-light border small mt-3 mb-0">
+                <div className="alert alert--info" style={{ marginTop: 16, marginBottom: 0 }}>
                   Batas 3 lampiran per tiket sudah tercapai.
                 </div>
               )}
             </div>
-          </div>
+          </section>
 
-          <div className="card border-0 shadow-sm">
-            <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <h2 className="h6 text-uppercase text-secondary fw-bold letter-spacing mb-0">
-                  Komentar & riwayat
-                </h2>
-                <span className="small text-secondary">
-                  {comments.length} komentar
-                </span>
-              </div>
-
+          <section className="panel">
+            <div className="panel-head">
+              <div className="panel-title">Aktivitas</div>
+              <span className="panel-count">{comments.length} komentar</span>
+            </div>
+            <div className="panel-body">
               {comments.length === 0 ? (
-                <div className="text-secondary small py-2">
-                  Belum ada komentar.
-                </div>
+                <div className="muted">Belum ada komentar.</div>
               ) : (
-                <div className="comment-list">
+                <div className="activity-list">
                   {comments.map((comment) => (
                     <div
                       key={comment.id}
-                      className={`comment-item ${
-                        comment.visibility === "internal"
-                          ? "comment-internal"
-                          : ""
+                      className={`comment${
+                        comment.visibility === "internal" ? " is-internal" : ""
                       }`}
                     >
-                      <div className="avatar-circle avatar-sm flex-shrink-0">
+                      <span className="avatar avatar--lg">
                         {initials(comment.expand?.author?.name)}
-                      </div>
-                      <div className="flex-grow-1 min-w-0">
-                        <div className="d-flex flex-wrap align-items-center gap-2">
-                          <span className="fw-semibold small">
+                      </span>
+                      <div className="comment-main">
+                        <div className="comment-head">
+                          <span className="comment-author">
                             {comment.expand?.author?.name || "—"}
                           </span>
+                          <span className="comment-time">
+                            {formatRelative(comment.created)}
+                          </span>
                           {comment.visibility === "internal" && (
-                            <span className="badge text-bg-warning">
+                            <span className="lozenge lozenge--neutral">
                               Internal
                             </span>
                           )}
-                          <span className="small text-secondary">
-                            {formatRelative(comment.created)}
-                          </span>
                         </div>
                         <div className="comment-body">{comment.body}</div>
                       </div>
@@ -473,200 +923,362 @@ export default function TicketDetailPage() {
               )}
 
               {canComment ? (
-                <form
-                  className="mt-4 border-top pt-3"
-                  onSubmit={handleCommentSubmit}
-                >
+                <>
                   {commentError && (
-                    <div className="alert alert-danger py-2 small">
-                      {commentError}
+                    <div className="alert alert--error" style={{ marginTop: 16, marginBottom: 0 }}>
+                      <i className="bi bi-exclamation-triangle" aria-hidden="true" />
+                      <div>{commentError}</div>
                     </div>
                   )}
-                  <label className="form-label fw-semibold" htmlFor="comment">
-                    Tambah komentar
-                  </label>
-                  <textarea
-                    id="comment"
-                    className="form-control"
-                    rows={4}
-                    maxLength={5000}
-                    placeholder={
-                      staff
-                        ? "Tulis pembaruan untuk requester atau catatan internal..."
-                        : "Tulis pertanyaan atau informasi tambahan..."
-                    }
-                    value={commentBody}
-                    onChange={(event) => setCommentBody(event.target.value)}
-                  />
-                  <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2">
-                    <div className="d-flex align-items-center gap-2">
-                      {staff ? (
-                        <>
-                          <label className="small text-secondary" htmlFor="visibility">
-                            Visibilitas
-                          </label>
-                          <select
-                            id="visibility"
-                            className="form-select form-select-sm"
-                            value={commentVisibility}
-                            onChange={(event) =>
-                              setCommentVisibility(event.target.value)
-                            }
-                          >
-                            <option value="public">Publik</option>
-                            <option value="internal">Internal</option>
-                          </select>
-                        </>
-                      ) : (
-                        <span className="small text-secondary">
-                          Komentar Anda terlihat oleh tim IT.
-                        </span>
-                      )}
+
+                  <form className="composer" onSubmit={handleCommentSubmit}>
+                    <label className="visually-hidden" htmlFor="comment">
+                      Tambah komentar
+                    </label>
+                    <textarea
+                      id="comment"
+                      rows={4}
+                      maxLength={5000}
+                      placeholder={
+                        staff
+                          ? "Tulis pembaruan untuk requester atau catatan internal..."
+                          : "Tulis pertanyaan atau informasi tambahan..."
+                      }
+                      value={commentBody}
+                      onChange={(event) => setCommentBody(event.target.value)}
+                    />
+                    <div className="composer-bar">
+                      <div className="composer-meta">
+                        {staff ? (
+                          <>
+                            <label className="composer-note" htmlFor="visibility">
+                              Visibilitas
+                            </label>
+                            <select
+                              id="visibility"
+                              className="select select-sm"
+                              value={commentVisibility}
+                              onChange={(event) =>
+                                setCommentVisibility(event.target.value)
+                              }
+                            >
+                              <option value="public">Publik</option>
+                              <option value="internal">Internal</option>
+                            </select>
+                          </>
+                        ) : (
+                          <span className="composer-note">
+                            Komentar Anda terlihat oleh tim IT.
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="composer-actions">
+                        <button
+                          className="btn btn-primary"
+                          type="submit"
+                          disabled={submittingComment}
+                        >
+                          {submittingComment ? (
+                            <>
+                              <span className="spinner" aria-hidden="true" />
+                              Mengirim...
+                            </>
+                          ) : (
+                            <>
+                              <i className="bi bi-send" aria-hidden="true" />
+                              Kirim komentar
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      className="btn btn-primary"
-                      type="submit"
-                      disabled={submittingComment}
-                    >
-                      {submittingComment ? (
-                        <>
-                          <span className="spinner-border spinner-border-sm me-2" />
-                          Mengirim...
-                        </>
-                      ) : (
-                        <>
-                          <i className="bi bi-send me-2" />
-                          Kirim komentar
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </form>
+                  </form>
+                </>
               ) : (
-                <div className="alert alert-light border small mt-4 mb-0">
-                  <i className="bi bi-lock me-1" />
-                  Tiket sudah ditutup. Komentar baru tidak dapat ditambahkan.
+                <div className="alert alert--info" style={{ marginTop: 16, marginBottom: 0 }}>
+                  <i className="bi bi-lock" aria-hidden="true" />
+                  <div>Tiket sudah ditutup. Komentar baru tidak dapat ditambahkan.</div>
                 </div>
               )}
             </div>
-          </div>
+          </section>
         </div>
 
-        <div className="col-12 col-xl-4">
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-body p-4">
-              <h2 className="h6 fw-bold mb-3">
-                <i className="bi bi-info-circle text-primary me-2" />
-                Detail tiket
-              </h2>
-
-              <DetailRow label="Status">
-                <StatusBadge status={ticket.status} />
-              </DetailRow>
-              <DetailRow label="Prioritas">
-                <PriorityBadge priority={ticket.priority} compact />
-              </DetailRow>
-              <DetailRow label="Dampak">
-                {impactLabel(ticket.impact)}
-              </DetailRow>
-              <DetailRow label="Jenis">{typeLabel(ticket.type)}</DetailRow>
-              <DetailRow label="Unit">
-                {ticket.expand?.unit?.name || "—"}
-              </DetailRow>
-              <DetailRow label="Kategori">
-                {ticket.expand?.category?.name || "—"}
-              </DetailRow>
-              <DetailRow label="Requester">
-                {ticket.expand?.requester?.name || "—"}
-              </DetailRow>
-              <DetailRow label="Assignee">
-                {ticket.expand?.assignee?.name || (
-                  <span className="text-secondary">Belum di-assign</span>
-                )}
-              </DetailRow>
-              <DetailRow label="Approval">
-                <span
-                  className={`badge ${
-                    ticket.approval_status === "approved"
-                      ? "text-bg-success"
-                      : ticket.approval_status === "pending"
-                        ? "text-bg-warning"
-                        : ticket.approval_status === "rejected"
-                          ? "text-bg-danger"
-                          : "text-bg-light"
-                  }`}
-                >
-                  {approvalLabel(ticket.approval_status)}
-                </span>
-              </DetailRow>
-              <DetailRow label="Dibuat">
-                {formatDateTime(ticket.created)}
-              </DetailRow>
-              <DetailRow label="Aktivitas terakhir">
-                {formatDateTime(ticket.last_activity_at)}
-              </DetailRow>
+        <aside className="issue-side">
+          <section className="panel">
+            <div className="panel-head">
+              <div className="panel-title">Detail</div>
             </div>
-          </div>
+            <div className="panel-body">
+              <DetailField label="Status">
+                <StatusLozenge status={ticket.status} />
+              </DetailField>
+              <DetailField label="Prioritas">
+                <Priority priority={ticket.priority} />
+              </DetailField>
+              <DetailField label="Dampak">{impactLabel(ticket.impact)}</DetailField>
+              <DetailField label="Jenis">{typeLabel(ticket.type)}</DetailField>
+              <DetailField label="Unit">
+                {ticket.expand?.unit?.name || "—"}
+              </DetailField>
+              <DetailField label="Kategori">
+                {ticket.expand?.category?.name || "—"}
+              </DetailField>
+              <DetailField label="Requester">
+                {ticket.expand?.requester?.name || "—"}
+              </DetailField>
+              <DetailField label="Assignee">
+                {ticket.expand?.assignee?.name || (
+                  <span className="muted">Belum di-assign</span>
+                )}
+              </DetailField>
+              <DetailField label="Approval">
+                <ApprovalLozenge status={ticket.approval_status} />
+              </DetailField>
+              {ticket.approval_note && (
+                <DetailField label="Catatan approval">
+                  {ticket.approval_note}
+                </DetailField>
+              )}
+              {ticket.resolution_summary && (
+                <DetailField label="Resolusi">
+                  <div>{ticket.resolution_summary}</div>
+                </DetailField>
+              )}
+              <DetailField label="Dibuat">
+                {formatDateTime(ticket.created)}
+              </DetailField>
+              <DetailField label="Aktivitas terakhir">
+                {formatDateTime(ticket.last_activity_at)}
+              </DetailField>
+            </div>
+          </section>
 
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-body p-4">
-              <h2 className="h6 fw-bold mb-3">
-                <i className="bi bi-stopwatch text-primary me-2" />
-                SLA
-              </h2>
-              <div className="d-grid gap-2">
-                <SlaPill
-                  label="Batas respons"
-                  dueAt={ticket.response_due_at}
-                  breached={ticket.response_breach_at}
+          <section className="panel">
+            <div className="panel-head">
+              <div className="panel-title">SLA</div>
+            </div>
+            <div className="panel-body">
+              <SlaRow
+                label="Batas respons"
+                dueAt={ticket.response_due_at}
+                breached={ticket.response_breach_at}
+                active={active}
+              />
+              {ticket.approval_due_at && (
+                <SlaRow
+                  label="Batas approval"
+                  dueAt={ticket.approval_due_at}
+                  breached={ticket.approval_breach_at}
                   active={active}
                 />
-                {ticket.approval_due_at && (
-                  <SlaPill
-                    label="Batas approval"
-                    dueAt={ticket.approval_due_at}
-                    breached={ticket.approval_breach_at}
-                    active={active}
-                  />
-                )}
-                {ticket.resolution_due_at && (
-                  <SlaPill
-                    label="Batas selesai"
-                    dueAt={ticket.resolution_due_at}
-                    breached={ticket.resolution_breach_at}
-                    active={active}
-                  />
+              )}
+              {ticket.resolution_due_at && (
+                <SlaRow
+                  label="Batas selesai"
+                  dueAt={ticket.resolution_due_at}
+                  breached={ticket.resolution_breach_at}
+                  active={active}
+                />
+              )}
+
+              <div style={{ marginTop: 12 }}>
+                {ticket.first_response_at ? (
+                  <div className="sla-note is-ok">
+                    <i className="bi bi-check2-circle" aria-hidden="true" />
+                    Respons pertama: {formatDateTime(ticket.first_response_at)}
+                  </div>
+                ) : (
+                  <div className="sla-note is-muted">
+                    <i className="bi bi-hourglass" aria-hidden="true" />
+                    Belum ada respons publik dari tim IT.
+                  </div>
                 )}
               </div>
-              {ticket.first_response_at ? (
-                <div className="small text-success mt-3">
-                  <i className="bi bi-check2-circle me-1" />
-                  Respons pertama: {formatDateTime(ticket.first_response_at)}
-                </div>
-              ) : (
-                <div className="small text-secondary mt-3">
-                  <i className="bi bi-hourglass me-1" />
-                  Belum ada respons publik dari tim IT.
-                </div>
-              )}
             </div>
-          </div>
+          </section>
 
-          <div className="card border-0 shadow-sm">
-            <div className="card-body p-4">
-              <h2 className="h6 fw-bold mb-2">
-                <i className="bi bi-shield-exclamation text-primary me-2" />
-                Pengingat privasi
-              </h2>
-              <p className="small text-secondary mb-0">
-                Tiket ini tidak boleh memuat identitas pasien. Jika Anda
-                menemukan data pasien pada komentar atau lampiran, segera
-                hubungi IT Lead untuk penanganan.
-              </p>
+          <div className="callout callout--info">
+            <i className="bi bi-shield-exclamation" aria-hidden="true" />
+            <div>
+              Tiket ini tidak boleh memuat identitas pasien. Jika Anda menemukan
+              data pasien pada komentar atau lampiran, segera hubungi IT Lead.
             </div>
           </div>
-        </div>
+        </aside>
       </div>
+
+      {resolveOpen && (
+        <Modal
+          title="Selesaikan tiket"
+          description={`${ticket.ticket_no} · ${ticket.title}`}
+          onClose={closeResolve}
+          footer={
+            <>
+              <button
+                className="btn btn-subtle"
+                type="button"
+                onClick={closeResolve}
+                disabled={Boolean(busyAction)}
+              >
+                Batal
+              </button>
+              <button
+                className="btn btn-primary"
+                type="submit"
+                form="resolve-form"
+                disabled={Boolean(busyAction)}
+              >
+                {busyAction === "resolve" ? (
+                  <span className="spinner" aria-hidden="true" />
+                ) : (
+                  <i className="bi bi-check2" aria-hidden="true" />
+                )}
+                Tandai selesai
+              </button>
+            </>
+          }
+        >
+          {actionError && (
+            <div className="alert alert--error" role="alert">
+              <i className="bi bi-exclamation-triangle" aria-hidden="true" />
+              <div>{actionError}</div>
+            </div>
+          )}
+
+          <form id="resolve-form" onSubmit={handleResolve}>
+            <div className="modal-field">
+              <label className="form-label" htmlFor="resolutionSummary">
+                Ringkasan resolusi <span className="req">*</span>
+              </label>
+              <textarea
+                id="resolutionSummary"
+                className="textarea"
+                rows={4}
+                autoFocus
+                minLength={10}
+                maxLength={5000}
+                placeholder="Jelaskan penyebab dan langkah perbaikan yang dilakukan..."
+                value={resolutionSummary}
+                onChange={(event) =>
+                  setResolutionSummary(event.target.value)
+                }
+                required
+              />
+              <div className="char-count">
+                <span>Terlihat pada riwayat tiket.</span>
+                <span>{resolutionSummary.length}/5.000</span>
+              </div>
+            </div>
+
+            <div className="modal-field">
+              <label className="form-label" htmlFor="resolutionCode">
+                Kode resolusi
+              </label>
+              <select
+                id="resolutionCode"
+                className="select"
+                value={resolutionCode}
+                onChange={(event) => setResolutionCode(event.target.value)}
+              >
+                {RESOLUTION_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {approvalDecision && (
+        <Modal
+          title={
+            approvalDecision === "approved"
+              ? approvalRejected
+                ? "Setujui ulang permintaan"
+                : "Setujui permintaan"
+              : "Tolak permintaan"
+          }
+          description={`${ticket.ticket_no} · ${ticket.title}`}
+          onClose={closeApproval}
+          footer={
+            <>
+              <button
+                className="btn btn-subtle"
+                type="button"
+                onClick={closeApproval}
+                disabled={Boolean(busyAction)}
+              >
+                Batal
+              </button>
+              <button
+                className={
+                  approvalDecision === "approved"
+                    ? "btn btn-primary"
+                    : "btn btn-danger"
+                }
+                type="button"
+                onClick={handleApproval}
+                disabled={Boolean(busyAction)}
+              >
+                {busyAction === "approval" ? (
+                  <span className="spinner" aria-hidden="true" />
+                ) : (
+                  <i
+                    className={`bi ${
+                      approvalDecision === "approved"
+                        ? "bi-check-lg"
+                        : "bi-x-lg"
+                    }`}
+                    aria-hidden="true"
+                  />
+                )}
+                {approvalDecision === "approved"
+                  ? approvalRejected
+                    ? "Setujui ulang permintaan"
+                    : "Setujui permintaan"
+                  : "Tolak permintaan"}
+              </button>
+            </>
+          }
+        >
+          {actionError && (
+            <div className="alert alert--error" role="alert">
+              <i className="bi bi-exclamation-triangle" aria-hidden="true" />
+              <div>{actionError}</div>
+            </div>
+          )}
+
+          <div className="modal-field">
+            <label className="form-label" htmlFor="approvalNote">
+              Catatan approval
+              {approvalDecision === "rejected" && (
+                <span className="req"> *</span>
+              )}
+            </label>
+            <textarea
+              id="approvalNote"
+              className="textarea"
+              rows={4}
+              maxLength={2000}
+              autoFocus
+              placeholder={
+                approvalDecision === "approved"
+                  ? "Catatan persetujuan (opsional)..."
+                  : "Alasan penolakan..."
+              }
+              value={approvalNote}
+              onChange={(event) => setApprovalNote(event.target.value)}
+            />
+            <div className="hint">
+              Catatan ini tersimpan di tiket dan audit log.
+            </div>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

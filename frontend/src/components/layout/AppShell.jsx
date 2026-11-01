@@ -1,15 +1,60 @@
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { initials } from "../../lib/format";
 import { isStaff, roleLabel } from "../../lib/permissions";
+import BrandMark from "../ui/BrandMark";
 
 function navClass({ isActive }) {
-  return `nav-link app-nav-link${isActive ? " active" : ""}`;
+  return `sidebar-link${isActive ? " is-active" : ""}`;
 }
 
 export default function AppShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const menuRef = useRef(null);
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const ticketDetailActive =
+    /^\/tickets\/[^/]+$/.test(location.pathname) &&
+    location.pathname !== "/tickets/new";
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        setNavOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+
+    function handlePointerDown(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [menuOpen]);
 
   function handleLogout() {
     logout();
@@ -17,109 +62,152 @@ export default function AppShell() {
   }
 
   return (
-    <div className="min-vh-100 bg-itsm d-flex flex-column">
-      <nav className="navbar navbar-expand-lg app-navbar sticky-top">
-        <div className="container-xxl">
-          <Link className="navbar-brand app-brand" to="/tickets">
-            <span className="app-brand-mark">
-              <i className="bi bi-plus-lg" aria-hidden="true" />
-            </span>
-            <span>
-              Healthcare <strong>ITSM</strong>
-            </span>
+    <>
+      <header className="topbar">
+        <button
+          className="icon-button nav-toggle"
+          type="button"
+          onClick={() => setNavOpen((value) => !value)}
+          aria-label="Buka navigasi"
+          aria-expanded={navOpen}
+        >
+          <i className={`bi ${navOpen ? "bi-x-lg" : "bi-list"}`} />
+        </button>
+
+        <Link className="topbar-brand" to="/tickets">
+          <BrandMark size={24} />
+          <span className="brand-name">
+            Healthcare <span>ITSM</span>
+          </span>
+        </Link>
+
+        <span className="topbar-divider" aria-hidden="true" />
+        <span className="topbar-context">Service desk</span>
+
+        <div className="topbar-spacer" />
+
+        <div className="topbar-actions">
+          <Link
+            className="btn btn-primary topbar-create"
+            to="/tickets/new"
+            aria-label="Buat tiket"
+          >
+            <i className="bi bi-plus-lg" aria-hidden="true" />
+            <span>Buat</span>
           </Link>
 
-          <button
-            className="navbar-toggler border-0 shadow-none"
-            type="button"
-            data-bs-toggle="collapse"
-            data-bs-target="#mainNav"
-            aria-controls="mainNav"
-            aria-expanded="false"
-            aria-label="Buka navigasi"
-          >
-            <i className="bi bi-list fs-3 text-white" />
-          </button>
+          <div className="user-menu" ref={menuRef}>
+            <button
+              className="user-trigger"
+              type="button"
+              onClick={() => setMenuOpen((value) => !value)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >
+              <span className="avatar">{initials(user?.name)}</span>
+              <span className="user-copy">
+                <span className="user-name">{user?.name}</span>
+                <span className="user-role">{roleLabel(user)}</span>
+              </span>
+              <i
+                className={`bi ${menuOpen ? "bi-chevron-up" : "bi-chevron-down"}`}
+                aria-hidden="true"
+              />
+            </button>
 
-          <div className="collapse navbar-collapse" id="mainNav">
-            <ul className="navbar-nav me-auto mb-2 mb-lg-0 ms-lg-4 gap-lg-1">
-              <li className="nav-item">
-                <NavLink className={navClass} to="/tickets" end>
-                  <i className="bi bi-ticket-detailed me-1" />
-                  Tiket
-                </NavLink>
-              </li>
-              <li className="nav-item">
-                <NavLink className={navClass} to="/tickets/new">
-                  <i className="bi bi-plus-circle me-1" />
-                  Tiket Baru
-                </NavLink>
-              </li>
-              {isStaff(user) && (
-                <li className="nav-item">
-                  <span className="nav-link app-nav-link disabled">
-                    <i className="bi bi-grid me-1" />
-                    Dashboard
-                    <span className="badge text-bg-light ms-2">soon</span>
-                  </span>
-                </li>
-              )}
-            </ul>
-
-            <div className="dropdown">
-              <button
-                className="btn btn-user dropdown-toggle d-flex align-items-center gap-2"
-                type="button"
-                data-bs-toggle="dropdown"
-                aria-expanded="false"
-              >
-                <span className="avatar-circle">{initials(user?.name)}</span>
-                <span className="text-start d-none d-sm-block">
-                  <span className="d-block small fw-semibold lh-1">
-                    {user?.name}
-                  </span>
-                  <span className="d-block app-user-role">
-                    {roleLabel(user)}
-                  </span>
-                </span>
-              </button>
-              <ul className="dropdown-menu dropdown-menu-end shadow border-0 mt-2">
-                <li>
-                  <span className="dropdown-item-text small text-secondary">
-                    {user?.email}
-                  </span>
-                </li>
-                <li>
-                  <hr className="dropdown-divider" />
-                </li>
-                <li>
-                  <button
-                    className="dropdown-item text-danger"
-                    type="button"
-                    onClick={handleLogout}
-                  >
-                    <i className="bi bi-box-arrow-right me-2" />
-                    Keluar
-                  </button>
-                </li>
-              </ul>
-            </div>
+            {menuOpen && (
+              <div className="menu" role="menu">
+                <div className="menu-header">
+                  <div className="menu-email">{user?.email}</div>
+                </div>
+                <button
+                  className="menu-item is-danger"
+                  type="button"
+                  role="menuitem"
+                  onClick={handleLogout}
+                >
+                  <i className="bi bi-box-arrow-right" aria-hidden="true" />
+                  Keluar
+                </button>
+              </div>
+            )}
           </div>
         </div>
-      </nav>
+      </header>
 
-      <main className="container-xxl py-4 flex-grow-1">
-        <Outlet />
-      </main>
+      <div className="app-body">
+        <aside
+          id="app-sidebar"
+          className={`sidebar${navOpen ? " is-open" : ""}`}
+        >
+          <div className="project-summary">
+            <span className="project-avatar" aria-hidden="true">
+              SD
+            </span>
+            <div>
+              <div className="project-name">Service Desk</div>
+              <div className="project-meta">Layanan TI rumah sakit</div>
+            </div>
+          </div>
 
-      <footer className="app-footer">
-        <div className="container-xxl d-flex flex-wrap justify-content-between gap-2 py-3">
-          <span>Healthcare ITSM · Tata kelola layanan TI rumah sakit</span>
-          <span className="text-secondary">
-            Jangan memasukkan identitas atau data pasien ke dalam tiket.
-          </span>
-        </div>
-      </footer>
-    </div>
+          <nav aria-label="Navigasi utama">
+            <div className="sidebar-heading">Ruang kerja</div>
+
+            <NavLink
+              className={({ isActive }) =>
+                `sidebar-link${isActive || ticketDetailActive ? " is-active" : ""}`
+              }
+              to="/tickets"
+              end
+            >
+              <i className="bi bi-ticket-detailed" aria-hidden="true" />
+              Tiket
+            </NavLink>
+
+            <NavLink className={navClass} to="/tickets/new">
+              <i className="bi bi-plus-square" aria-hidden="true" />
+              Buat tiket
+            </NavLink>
+
+            {isStaff(user) && (
+              <span
+                className="sidebar-link is-disabled"
+                aria-disabled="true"
+                title="Belum tersedia"
+              >
+                <i className="bi bi-grid" aria-hidden="true" />
+                Dashboard
+                <span className="sidebar-badge">Soon</span>
+              </span>
+            )}
+          </nav>
+
+          <div className="sidebar-footer">
+            <div className="privacy-note">
+              <i className="bi bi-shield-check" aria-hidden="true" />
+              <span>
+                Jangan menuliskan nama, NIK, atau nomor rekam medis pasien di
+                tiket.
+              </span>
+            </div>
+          </div>
+        </aside>
+
+        {navOpen && (
+          <button
+            type="button"
+            className="nav-backdrop"
+            aria-label="Tutup navigasi"
+            onClick={() => setNavOpen(false)}
+          />
+        )}
+
+        <main className="main">
+          <div className="page">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </>
   );
 }
