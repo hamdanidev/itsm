@@ -1,4 +1,4 @@
-// NOTE: PocketBase hook callbacks run in a fresh VM context, so helper
+﻿// NOTE: PocketBase hook callbacks run in a fresh VM context, so helper
 // functions/constants declared at file top-level are not available inside
 // router callbacks. Keep shared values inside each handler.
 
@@ -546,12 +546,13 @@ routerAdd(
   (e) => {
     var guards = require(__hooks + "/lib/guards.js");
     var audit = require(__hooks + "/lib/audit.js");
+    var notify = require(__hooks + "/lib/notify.js");
+    var approvals = require(__hooks + "/lib/approvals.js");
 
     var auth = guards.requireAuth(e);
-    guards.assertLead(auth);
-
     var ticket = guards.findTicket(e, e.request.pathValue("id"));
     guards.assertTicketAccess(e, ticket);
+
     var body = e.requestInfo().body || {};
     var decision = String(body.decision || "");
     var note = guards.cleanText(body.note, 2000);
@@ -564,25 +565,26 @@ routerAdd(
         "Alasan penolakan wajib diisi minimal 5 karakter"
       );
     }
-
     if (String(ticket.get("type")) === "incident") {
       throw new BadRequestError("Incident tidak memerlukan approval");
     }
 
     var result;
+    var responseStep = 0;
+    var responseTotal = 0;
 
     $app.runInTransaction((txApp) => {
       var current = txApp.findRecordById("tickets", ticket.id);
-      var currentApproval = String(current.get("approval_status") || "");
       var status = String(current.get("status") || "");
       var now = new Date().toISOString();
+      var lead = guards.isLead(auth);
 
       if (["resolved", "closed"].indexOf(status) >= 0) {
         throw new BadRequestError(
           "Tiket sudah selesai atau ditutup; approval tidak dapat diubah"
         );
       }
-      if (["in_progress"].indexOf(status) >= 0) {
+      if (status === "in_progress") {
         throw new BadRequestError(
           "Pekerjaan sudah dimulai; approval tidak dapat diubah"
         );
@@ -592,45 +594,132 @@ routerAdd(
           "Approval hanya dapat diproses sebelum pekerjaan dimulai"
         );
       }
-      if (currentApproval === "approved") {
-        throw new BadRequestError("Approval tiket ini sudah disetujui");
-      }
-      if (currentApproval === "rejected" && decision === "rejected") {
-        throw new BadRequestError("Approval tiket ini sudah ditolak");
+
+      var steps = approvals.listSteps(txApp, current.id);
+      responseTotal = steps.length;
+      var currentApproval = String(current.get("approval_status") || "");
+
+      var pending = [];
+      for (var i = 0; i < steps.length; i++) {
+        if (String(steps[i].get("status")) === "pending") pending.push(steps[i]);
       }
 
-      current.set("approval_status", decision);
-      current.set("approved_by", auth.id);
-      current.set("approved_at", now);
-      current.set("approval_note", note);
-      current.set("last_activity_at", now);
+      var step = pending.length ? pending[0] : null;
+
+      if (currentApproval === "rejected") {
+        if (!lead) {
+          throw new ForbiddenError(
+            "Approval ditolak; hanya IT Lead yang dapat menyetujui ulang"
+          );
+        }
+        if (decision === "rejected") {
+          throw new BadRequestError("Approval tiket ini sudah ditolak");
+        }
+
+        // Override: semua tahap, termasuk yang sudah ditolak, disetujui.
+        step = null;
+      } else if (!step) {
+        if (currentApproval === "approved") {
+          throw new BadRequestError("Approval tiket ini sudah disetujui");
+        }
+        if (!lead) {
+          throw new ForbiddenError("Approval sedang tidak menunggu keputusan");
+        }
+        if (decision === "rejected") {
+          throw new BadRequestError("Tidak ada tahap yang menunggu penolakan");
+        }
+      } else {
+        var approverId = String(step.get("approver") || "");
+        var allowed = lead || (approverId !== "" && approverId === auth.id);
+
+        if (!allowed) {
+          throw new ForbiddenError(
+            "Anda bukan approver untuk tahap ini"
+          );
+        }
+
+        responseStep = Number(step.get("step")) || 0;
+      }
 
       if (decision === "approved") {
-        // Setelah approval, gerbang SLA berpindah ke penyelesaian (SR/incident)
-        // atau jadwal implementasi (CR).
-        var nextDue =
-          String(current.get("type")) === "change_request"
-            ? String(current.get("planned_end") || "") ||
-              String(current.get("resolution_due_at") || "")
-            : String(current.get("resolution_due_at") || "");
-        if (nextDue) current.set("next_due_at", nextDue);
+        if (step) {
+          step.set("status", "approved");
+          step.set("acted_by", auth.id);
+          step.set("acted_at", now);
+          step.set("note", note);
+          txApp.save(step);
+        } else {
+          // Override IT Lead untuk tiket yang sebelumnya ditolak.
+          for (var oi = 0; oi < steps.length; oi++) {
+            if (String(steps[oi].get("status")) === "approved") continue;
+            steps[oi].set("status", "approved");
+            steps[oi].set("acted_by", auth.id);
+            steps[oi].set("acted_at", now);
+            steps[oi].set("note", note);
+            txApp.save(steps[oi]);
+          }
+        }
+
+        var next = null;
+        for (var j = 0; j < steps.length; j++) {
+          if (String(steps[j].get("status")) === "pending") {
+            next = steps[j];
+            break;
+          }
+        }
+
+        if (next) {
+          current.set("approval_status", "pending");
+          approvals.notifyStep(txApp, current, next);
+        } else {
+          // Setelah final approval, gerbang SLA pindah ke penyelesaian (SR)
+          // atau jadwal implementasi (CR).
+          var nextDue =
+            String(current.get("type")) === "change_request"
+              ? String(current.get("planned_end") || "") ||
+                String(current.get("resolution_due_at") || "")
+              : String(current.get("resolution_due_at") || "");
+
+          if (nextDue) current.set("next_due_at", nextDue);
+
+          current.set("approval_status", "approved");
+          current.set("approved_by", auth.id);
+          current.set("approved_at", now);
+          current.set("approval_note", note);
+
+          notify.create(txApp, {
+            tenant: String(current.get("tenant")),
+            user: String(current.get("requester") || ""),
+            ticket: current.id,
+            actor: auth.id,
+            type: "approval",
+            title: "Permintaan disetujui",
+            body: notify.ticketLabel(current),
+          });
+        }
+      } else {
+        step.set("status", "rejected");
+        step.set("acted_by", auth.id);
+        step.set("acted_at", now);
+        step.set("note", note);
+        txApp.save(step);
+
+        current.set("approval_status", "rejected");
+        current.set("approval_note", note);
+
+        notify.create(txApp, {
+          tenant: String(current.get("tenant")),
+          user: String(current.get("requester") || ""),
+          ticket: current.id,
+          actor: auth.id,
+          type: "approval",
+          title: "Permintaan ditolak",
+          body: notify.ticketLabel(current),
+        });
       }
 
+      current.set("last_activity_at", now);
       txApp.save(current);
-
-      var notify = require(__hooks + "/lib/notify.js");
-      notify.create(txApp, {
-        tenant: String(current.get("tenant")),
-        user: String(current.get("requester") || ""),
-        ticket: current.id,
-        actor: auth.id,
-        type: "approval",
-        title:
-          decision === "approved"
-            ? "Permintaan disetujui"
-            : "Permintaan ditolak",
-        body: notify.ticketLabel(current),
-      });
 
       var meta = audit.requestMeta(e);
       audit.write(txApp, {
@@ -640,7 +729,13 @@ routerAdd(
         action: decision === "approved" ? "approve" : "reject",
         collection_name: "tickets",
         record_id: current.id,
-        changes: { decision: decision, note: note },
+        changes: {
+          decision: decision,
+          note: note,
+          step: responseStep,
+          total_steps: responseTotal,
+          kind: step ? String(step.get("kind")) : "override",
+        },
         ip: meta.ip,
         user_agent: meta.user_agent,
       });
@@ -651,8 +746,11 @@ routerAdd(
     return e.json(200, {
       id: result.id,
       approval_status: String(result.get("approval_status")),
+      step: responseStep,
+      total_steps: responseTotal,
       approved_at: String(result.get("approved_at") || ""),
     });
   },
   $apis.requireAuth()
 );
+

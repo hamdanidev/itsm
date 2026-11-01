@@ -35,6 +35,11 @@ export default function useTicketRealtime(ticketId, onEvent) {
         (event) => notify(event, "attachment"),
         { filter: `ticket = "${ticketId}"` }
       ),
+      pb.collection("ticket_approvals").subscribe(
+        "*",
+        (event) => notify(event, "approval"),
+        { filter: `ticket = "${ticketId}"` }
+      ),
     ];
 
     Promise.all(subscriptions)

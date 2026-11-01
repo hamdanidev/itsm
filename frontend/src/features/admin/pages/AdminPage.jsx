@@ -63,7 +63,13 @@ const DAYS = [
 ];
 
 const EMPTY_FORM = {
-  units: { name: "", code: "", kind: "clinical", is_active: true },
+  units: {
+    name: "",
+    code: "",
+    kind: "clinical",
+    manager: "",
+    is_active: true,
+  },
   categories: { name: "", code: "", kind: "all", is_active: true },
   policies: {
     name: "",
@@ -118,11 +124,21 @@ function sortPolicies(items) {
 }
 
 function formFromRecord(tab, record) {
-  if (tab === "units" || tab === "categories") {
+  if (tab === "units") {
     return {
       name: record.name || "",
       code: record.code || "",
-      kind: record.kind || (tab === "units" ? "clinical" : "all"),
+      kind: record.kind || "clinical",
+      manager: record.manager || "",
+      is_active: Boolean(record.is_active),
+    };
+  }
+
+  if (tab === "categories") {
+    return {
+      name: record.name || "",
+      code: record.code || "",
+      kind: record.kind || "all",
       is_active: Boolean(record.is_active),
     };
   }
@@ -162,6 +178,7 @@ export default function AdminPage() {
     policies: [],
     holidays: [],
   });
+  const [people, setPeople] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -177,11 +194,14 @@ export default function AdminPage() {
     setError("");
 
     try {
-      const [units, categories, policies, holidays] = await Promise.all([
-        pb.collection("units").getFullList({ sort: "name" }),
+      const [units, categories, policies, holidays, users] = await Promise.all([
+        pb.collection("units").getFullList({ sort: "name", expand: "manager" }),
         pb.collection("ticket_categories").getFullList({ sort: "name" }),
         pb.collection("sla_policies").getFullList(),
         pb.collection("holidays").getFullList({ sort: "date" }),
+        pb
+          .collection("users")
+          .getFullList({ filter: "is_active = true", sort: "name" }),
       ]);
 
       setData({
@@ -190,6 +210,7 @@ export default function AdminPage() {
         policies: sortPolicies(policies),
         holidays,
       });
+      setPeople(users);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -551,6 +572,7 @@ export default function AdminPage() {
           <th>Nama unit</th>
           <th className="col-code">Kode</th>
           <th>Jenis</th>
+          <th>Manajer</th>
           <th className="col-status">Status</th>
           <th className="col-actions">Aksi</th>
         </tr>
@@ -606,6 +628,11 @@ export default function AdminPage() {
             <code>{record.code}</code>
           </td>
           <td>{labelOf(UNIT_KINDS, record.kind)}</td>
+          <td>
+            {record.expand?.manager?.name || (
+              <span className="muted">Belum ada</span>
+            )}
+          </td>
           <td className="col-status">{activeLozenge(record.is_active)}</td>
         </>
       );
@@ -711,6 +738,31 @@ export default function AdminPage() {
               </select>
             </div>
           </div>
+
+          {modal.tab === "units" && (
+            <div className="field-row" style={{ marginTop: 16 }}>
+              <label className="form-label" htmlFor="admin-manager">
+                Manajer unit
+              </label>
+              <select
+                id="admin-manager"
+                className="select"
+                value={form.manager}
+                onChange={(event) => setField("manager", event.target.value)}
+              >
+                <option value="">Belum ditentukan</option>
+                {people.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name} · {person.email}
+                  </option>
+                ))}
+              </select>
+              <div className="hint">
+                Approver tahap pertama untuk tiket unit ini. Bila kosong,
+                approval langsung ke IT Lead.
+              </div>
+            </div>
+          )}
         </>
       );
     }

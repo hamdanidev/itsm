@@ -15,7 +15,7 @@ AUTH     = @request.auth.id != "" && @request.auth.is_active = true
 TENANT   = tenant = @request.auth.tenant
 STAFF    = (@request.auth.role = "it_support" || @request.auth.role = "it_lead")
 LEAD     = @request.auth.role = "it_lead"
-TICKET_R = (requester = @request.auth.id || assignee = @request.auth.id || STAFF)
+TICKET_R = (requester = @request.auth.id || assignee = @request.auth.id || unit.manager = @request.auth.id || STAFF)
 ```
 
 Semua koleksi bisnis memiliki `tenant`. Server mengambil tenant dari `e.auth`,
@@ -65,7 +65,12 @@ Provisioning akun hanya superuser. `onRecordEnrich` menyembunyikan `phone`,
 
 ### `units`
 
-`tenant`, `name`, `code`, `kind` (`clinical/support/management`), `is_active`.
+`tenant`, `name`, `code`, `kind` (`clinical/support/management`), `manager`
+(relasi user, opsional), `is_active`.
+
+`manager` adalah approver tahap pertama untuk tiket unit tersebut. Boleh user
+ber-role apa pun (manajer unit tidak harus staf IT); rule baca tiket, komentar,
+dan lampiran diperluas ke `unit.manager`.
 
 Rules:
 
@@ -127,6 +132,9 @@ pekerjaan: `approval_due_at` selama SR/CR belum diputuskan, lalu
 Field ini diisi hook saat create/approval dan dipakai untuk `sort=due`.
 
 Approval: `approval_status`, `approved_by`, `approved_at`, `approval_note`.
+Rincian per tahap ada di collection `ticket_approvals`; `approval_status`
+menjadi ringkasan (`pending` selama masih ada tahap menunggu, `approved` setelah
+semua tahap setuju, `rejected` bila satu tahap menolak).
 
 Change: `change_risk`, `implementation_plan`, `rollback_plan`, `planned_start`,
 `planned_end`, `actual_start`, `actual_end`, `change_outcome`.
@@ -168,6 +176,25 @@ Rules:
 | Create/Update/Delete | `null` |
 
 Maksimal 3 lampiran per tiket. File diakses dengan file token.
+
+### `ticket_approvals`
+
+`tenant`, `ticket`, `step` (number), `kind` (`unit_manager/it_lead`), `approver`
+(relasi user; kosong untuk tahap IT Lead), `status` (`pending/approved/rejected`),
+`note`, `acted_by`, `acted_at`, `created`, `updated`.
+
+Rules:
+
+| Aksi | Rule |
+|---|---|
+| List/View | `AUTH && TENANT && TICKET_R` |
+| Create/Update/Delete | `null` (hanya route approval) |
+
+Dibuat otomatis saat Service/Change Request dibuat: tahap 1 = manajer unit
+pemohon (bila `units.manager` aktif), tahap 2 = IT Lead. Pekerjaan baru boleh
+dimulai setelah semua tahap `approved`. Penolakan menghentikan alur; IT Lead
+dapat override dengan menyetujui semua tahap yang tersisa. Backfill migrasi
+membuat satu tahap `it_lead` untuk tiket lama.
 
 ### `notifications`
 
@@ -231,7 +258,8 @@ Gate utama:
 
 - `assigned`: assignee wajib; SR/CR harus approved.
 - `in_progress`: assignee wajib; dari `waiting` berarti melanjutkan pekerjaan
-  dan menggeser tenggat SLA sebesar durasi jeda.
+  dan menggeser tenggat SLA sebesar durasi jeda; SR/CR harus semua tahap
+  approval approved.
 - `waiting`: hanya dari assigned/in_progress oleh assignee atau IT Lead;
   `sla_paused_at` diisi dan jam penyelesaian dijeda. Resolve tidak diizinkan
   langsung dari waiting.
@@ -275,7 +303,7 @@ Jeda dan recompute:
 | POST | `/api/itsm/tickets` | Buat tiket |
 | POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee |
 | POST | `/api/itsm/tickets/{id}/transition` | Mulai, menunggu/lanjutkan, selesaikan, tutup, buka kembali |
-| POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak (IT Lead) |
+| POST | `/api/itsm/tickets/{id}/approval` | Setujui/tolak tahap approval aktif |
 | POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
 | POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran |
 | GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
@@ -301,7 +329,9 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 
 ## Known limitations
 
-- Approval masih satu level (IT Lead), belum berjenjang.
+- Approval dua tahap (manajer unit → IT Lead); tahap ketiga untuk Change
+  Request berisiko tinggi dan delegasi approver belum ada.
+- SLA approval masih satu `approval_due_at`, belum per tahap.
 - Eskalasi Level 3 terlihat in-app (badge + timeline + notifikasi); belum ada
   email/WhatsApp.
 - Dashboard belum punya tren historis atau ekspor; agregatnya dihitung di

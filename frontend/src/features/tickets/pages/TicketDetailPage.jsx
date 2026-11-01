@@ -59,6 +59,23 @@ const SLA_FIELD_LABELS = {
   resolution_due_at: "batas penyelesaian",
 };
 
+const APPROVAL_KIND_LABELS = {
+  unit_manager: "Manajer unit",
+  it_lead: "IT Lead",
+};
+
+const APPROVAL_STATUS_LABELS = {
+  pending: "Menunggu",
+  approved: "Disetujui",
+  rejected: "Ditolak",
+};
+
+const APPROVAL_STATUS_TONES = {
+  pending: "status-in_progress",
+  approved: "status-resolved",
+  rejected: "status-reopened",
+};
+
 function eventMeta(event) {
   const changes = event.changes || {};
 
@@ -285,30 +302,38 @@ export default function TicketDetailPage() {
 
   const [approvalDecision, setApprovalDecision] = useState("");
   const [approvalNote, setApprovalNote] = useState("");
+  const [approvalSteps, setApprovalSteps] = useState([]);
 
   const loadData = useCallback(async () => {
     setError("");
     try {
-      const [ticketRecord, commentList, attachmentList] = await Promise.all([
-        pb.collection("tickets").getOne(id, {
-          expand:
-            "requester,assignee,unit,category,approved_by,resolved_by,closed_by",
-        }),
-        pb.collection("ticket_comments").getFullList({
-          filter: `ticket = "${id}"`,
-          sort: "created",
-          expand: "author",
-        }),
-        pb.collection("ticket_attachments").getFullList({
-          filter: `ticket = "${id}"`,
-          sort: "created",
-          expand: "uploader,comment",
-        }),
-      ]);
+      const [ticketRecord, commentList, attachmentList, stepList] =
+        await Promise.all([
+          pb.collection("tickets").getOne(id, {
+            expand:
+              "requester,assignee,unit,category,approved_by,resolved_by,closed_by",
+          }),
+          pb.collection("ticket_comments").getFullList({
+            filter: `ticket = "${id}"`,
+            sort: "created",
+            expand: "author",
+          }),
+          pb.collection("ticket_attachments").getFullList({
+            filter: `ticket = "${id}"`,
+            sort: "created",
+            expand: "uploader,comment",
+          }),
+          pb.collection("ticket_approvals").getFullList({
+            filter: `ticket = "${id}"`,
+            sort: "step",
+            expand: "approver,acted_by",
+          }),
+        ]);
 
       setTicket(ticketRecord);
       setComments(commentList);
       setAttachments(attachmentList);
+      setApprovalSteps(stepList);
       document.title = `${ticketRecord.ticket_no} · Healthcare ITSM`;
     } catch (err) {
       setError(getErrorMessage(err));
@@ -650,11 +675,17 @@ export default function TicketDetailPage() {
     ["resolved", "closed"].includes(status) &&
     (staff || ticket.requester === user?.id);
   const canAssign = staff && !["resolved", "closed"].includes(status);
+  const currentApproval = approvalSteps.find(
+    (step) => step.status === "pending"
+  );
   const canApprove =
-    lead &&
     approvalRequired &&
     !approvalApproved &&
-    ["open", "assigned", "reopened"].includes(status);
+    ["open", "assigned", "reopened"].includes(status) &&
+    (approvalRejected
+      ? lead
+      : lead ||
+        Boolean(currentApproval && currentApproval.approver === user?.id));
 
   const primaryAction = canApprove
     ? "approve"
@@ -670,7 +701,7 @@ export default function TicketDetailPage() {
               ? "reopen"
               : "";
 
-  const showActions = staff || canReopen;
+  const showActions = staff || canReopen || canApprove;
 
   return (
     <>
@@ -703,6 +734,16 @@ export default function TicketDetailPage() {
               {Number(ticket.escalation_level) >= 2 && (
                 <span className="lozenge status-reopened">
                   Eskalasi L{ticket.escalation_level}
+                </span>
+              )}
+              {approvalSteps.length > 1 && currentApproval && (
+                <span className="lozenge lozenge--neutral">
+                  Approval {currentApproval.step}/{approvalSteps.length}
+                </span>
+              )}
+              {approvalSteps.length > 0 && approvalApproved && (
+                <span className="lozenge status-resolved">
+                  Approval disetujui
                 </span>
               )}
               <span className="issue-meta-sep" aria-hidden="true" />
@@ -1352,6 +1393,59 @@ export default function TicketDetailPage() {
             </div>
           </section>
 
+          {approvalSteps.length > 0 && (
+            <section className="panel">
+              <div className="panel-head">
+                <div className="panel-title">Approval</div>
+                <span className="panel-count">
+                  {approvalSteps.filter((step) => step.status === "approved").length}
+                  /{approvalSteps.length} disetujui
+                </span>
+              </div>
+              <div className="panel-body">
+                <ol className="approval-steps">
+                  {approvalSteps.map((step) => (
+                    <li
+                      key={step.id}
+                      className={`approval-step is-${step.status}${
+                        currentApproval?.id === step.id ? " is-current" : ""
+                      }`}
+                    >
+                      <span className="approval-step-no">{step.step}</span>
+                      <div className="approval-step-copy">
+                        <div className="approval-step-head">
+                          <span className="approval-step-title">
+                            {APPROVAL_KIND_LABELS[step.kind] || step.kind}
+                          </span>
+                          <span
+                            className={`lozenge ${
+                              APPROVAL_STATUS_TONES[step.status] ||
+                              "lozenge--neutral"
+                            }`}
+                          >
+                            {APPROVAL_STATUS_LABELS[step.status] || step.status}
+                          </span>
+                        </div>
+                        <div className="approval-step-meta">
+                          {step.expand?.approver?.name ||
+                            (step.kind === "it_lead"
+                              ? "Salah satu IT Lead"
+                              : "—")}
+                          {step.acted_at
+                            ? ` · ${formatRelative(step.acted_at)}`
+                            : ""}
+                        </div>
+                        {step.note && step.status !== "pending" && (
+                          <div className="approval-step-note">{step.note}</div>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </section>
+          )}
+
           <section className="panel">
             <div className="panel-head">
               <div className="panel-title">SLA</div>
@@ -1508,7 +1602,13 @@ export default function TicketDetailPage() {
                 : "Setujui permintaan"
               : "Tolak permintaan"
           }
-          description={`${ticket.ticket_no} · ${ticket.title}`}
+          description={`${ticket.ticket_no} · ${ticket.title}${
+            currentApproval
+              ? ` · Tahap ${currentApproval.step} dari ${approvalSteps.length}`
+              : approvalRejected
+                ? " · Setujui ulang"
+                : ""
+          }`}
           onClose={closeApproval}
           footer={
             <>

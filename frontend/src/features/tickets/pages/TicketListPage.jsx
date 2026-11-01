@@ -150,10 +150,33 @@ export default function TicketListPage() {
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [managesUnit, setManagesUnit] = useState(false);
 
   useEffect(() => {
     document.title = "Tiket · Healthcare ITSM";
   }, []);
+
+  useEffect(() => {
+    if (!user?.id || isStaff(user)) {
+      setManagesUnit(false);
+      return undefined;
+    }
+
+    let active = true;
+
+    pb.collection("units")
+      .getList(1, 1, { filter: `manager = "${user.id}"` })
+      .then((result) => {
+        if (active) setManagesUnit(result.totalItems > 0);
+      })
+      .catch(() => {
+        if (active) setManagesUnit(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   const updateParams = useCallback(
     (patch) => {
@@ -301,11 +324,13 @@ export default function TicketListPage() {
     <>
       <PageHeader
         breadcrumb={[{ label: "Service desk" }, { label: "Tiket" }]}
-        title={isStaff(user) ? "Tiket" : "Tiket saya"}
+        title={isStaff(user) || managesUnit ? "Tiket" : "Tiket saya"}
         description={
           isStaff(user)
             ? "Antrean insiden, permintaan layanan, dan perubahan SIMRS."
-            : "Status dan riwayat tiket yang Anda laporkan."
+            : managesUnit
+              ? "Tiket yang Anda laporkan dan tiket unit yang Anda kelola."
+              : "Status dan riwayat tiket yang Anda laporkan."
         }
       />
 

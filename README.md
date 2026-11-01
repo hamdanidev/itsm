@@ -4,14 +4,14 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **Stage 9 notifications slice** — autentikasi staff, intake tiga
+Status saat ini: **Stage 10 approval slice** — autentikasi staff, intake tiga
 jenis tiket, daftar tiket dengan pagination/filter/URL state, dashboard antrean
 kerja, detail tiket dengan riwayat aktivitas + pembaruan realtime, assignment,
 transisi status termasuk `waiting` dengan jeda SLA, recompute SLA saat reopen,
-eskalasi berjenjang, approval IT Lead, komentar publik/internal, lampiran
-terproteksi, pengaturan unit/kategori/SLA/hari libur dari dalam aplikasi,
-notifikasi in-app (bell + halaman notifikasi), SLA awal + breach scan, dan audit
-log.
+eskalasi berjenjang, approval dua tahap (manajer unit → IT Lead), komentar
+publik/internal, lampiran terproteksi, pengaturan unit/kategori/SLA/hari libur
+dari dalam aplikasi, notifikasi in-app (bell + halaman notifikasi), SLA awal +
+breach scan, dan audit log.
 
 ## Stack
 
@@ -155,19 +155,43 @@ Status: `open → assigned → in_progress → resolved → closed`, dengan `wai
 (menunggu requester) dari `assigned`/`in_progress`, dan `reopened` dari
 `resolved`/`closed`.
 
-| Aksi | Requester | IT Support | IT Lead | Aturan |
-|---|---|---|---|---|
-| Assign | — | ke diri sendiri | ke staf IT mana pun / lepas | Hanya staf aktif di tenant yang sama |
-| Mulai kerjakan | — | assignee atau tiket belum di-assign | ya | Service/Change Request harus sudah approved; tiket tanpa assignee otomatis di-claim |
-| Menunggu requester | — | assignee | ya | Dari assigned/in_progress; jam penyelesaian dijeda, komentar tetap bisa ditambahkan |
-| Lanjutkan | — | assignee | ya | Dari waiting; tenggat penyelesaian digeser sebesar durasi jeda |
-| Selesaikan | — | assignee | ya | Wajib ringkasan resolusi ≥ 10 karakter + kode resolusi; approval harus approved untuk non-incident; tidak bisa dari waiting |
-| Tutup | — | ya | ya | Hanya dari status resolved |
-| Buka kembali | tiket sendiri | ya | ya | Dari resolved/closed; resolusi dibersihkan, `reopen_count` bertambah, dan SLA penyelesaian dihitung ulang |
-| Approval | — | — | ya | Hanya sebelum pekerjaan dimulai; yang ditolak dapat disetujui ulang |
+| Aksi | Requester | IT Support | Manajer unit | IT Lead | Aturan |
+|---|---|---|---|---|---|
+| Assign | — | ke diri sendiri | — | ke staf IT mana pun / lepas | Hanya staf aktif di tenant yang sama |
+| Mulai kerjakan | — | assignee atau tiket belum di-assign | — | ya | Service/Change Request harus sudah approved; tiket tanpa assignee otomatis di-claim |
+| Menunggu requester | — | assignee | — | ya | Dari assigned/in_progress; jam penyelesaian dijeda, komentar tetap bisa ditambahkan |
+| Lanjutkan | — | assignee | — | ya | Dari waiting; tenggat penyelesaian digeser sebesar durasi jeda |
+| Selesaikan | — | assignee | — | ya | Wajib ringkasan resolusi ≥ 10 karakter + kode resolusi; approval harus approved untuk non-incident; tidak bisa dari waiting |
+| Tutup | — | ya | — | ya | Hanya dari status resolved |
+| Buka kembali | tiket sendiri | ya | — | ya | Dari resolved/closed; resolusi dibersihkan, `reopen_count` bertambah, dan SLA penyelesaian dihitung ulang |
+| Approval | — | — | tahap 1 (bila ditunjuk) | tahap akhir | Hanya sebelum pekerjaan dimulai; lihat bagian approval berjenjang |
 
 Setiap aksi ditulis ke audit log (`assign`, `transition`, `approve`, `reject`)
 dengan aktor dan perubahan status.
+
+## Approval berjenjang
+
+Service Request dan Change Request memakai **dua tahap berurutan**:
+
+1. **Manajer unit pemohon** — hanya jika unit tersebut punya `manager` aktif.
+   Bila belum ditunjuk, tahap ini dilewati dan alur langsung ke IT Lead.
+2. **IT Lead** — tahap akhir; siapa pun yang ber-role `it_lead` boleh memutuskan.
+
+- Pekerjaan (`in_progress`) baru bisa dimulai setelah **semua** tahap approved.
+- Setiap tahap disimpan di `ticket_approvals` (approver, status, catatan,
+  `acted_by`, `acted_at`), sehingga riwayatnya jelas di stepper detail tiket dan
+  audit log.
+- Penolakan menghentikan alur (`approval_status=rejected`). IT Lead dapat
+  menyetujui ulang sebagai override; semua tahap yang tersisa ikut ditandai
+  approved dengan catatan yang sama.
+- Notifikasi "menunggu persetujuan" dikirim ke approver tahap aktif; keputusan
+  akhir/penolakan diberitahukan ke requester.
+- Manajer unit tidak harus ber-role staf IT; rule baca tiket/komentar/lampiran
+  diperluas ke `unit.manager`, jadi ia bisa membuka tiket unitnya.
+- Manajer unit ditunjuk lewat **Pengaturan > Unit > Manajer unit**.
+
+Belum termasuk: tahap ketiga untuk Change Request berisiko tinggi, delegasi saat
+approver cuti, dan SLA per tahap (saat ini memakai satu `approval_due_at`).
 
 ## SLA, jeda, dan eskalasi
 
@@ -297,7 +321,7 @@ daftar tiket.
 
 | Tab | Isi | Catatan |
 |---|---|---|
-| Unit | nama, kode, jenis (klinis/penunjang/manajemen) | dipakai pada form intake |
+| Unit | nama, kode, jenis (klinis/penunjang/manajemen), manajer | dipakai pada form intake; manajer menjadi approver tahap 1 |
 | Kategori | nama, kode, jenis tiket | filter pilihan kategori per tipe |
 | Kebijakan SLA | tipe, prioritas, respons/approval/penyelesaian, kalender | unik per `(tipe, prioritas)` |
 | Hari libur | tanggal + nama | memengaruhi SLA jam kerja |
@@ -461,7 +485,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | POST | `/api/itsm/tickets` | Buat tiket (auth) |
 | POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee (staff) |
 | POST | `/api/itsm/tickets/{id}/transition` | Mulai, menunggu/lanjutkan, selesaikan, tutup, buka kembali |
-| POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak (IT Lead) |
+| POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak tahap approval aktif (manajer unit atau IT Lead) |
 | POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
 | POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran (multipart) |
 | GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
@@ -500,6 +524,11 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
   menggeser tenggat persis 90 menit, total jeda tercatat, reopen menghitung
   ulang tenggat serta membersihkan breach/eskalasi, badge Eskalasi L3, dan
   cron eskalasi menaikkan level 2 → 3 tanpa menyentuh tiket `waiting`.
+- Approval berjenjang diverifikasi Playwright + API (16 check): dua langkah
+  tampil, manajer unit bisa membuka tiket unitnya, hanya approver tahap aktif
+  yang bisa memutuskan (support ditolak 403), pekerjaan terblokir sampai tahap
+  akhir, override IT Lead setelah penolakan menandai semua tahap approved, dan
+  pemilihan manajer unit tersedia di Pengaturan.
 - Pengaturan diverifikasi Playwright (21 check): IT Lead bisa membuat/mengubah/
   menonaktifkan unit dan kategori, mengubah kebijakan SLA, menambah hari libur,
   kode duplikat ditolak dengan pesan jelas, tombol tambah SLA nonaktif saat 12
@@ -522,7 +551,8 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Scope berikutnya
 
-- Approval berjenjang dan delegasi saat IT Lead tidak tersedia.
+- Delegasi approval saat approver tidak tersedia dan tahap ketiga untuk Change
+  Request berisiko tinggi.
 - Tren SLA mingguan/bulanan dan ekspor CSV.
 - Notifikasi email/WhatsApp di luar in-app.
 - SSO SIMRS.

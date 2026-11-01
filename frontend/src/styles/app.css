@@ -2098,6 +2098,85 @@ button {
   color: #b54708;
 }
 
+/* Langkah approval */
+
+.approval-steps {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.approval-step {
+  display: flex;
+  gap: 10px;
+}
+
+.approval-step-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--n20);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.approval-step.is-current .approval-step-no {
+  background: var(--blue);
+  color: #fff;
+}
+
+.approval-step.is-approved .approval-step-no {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.approval-step.is-rejected .approval-step-no {
+  background: var(--red-bg);
+  color: var(--red-text);
+}
+
+.approval-step-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.approval-step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.approval-step-title {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.approval-step-meta {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.approval-step-note {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  background: var(--n10);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .sla-note i {
   margin-top: 1px;
   font-size: 13px;

@@ -167,6 +167,15 @@ routerAdd(
 
       txApp.save(ticket);
 
+      if (type !== "incident") {
+        var approvals = require(__hooks + "/lib/approvals.js");
+        var flow = approvals.createFlow(txApp, ticket);
+
+        if (flow.length) {
+          approvals.notifyStep(txApp, ticket, flow[0]);
+        }
+      }
+
       if (priority === "critical") {
         var notify = require(__hooks + "/lib/notify.js");
         var leads = notify.activeLeads(txApp, tenantId);
