@@ -4,14 +4,15 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **Stage 10 approval slice** — autentikasi staff, intake tiga
-jenis tiket, daftar tiket dengan pagination/filter/URL state, dashboard antrean
-kerja, detail tiket dengan riwayat aktivitas + pembaruan realtime, assignment,
-transisi status termasuk `waiting` dengan jeda SLA, recompute SLA saat reopen,
-eskalasi berjenjang, approval dua tahap (manajer unit → IT Lead), komentar
-publik/internal, lampiran terproteksi, pengaturan unit/kategori/SLA/hari libur
-dari dalam aplikasi, notifikasi in-app (bell + halaman notifikasi), SLA awal +
-breach scan, dan audit log.
+Status saat ini: **Stage 11 — baseline regresi**. Fitur sampai approval dua tahap
+(autentikasi staff, intake tiga jenis tiket, daftar tiket dengan
+pagination/filter/URL state, dashboard antrean kerja, detail tiket dengan
+riwayat aktivitas + pembaruan realtime, assignment, transisi status termasuk
+`waiting` dengan jeda SLA, recompute SLA saat reopen, eskalasi berjenjang,
+approval dua tahap (manajer unit → IT Lead), komentar publik/internal, lampiran
+terproteksi, pengaturan unit/kategori/SLA/hari libur dari dalam aplikasi,
+notifikasi in-app, SLA awal + breach scan, dan audit log) ditambah suite
+pengujian otomatis (unit, API, e2e smoke) dan CI.
 
 ## Stack
 
@@ -148,6 +149,45 @@ Di PowerShell: `$env:PB_DEBUG=1; npm run dev`.
   "Belum di-assign", dan "Perlu perhatian" harus sesuai data tiket.
 - Klik "Lihat semua" pada antrean; filter, chip, dan pagination di daftar tiket
   harus mengikuti URL.
+
+## Testing
+
+Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`:
+
+| Perintah | Cakupan | Butuh |
+|---|---|---|
+| `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, helper antrean dashboard | Node |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval dua tahap, jeda SLA, reopen, validasi intake, lampiran terproteksi | Node + binary PocketBase |
+| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval dua tahap, intake | Node + PocketBase + Chromium |
+| `npm run test:all` | ketiganya | — |
+
+Cara kerjanya:
+
+- `tests/run-api.mjs` menyalakan PocketBase di data dir sementara dan port acak,
+  membuat superuser `admin@uji.local`, menjalankan migrasi + seed dari
+  `backend/pb_migrations`, lalu menjalankan `node --test` pada test API.
+- Test e2e menyalakan Vite sendiri lewat `PB_TARGET`
+  (`frontend/vite.config.js`), jadi tidak perlu `npm run dev` lebih dulu dan
+  tidak bentrok dengan dev server di 5173/8090.
+- Setiap file test membuat organisasinya sendiri (unit + manajer + requester +
+  support + lead) sehingga file test aman berjalan paralel.
+- Binary PocketBase memakai `PB_VERSION` yang sama dengan dev dan diunduh sekali
+  bila belum ada.
+
+Chromium dicari otomatis di cache Playwright
+(`%LOCALAPPDATA%\ms-playwright` atau `~/.cache/ms-playwright`). Bila belum ada:
+
+```bash
+npx playwright@1.64.1 install chromium
+# atau set PLAYWRIGHT_CHROMIUM_EXECUTABLE ke path chrome/chromium
+```
+
+CI di `.github/workflows/ci.yml` menjalankan build + unit + API pada setiap push
+dan pull request, lalu job terpisah untuk e2e.
+
+Menambah test: taruh `*.test.mjs` di `tests/unit/` atau `tests/api/` dan pakai
+helper di `tests/lib/fixtures.mjs`. Untuk debug, `TEST_VERBOSE=1` menampilkan log
+PocketBase dan `TEST_KEEP_DATA=1` mempertahankan data dir sementara.
 
 ## Alur tiket
 
@@ -498,6 +538,11 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
+- Suite otomatis lulus lokal (Windows): 22 unit test, 36 test API, dan 7
+  skenario e2e smoke — lihat bagian Testing.
+- Perbaikan: hari libur kini benar-benar dipakai dalam perhitungan SLA. Sebelumnya
+  daftar record `holidays` diberikan langsung ke fungsi kalender sehingga tidak
+  pernah cocok; unit test menangkap regresi ini.
 - Migrasi schema + seed diterapkan pada PocketBase v0.40.5 native (Windows).
 - Login requester/support/lead.
 - Create Incident, Service Request, dan Change Request via custom route.

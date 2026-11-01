@@ -17,7 +17,8 @@ backend/.bin/
 # Backups are copied outside the app volume and must never be committed
 backups/
 
-# Frontend dependencies and build output
+# Dependencies and build output
+node_modules/
 frontend/node_modules/
 frontend/dist/
 

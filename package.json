@@ -16,6 +16,14 @@
     "pb:superuser": "node scripts/pocketbase.mjs superuser create",
     "pb:migrate": "node scripts/pocketbase.mjs migrate",
     "build": "npm --prefix frontend run build",
-    "preview": "npm --prefix frontend run preview"
+    "preview": "npm --prefix frontend run preview",
+    "test": "npm run test:unit && npm run test:api",
+    "test:unit": "node --test \"tests/unit/*.test.mjs\"",
+    "test:api": "node tests/run-api.mjs",
+    "test:e2e": "node --test \"tests/e2e/*.test.mjs\"",
+    "test:all": "npm test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "playwright-core": "1.64.1"
   }
 }

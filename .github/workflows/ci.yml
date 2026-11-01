@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PB_VERSION: 0.40.5
+
+jobs:
+  test:
+    name: Unit + API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Cache binary PocketBase
+        uses: actions/cache@v4
+        with:
+          path: backend/.bin
+          key: pocketbase-${{ runner.os }}-${{ env.PB_VERSION }}
+
+      - run: npm ci
+      - run: npm ci --prefix frontend
+      - run: npm run build
+      - run: npm run test:unit
+      - run: npm run test:api
+
+  e2e:
+    name: UI smoke (Playwright)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Cache binary PocketBase
+        uses: actions/cache@v4
+        with:
+          path: backend/.bin
+          key: pocketbase-${{ runner.os }}-${{ env.PB_VERSION }}
+
+      - name: Cache browser Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-1.64.1
+
+      - run: npm ci
+      - run: npm ci --prefix frontend
+
+      - name: Pasang Chromium
+        run: npx -y playwright@1.64.1 install --with-deps chromium
+
+      - run: npm run test:e2e
