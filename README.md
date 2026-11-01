@@ -262,6 +262,9 @@ daftar diperbarui realtime lewat subscribe ke collection `notifications`.
 
 - Notifikasi untuk diri sendiri tidak dibuat; klik notifikasi menandainya dibaca
   lalu membuka tiket terkait.
+- Badge diperbarui langsung dari payload event (optimistic), lalu disegarkan
+  dari server. Bila koneksi realtime terputus atau event terlewat, daftar
+  disegarkan saat tab kembali fokus/terlihat dan setiap 60 detik.
 - Penerima dideduplikasi per event. Bila requester dan assignee orang yang sama
   (mis. staf membuat tiket untuk dirinya), atau assignee juga IT Lead, hanya
   satu notifikasi yang dibuat.
