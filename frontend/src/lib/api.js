@@ -122,3 +122,49 @@ export async function delegateTicketApproval(ticketId, delegate, note) {
     body: { decision: "delegated", delegate, note },
   });
 }
+
+function reportQuery(params = {}) {
+  const query = new URLSearchParams();
+  if (params.from) query.set("from", params.from);
+  if (params.to) query.set("to", params.to);
+  if (params.bucket) query.set("bucket", params.bucket);
+  return query.toString();
+}
+
+export async function fetchSlaReport(params = {}) {
+  const query = reportQuery(params);
+  return pb.send(`/api/itsm/reports/sla${query ? `?${query}` : ""}`);
+}
+
+export async function downloadSlaReportCsv(params = {}) {
+  const query = reportQuery(params);
+  const response = await fetch(
+    `${pb.baseURL}/api/itsm/reports/sla.csv${query ? `?${query}` : ""}`,
+    { headers: { Authorization: pb.authStore.token } }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    let message = `Unduhan gagal (${response.status})`;
+    try {
+      message = JSON.parse(text)?.message || message;
+    } catch {
+      // response bukan JSON
+    }
+    throw new ApiError(message, response.status);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("content-disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : "laporan-sla.csv";
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}

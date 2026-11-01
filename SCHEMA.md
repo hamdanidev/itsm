@@ -328,6 +328,8 @@ Jeda dan recompute:
 | POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
 | POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran |
 | GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
+| GET | `/api/itsm/reports/sla` | Laporan SLA (JSON), hanya IT Lead |
+| GET | `/api/itsm/reports/sla.csv` | Ekspor CSV per tiket, hanya IT Lead |
 
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side.
 Service/Change Request harus berstatus approval `approved` sebelum pekerjaan bisa
@@ -336,6 +338,33 @@ dimulai, dijeda, atau diselesaikan. Setiap aksi menulis audit log.
 Route approval menerima `decision` `approved` / `rejected` / `delegated`. Untuk
 delegasi, sertakan `delegate` (id user) dan `note` sebagai alasan (wajib ≥ 5
 karakter).
+
+## Laporan SLA
+
+`GET /api/itsm/reports/sla` mengagregasi tiket yang **dibuat** pada rentang
+`from`–`to` (WIB, `YYYY-MM-DD`), default 90 hari, maksimal 366 hari. Agregasi
+dijalankan di server (`pb_hooks/lib/reporting.js`), bukan di browser.
+
+Parameter: `from`, `to`, `bucket` (`month` default, `week` memakai ISO week).
+
+Respons:
+
+- `range` — `from`, `to`, `days`, `bucket`.
+- `summary` — `total`, `resolved`, `breached`, `compliance` (persen),
+  `median_response_minutes`, `median_resolution_minutes`, `reopens`.
+- `trend` — per bucket: `created`, `resolved`, `breached`, `compliance`.
+- `units`, `priorities`, `types` — `{ name, summary }` dengan bentuk summary yang
+  sama.
+- `breaches` — maksimal 20 tiket breach terbaru (nomor, unit, prioritas, status,
+  waktu breach, level eskalasi).
+
+`breached` dihitung dari field `response_breach_at`, `approval_breach_at`, atau
+`resolution_breach_at`. Median respons memakai `first_response_at − created`;
+median resolusi memakai `resolved_at − created` untuk tiket yang sudah selesai.
+Semua durasi memakai menit kalender.
+
+`GET /api/itsm/reports/sla.csv` memakai filter yang sama dan mengirim satu baris
+per tiket (UTF-8 + BOM, pemisah koma) untuk diolah di Excel.
 
 ## SLA breach scan
 
@@ -362,7 +391,12 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 - Eskalasi Level 3 terlihat in-app (badge + timeline + notifikasi); belum ada
   email/WhatsApp.
 - Dashboard belum punya tren historis atau ekspor; agregatnya dihitung di
-  client dari tiket aktif per tenant (bukan seluruh riwayat).
+  client dari tiket aktif per tenant (bukan seluruh riwayat). Gunakan halaman
+  Laporan untuk tren dan ekspor.
+- Laporan menghitung ulang dari field tiket saat ini (tidak ada snapshot
+  laporan), belum bisa difilter per unit dari UI, dan belum dikirim otomatis
+  lewat email/PDF. Rentang dibatasi 366 hari dan agregasi berjalan di server
+  (JS) atas tiket pada rentang tersebut.
 - Pengaturan tidak mengelola user; provisioning akun tetap lewat Admin UI
   PocketBase.
 - Belum ada SSO.

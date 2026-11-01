@@ -275,6 +275,50 @@ test("staf mendarat di dashboard dan tautan antrean membawa filter URL", async (
   }
 });
 
+test("IT Lead membuka laporan SLA dan mengunduh CSV", async () => {
+  const page = await login(state.org.lead.email, "**/dashboard", "lead-laporan");
+
+  try {
+    await page.goto(`${state.web.url}/reports`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".kpi-card", { timeout: 20_000 });
+
+    assert.equal(await page.locator(".kpi-card").count(), 5);
+
+    const heads = (await page.locator(".kpi-head").allInnerTexts()).map((text) =>
+      text.toLowerCase()
+    );
+    assert.ok(heads.some((text) => text.includes("compliance sla")));
+    assert.ok(heads.some((text) => text.includes("median resolusi")));
+
+    await page.waitForSelector(".report-table tbody tr", { timeout: 20_000 });
+    assert.ok((await page.locator(".report-table tbody tr").count()) > 0);
+
+    const [download] = await Promise.all([
+      page.waitForEvent("download", { timeout: 20_000 }),
+      page.getByRole("button", { name: /Unduh CSV/ }).click(),
+    ]);
+
+    assert.match(
+      download.suggestedFilename(),
+      /^laporan-sla-\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}\.csv$/
+    );
+  } finally {
+    await closePage(page);
+  }
+});
+
+test("requester dialihkan keluar dari halaman laporan", async () => {
+  const page = await login(state.org.requester.email, "**/tickets", "requester-laporan");
+
+  try {
+    await page.goto(`${state.web.url}/reports`, { waitUntil: "domcontentloaded" });
+    await page.waitForURL("**/tickets", { timeout: 15_000 });
+    assert.match(page.url(), /\/tickets$/);
+  } finally {
+    await closePage(page);
+  }
+});
+
 test("manajer unit menyetujui tahap 1 dari dua tahap", async () => {
   const page = await login(state.org.manager.email, "**/tickets", "manajer");
 

@@ -3673,3 +3673,139 @@ button {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Laporan SLA
+   -------------------------------------------------------------------------- */
+
+.report-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--n40);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.report-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.report-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.report-field .form-label {
+  margin: 0;
+}
+
+.report-field .input,
+.report-field .select {
+  min-width: 150px;
+}
+
+.report-apply {
+  margin-bottom: 1px;
+}
+
+.report-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.report-presets .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.report-panel {
+  margin-bottom: 16px;
+}
+
+.report-table-wrap {
+  overflow-x: auto;
+}
+
+.report-table td:first-child {
+  white-space: nowrap;
+}
+
+.report-table .report-bar-col {
+  width: 180px;
+  min-width: 140px;
+}
+
+.report-table .bar-track {
+  display: block;
+  width: 100%;
+}
+
+.report-compliance {
+  font-weight: 600;
+}
+
+.report-compliance.is-ok {
+  color: var(--green);
+}
+
+.report-compliance.is-bad {
+  color: var(--red-text);
+}
+
+.report-compliance.is-muted {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.report-empty {
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.kpi-card.is-static {
+  cursor: default;
+}
+
+.kpi-card.is-static:hover {
+  border-color: var(--n40);
+  box-shadow: none;
+}
+
+@media (max-width: 900px) {
+  .report-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.report-table {
+  width: 100%;
+  min-width: 0;
+}
+
+.report-table th:first-child {
+  text-align: left;
+}
+
+.report-table td.col-date {
+  white-space: nowrap;
+}

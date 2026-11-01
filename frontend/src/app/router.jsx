@@ -6,6 +6,7 @@ import LoginPage from "../features/auth/LoginPage";
 import DashboardPage from "../features/dashboard/pages/DashboardPage";
 import AdminPage from "../features/admin/pages/AdminPage";
 import NotificationsPage from "../features/notifications/pages/NotificationsPage";
+import ReportsPage from "../features/reports/pages/ReportsPage";
 import TicketListPage from "../features/tickets/pages/TicketListPage";
 import TicketCreatePage from "../features/tickets/pages/TicketCreatePage";
 import TicketDetailPage from "../features/tickets/pages/TicketDetailPage";
@@ -98,6 +99,14 @@ export default function AppRoutes() {
           element={
             <RequireLead>
               <AdminPage />
+            </RequireLead>
+          }
+        />
+        <Route
+          path="/reports"
+          element={
+            <RequireLead>
+              <ReportsPage />
             </RequireLead>
           }
         />

@@ -305,6 +305,13 @@ export default function AppShell() {
             </NavLink>
 
             {isLead(user) && (
+              <NavLink className={navClass} to="/reports">
+                <i className="bi bi-bar-chart-line" aria-hidden="true" />
+                Laporan
+              </NavLink>
+            )}
+
+            {isLead(user) && (
               <NavLink className={navClass} to="/admin">
                 <i className="bi bi-sliders" aria-hidden="true" />
                 Pengaturan

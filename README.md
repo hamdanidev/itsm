@@ -4,17 +4,19 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **Stage 12 — approval lengkap**. Fitur sampai approval tiga
-tahap (delegasi approver, CAB untuk Change Request berisiko tinggi, SLA per
-tahap), ditambah suite pengujian otomatis dan CI:
+Status saat ini: **Stage 13 â€” laporan SLA**. Fitur sampai laporan SLA dengan
+ekspor CSV (tren bulanan/mingguan, compliance per unit/prioritas/jenis), di
+samping approval tiga tahap (delegasi approver, CAB, SLA per tahap) dan suite
+pengujian otomatis + CI:
 
 - autentikasi staff dan intake tiga jenis tiket;
 - daftar tiket dengan pagination/filter/URL state dan dashboard antrean kerja;
 - detail tiket dengan riwayat aktivitas + pembaruan realtime;
 - assignment, transisi status termasuk `waiting` dengan jeda SLA, recompute SLA
   saat reopen, dan eskalasi berjenjang;
-- approval berjenjang (manajer unit → IT Lead → CAB), delegasi approver, dan
+- approval berjenjang (manajer unit â†’ IT Lead â†’ CAB), delegasi approver, dan
   tenggat per tahap;
+- laporan SLA server-side dengan ekspor CSV per tiket;
 - komentar publik/internal, lampiran terproteksi, pengaturan unit/kategori/SLA/
   hari libur, notifikasi in-app, SLA awal + breach scan, dan audit log.
 
@@ -31,27 +33,27 @@ tahap), ditambah suite pengujian otomatis dan CI:
 
 ```text
 healthcare-itsm/
-├── frontend/                  # React + Vite
-│   └── src/styles/app.css     # design system (Atlassian/Jira-inspired)
-├── backend/
-│   ├── pb_migrations/         # schema + seed (committed)
-│   ├── pb_hooks/              # Goja hooks/routes (committed)
-│   ├── pb_data/               # gitignored, data lokal dev
-│   └── .bin/                  # gitignored, binary PocketBase hasil unduhan
-├── scripts/
-│   ├── dev.mjs                # jalankan PocketBase + Vite tanpa Docker
-│   ├── pocketbase.mjs         # CLI download/serve/superuser/migrate
-│   └── lib/pocketbase.mjs     # resolver binary, checksum, args serve
-├── docker/
-│   ├── Caddyfile
-│   ├── entrypoint.sh
-│   └── backup.sh
-├── docker-compose.yml         # production (TLS + backup)
-├── Dockerfile                 # production image
-├── package.json               # dev tooling root
-├── .env.example
-├── README.md
-└── SCHEMA.md
+â”œâ”€â”€ frontend/                  # React + Vite
+â”‚   â””â”€â”€ src/styles/app.css     # design system (Atlassian/Jira-inspired)
+â”œâ”€â”€ backend/
+â”‚   â”œâ”€â”€ pb_migrations/         # schema + seed (committed)
+â”‚   â”œâ”€â”€ pb_hooks/              # Goja hooks/routes (committed)
+â”‚   â”œâ”€â”€ pb_data/               # gitignored, data lokal dev
+â”‚   â””â”€â”€ .bin/                  # gitignored, binary PocketBase hasil unduhan
+â”œâ”€â”€ scripts/
+â”‚   â”œâ”€â”€ dev.mjs                # jalankan PocketBase + Vite tanpa Docker
+â”‚   â”œâ”€â”€ pocketbase.mjs         # CLI download/serve/superuser/migrate
+â”‚   â””â”€â”€ lib/pocketbase.mjs     # resolver binary, checksum, args serve
+â”œâ”€â”€ docker/
+â”‚   â”œâ”€â”€ Caddyfile
+â”‚   â”œâ”€â”€ entrypoint.sh
+â”‚   â””â”€â”€ backup.sh
+â”œâ”€â”€ docker-compose.yml         # production (TLS + backup)
+â”œâ”€â”€ Dockerfile                 # production image
+â”œâ”€â”€ package.json               # dev tooling root
+â”œâ”€â”€ .env.example
+â”œâ”€â”€ README.md
+â””â”€â”€ SCHEMA.md
 ```
 
 ## Prasyarat
@@ -161,9 +163,9 @@ Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`
 | Perintah | Cakupan | Butuh |
 |---|---|---|
 | `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, helper antrean dashboard | Node |
-| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi | Node + binary PocketBase |
-| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, intake | Node + PocketBase + Chromium |
-| `npm run test:all` | ketiganya | — |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV | Node + binary PocketBase |
+| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, intake | Node + PocketBase + Chromium |
+| `npm run test:all` | ketiganya | â€” |
 
 Cara kerjanya:
 
@@ -195,21 +197,21 @@ PocketBase dan `TEST_KEEP_DATA=1` mempertahankan data dir sementara.
 
 ## Alur tiket
 
-Status: `open → assigned → in_progress → resolved → closed`, dengan `waiting`
+Status: `open â†’ assigned â†’ in_progress â†’ resolved â†’ closed`, dengan `waiting`
 (menunggu requester) dari `assigned`/`in_progress`, dan `reopened` dari
 `resolved`/`closed`.
 
 | Aksi | Requester | IT Support | Manajer unit | IT Lead | Aturan |
 |---|---|---|---|---|---|
-| Assign | — | ke diri sendiri | — | ke staf IT mana pun / lepas | Hanya staf aktif di tenant yang sama |
-| Mulai kerjakan | — | assignee atau tiket belum di-assign | — | ya | Service/Change Request harus sudah approved; tiket tanpa assignee otomatis di-claim |
-| Menunggu requester | — | assignee | — | ya | Dari assigned/in_progress; jam penyelesaian dijeda, komentar tetap bisa ditambahkan |
-| Lanjutkan | — | assignee | — | ya | Dari waiting; tenggat penyelesaian digeser sebesar durasi jeda |
-| Selesaikan | — | assignee | — | ya | Wajib ringkasan resolusi ≥ 10 karakter + kode resolusi; approval harus approved untuk non-incident; tidak bisa dari waiting |
-| Tutup | — | ya | — | ya | Hanya dari status resolved |
-| Buka kembali | tiket sendiri | ya | — | ya | Dari resolved/closed; resolusi dibersihkan, `reopen_count` bertambah, dan SLA penyelesaian dihitung ulang |
-| Approval | — | — | tahap 1 (bila ditunjuk) | tahap 2 dan CAB | Hanya sebelum pekerjaan dimulai; CAB khusus CR high risk dan harus lead berbeda |
-| Delegasikan approval | — | — | tahap aktif miliknya | tahap mana pun | Pengganti harus aktif; tahap IT Lead/CAB hanya ke IT Lead; alasan wajib |
+| Assign | â€” | ke diri sendiri | â€” | ke staf IT mana pun / lepas | Hanya staf aktif di tenant yang sama |
+| Mulai kerjakan | â€” | assignee atau tiket belum di-assign | â€” | ya | Service/Change Request harus sudah approved; tiket tanpa assignee otomatis di-claim |
+| Menunggu requester | â€” | assignee | â€” | ya | Dari assigned/in_progress; jam penyelesaian dijeda, komentar tetap bisa ditambahkan |
+| Lanjutkan | â€” | assignee | â€” | ya | Dari waiting; tenggat penyelesaian digeser sebesar durasi jeda |
+| Selesaikan | â€” | assignee | â€” | ya | Wajib ringkasan resolusi â‰¥ 10 karakter + kode resolusi; approval harus approved untuk non-incident; tidak bisa dari waiting |
+| Tutup | â€” | ya | â€” | ya | Hanya dari status resolved |
+| Buka kembali | tiket sendiri | ya | â€” | ya | Dari resolved/closed; resolusi dibersihkan, `reopen_count` bertambah, dan SLA penyelesaian dihitung ulang |
+| Approval | â€” | â€” | tahap 1 (bila ditunjuk) | tahap 2 dan CAB | Hanya sebelum pekerjaan dimulai; CAB khusus CR high risk dan harus lead berbeda |
+| Delegasikan approval | â€” | â€” | tahap aktif miliknya | tahap mana pun | Pengganti harus aktif; tahap IT Lead/CAB hanya ke IT Lead; alasan wajib |
 
 Setiap aksi ditulis ke audit log (`assign`, `transition`, `approve`, `reject`)
 dengan aktor dan perubahan status.
@@ -218,10 +220,10 @@ dengan aktor dan perubahan status.
 
 Service Request dan Change Request memakai **dua sampai tiga tahap berurutan**:
 
-1. **Manajer unit pemohon** — hanya jika unit tersebut punya `manager` aktif.
+1. **Manajer unit pemohon** â€” hanya jika unit tersebut punya `manager` aktif.
    Bila belum ditunjuk, tahap ini dilewati dan alur langsung ke IT Lead.
-2. **IT Lead** — siapa pun yang ber-role `it_lead` boleh memutuskan.
-3. **CAB** — hanya untuk Change Request dengan `change_risk=high` **dan** tenant
+2. **IT Lead** â€” siapa pun yang ber-role `it_lead` boleh memutuskan.
+3. **CAB** â€” hanya untuk Change Request dengan `change_risk=high` **dan** tenant
    punya minimal dua IT Lead aktif. Tahap ini harus diputuskan IT Lead yang
    berbeda dari tahap 2 (empat mata). Bila hanya ada satu lead, tahap ini
    dilewati saat pembuatan agar perubahan tidak macet.
@@ -244,7 +246,7 @@ Service Request dan Change Request memakai **dua sampai tiga tahap berurutan**:
 Approver yang sedang cuti tidak perlu memblokir alur:
 
 - Approver tahap aktif **atau IT Lead mana pun** dapat menekan **Delegasikan**
-  di detail tiket, memilih pengganti, dan menulis alasan (wajib ≥ 5 karakter).
+  di detail tiket, memilih pengganti, dan menulis alasan (wajib â‰¥ 5 karakter).
 - Pengganti harus aktif di tenant yang sama. Tahap IT Lead dan CAB hanya boleh
   didelegasikan ke IT Lead; tahap manajer unit boleh ke pengguna aktif mana pun.
 - CAB tidak boleh didelegasikan ke lead yang baru saja menyetujui tahap 2.
@@ -272,7 +274,7 @@ berdasarkan kalender cuti, dan pencabutan delegasi sebelum tahap diputuskan.
 ## SLA, jeda, dan eskalasi
 
 - Jam penyelesaian memakai kalender bisnis dari `sla_snapshot`/policy aktif
-  (Senin–Jumat 08:00–17:00 WIB, kritis 24/7, sadar hari libur).
+  (Seninâ€“Jumat 08:00â€“17:00 WIB, kritis 24/7, sadar hari libur).
 - Saat tiket masuk `waiting`, `sla_paused_at` diisi dan scan breach melewati
   tiket tersebut. Saat dilanjutkan, `resolution_due_at` dan `next_due_at`
   digeser persis selama jeda, dan totalnya dicatat di `sla_paused_minutes`.
@@ -316,7 +318,7 @@ tetap diarahkan ke `/tickets` dan tidak melihat menu Ringkasan.
 | Belum di-assign | tiket aktif tanpa assignee |
 | Menunggu approval | `approval_status = pending` |
 | Antrean saya | assignee = user, urut breach lalu tenggat terdekat |
-| Perlu perhatian | breach atau jatuh tempo ≤ 24 jam |
+| Perlu perhatian | breach atau jatuh tempo â‰¤ 24 jam |
 | Beban per unit / Usia tiket | agregat tiket aktif per unit dan umur |
 
 Daftar tiket menerima query param berikut sehingga tautan dari dashboard selalu
@@ -334,17 +336,55 @@ mereproduksi tampilan yang sama:
 | `sort` | `created`, `created_asc`, `updated`, `due` |
 | `page` | halaman (25/50/100 per halaman) |
 
-`sort=due` memakai field `next_due_at` — SLA gate yang masih berlaku
+`sort=due` memakai field `next_due_at` â€” SLA gate yang masih berlaku
 (approval untuk SR/CR, resolution untuk incident). Tanpa field ini Change
 Request akan selalu muncul di atas karena tidak punya resolution SLA.
+
+## Laporan SLA
+
+Menu **Laporan** (`/reports`) hanya tersedia untuk IT Lead. Halaman ini memakai
+route server-side, bukan agregasi di browser seperti dashboard, sehingga angkanya
+konsisten untuk rentang tanggal berapa pun.
+
+| Bagian | Isi |
+|---|---|
+| Ringkasan | tiket dibuat, selesai, compliance, median respons, median resolusi |
+| Tren | jumlah dibuat/selesai/breach dan compliance per bulan atau per minggu |
+| Per unit | total, selesai, breach, compliance per unit pemohon |
+| Per prioritas / jenis | agregat yang sama per prioritas dan jenis tiket |
+| Breach terbaru | 20 tiket breach terakhir dengan level eskalasi dan status |
+| Unduh CSV | satu baris per tiket pada rentang terpilih |
+
+Definisi angka:
+
+- Basis laporan adalah tiket yang **dibuat** pada rentang tanggal (zona
+  `Asia/Jakarta`), bukan tiket yang berubah pada rentang itu.
+- `Breach` = salah satu dari `response_breach_at`, `approval_breach_at`, atau
+  `resolution_breach_at` terisi. Compliance = `(total âˆ’ breach) / total`.
+- Median respons memakai `first_response_at âˆ’ created`; median resolusi memakai
+  `resolved_at âˆ’ created` dan hanya tiket yang sudah selesai.
+- Semua selisih waktu memakai menit kalender, bukan jam kerja.
+
+Rentang default 90 hari terakhir, maksimal 366 hari; `from`/`to` memakai format
+`YYYY-MM-DD`. Parameter `bucket=week` mengganti tren bulanan menjadi mingguan
+(ISO week). CSV memakai pemisah koma, UTF-8 dengan BOM agar rapi di Excel, dan
+berisi kolom tiket, unit, kategori, tanggal WIB, menit respons/resolusi, status
+breach, level eskalasi, kode resolusi, dan jumlah reopen.
+
+Contoh query:
+
+```text
+GET /api/itsm/reports/sla?from=2026-08-01&to=2026-10-31&bucket=month
+GET /api/itsm/reports/sla.csv?from=2026-08-01&to=2026-10-31
+```
 
 ## Riwayat aktivitas dan realtime
 
 Halaman detail tiket punya tab **Riwayat** di samping komentar. Datanya berasal
 dari `audit_logs` lewat route `GET /api/itsm/tickets/{id}/timeline`, bukan dari
 list rule audit (yang tetap khusus IT Lead). Route memproyeksikan satu event per
-aksi — create, assign, transition, approve/reject, comment, attachment,
-sla_breach — dan menyembunyikan komentar/lampiran internal dari requester.
+aksi â€” create, assign, transition, approve/reject, comment, attachment,
+sla_breach â€” dan menyembunyikan komentar/lampiran internal dari requester.
 
 - Tiap event berisi aktor, aksi, perubahan yang aman ditampilkan, dan waktu.
   IP dan user-agent tidak pernah dikirim ke client.
@@ -406,7 +446,7 @@ daftar tiket.
 - Semua data memakai `tenant` dari user, bukan dari body bebas.
 - Tidak ada hard delete dari UI. Tombol **Nonaktifkan** mengubah `is_active`
   agar tiket lama tetap valid; `deleteRule` tetap `null` (superuser saja).
-- Ada 12 kombinasi tipe × prioritas. Bila semuanya sudah punya kebijakan,
+- Ada 12 kombinasi tipe Ã— prioritas. Bila semuanya sudah punya kebijakan,
   tombol tambah SLA dinonaktifkan dan UI mengarahkan untuk mengedit yang ada.
 - Perubahan kebijakan hanya berlaku untuk tiket baru; tiket lama memakai
   `sla_snapshot` saat dibuat.
@@ -562,10 +602,12 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | POST | `/api/itsm/tickets` | Buat tiket (auth) |
 | POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee (staff) |
 | POST | `/api/itsm/tickets/{id}/transition` | Mulai, menunggu/lanjutkan, selesaikan, tutup, buka kembali |
-| POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak tahap approval aktif (manajer unit atau IT Lead) |
+| POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak / delegasikan tahap approval aktif |
 | POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
 | POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran (multipart) |
 | GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
+| GET | `/api/itsm/reports/sla` | Laporan SLA (JSON); hanya IT Lead |
+| GET | `/api/itsm/reports/sla.csv` | Ekspor CSV per tiket; hanya IT Lead |
 | GET | `/api/collections/tickets/records` | List tiket sesuai API rules |
 | GET | `/api/collections/ticket_comments/records` | List komentar sesuai rules |
 | GET | `/api/collections/ticket_attachments/records` | List lampiran sesuai rules |
@@ -575,8 +617,14 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 22 unit test, 58 test API, dan 8
-  skenario e2e smoke — lihat bagian Testing.
+- Suite otomatis lulus lokal (Windows): 30 unit test, 65 test API, dan 10
+  skenario e2e smoke â€” lihat bagian Testing.
+- Laporan SLA diverifikasi test API: ringkasan, compliance, median, agregat
+  unit/prioritas/jenis, filter rentang, bucket mingguan, validasi 366 hari,
+  ekspor CSV (BOM, header, isi baris), dan akses khusus IT Lead.
+- Laporan UI diverifikasi Playwright: IT Lead membuka `/reports`, lima KPI dan
+  tabel tampil, unduhan CSV menghasilkan nama file yang benar, dan requester
+  dialihkan keluar.
 - Stage 12 diverifikasi test API: rencana tiga tahap untuk CR high risk (dan
   pelewatan CAB bila hanya satu lead), tenggat tahap dihitung ulang saat aktif,
   empat mata CAB, delegasi manajer unit dan IT Lead, penolakan validasi
@@ -611,7 +659,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 - SLA diverifikasi Playwright + API (19 check): status menunggu, jeda 90 menit
   menggeser tenggat persis 90 menit, total jeda tercatat, reopen menghitung
   ulang tenggat serta membersihkan breach/eskalasi, badge Eskalasi L3, dan
-  cron eskalasi menaikkan level 2 → 3 tanpa menyentuh tiket `waiting`.
+  cron eskalasi menaikkan level 2 â†’ 3 tanpa menyentuh tiket `waiting`.
 - Approval berjenjang diverifikasi Playwright + API (16 check): dua langkah
   tampil, manajer unit bisa membuka tiket unitnya, hanya approver tahap aktif
   yang bisa memutuskan (support ditolak 403), pekerjaan terblokir sampai tahap
@@ -629,8 +677,8 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
   dibaca bekerja, serta notifikasi pengguna lain tidak bisa dibaca.
 - Alur UI end-to-end: login, pencarian, filter prioritas, buat tiket, komentar,
   upload lampiran, logout, tanpa console error.
-- Alur UI tiket: support assign ke diri sendiri → mulai → selesaikan lewat modal
-  → tutup; lead setujui/tolak; requester buka kembali tiket sendiri.
+- Alur UI tiket: support assign ke diri sendiri â†’ mulai â†’ selesaikan lewat modal
+  â†’ tutup; lead setujui/tolak; requester buka kembali tiket sendiri.
 - Docker image backend/web/backup berhasil dibangun dan diverifikasi.
 - Image backend dijalankan dengan volume kosong: migrasi + seed berjalan, hooks
   termuat, health 200, dan route assign/transition/approval terdaftar.
@@ -639,8 +687,9 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Scope berikutnya
 
-- Delegasi approval saat approver tidak tersedia dan tahap ketiga untuk Change
-  Request berisiko tinggi.
-- Tren SLA mingguan/bulanan dan ekspor CSV.
-- Notifikasi email/WhatsApp di luar in-app.
-- SSO SIMRS.
+- Notifikasi email (SMTP) untuk approval, breach, dan tiket kritis; WhatsApp
+  menyusul bila dibutuhkan.
+- SSO SIMRS dan provisioning akun tanpa Admin UI.
+- Hardening produksi: backup off-host terenkripsi + uji restore, alerting,
+  pembatasan percobaan login.
+- Laporan lanjutan: jadwal kirim otomatis, filter per unit, dan PDF ringkas.
