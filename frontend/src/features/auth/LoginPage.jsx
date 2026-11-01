@@ -61,6 +61,14 @@ export default function LoginPage() {
             Gunakan akun staf rumah sakit yang diberikan oleh tim IT.
           </p>
 
+          {new URLSearchParams(location.search).get("changed") === "1" &&
+            !error && (
+              <div className="login-notice" role="status">
+                <i className="bi bi-check2-circle" aria-hidden="true" />
+                <div>Password berhasil diubah. Silakan masuk dengan password baru.</div>
+              </div>
+            )}
+
           {error && (
             <div className="login-error" role="alert">
               <i className="bi bi-exclamation-circle" aria-hidden="true" />

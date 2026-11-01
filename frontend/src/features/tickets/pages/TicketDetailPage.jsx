@@ -16,7 +16,6 @@ import {
   formatDateTime,
   formatRelative,
   impactLabel,
-  initials,
   isOpen,
   statusLabel,
   typeLabel,
@@ -24,6 +23,7 @@ import {
 import { isLead, isStaff } from "../../../lib/permissions";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import Modal from "../../../components/ui/Modal";
+import Avatar from "../../../components/ui/Avatar";
 import useTicketRealtime from "../lib/useTicketRealtime";
 import {
   ApprovalLozenge,
@@ -1323,9 +1323,11 @@ export default function TicketDetailPage() {
                         comment.visibility === "internal" ? " is-internal" : ""
                       }`}
                     >
-                      <span className="avatar avatar--lg">
-                        {initials(comment.expand?.author?.name)}
-                      </span>
+                      <Avatar
+                        user={comment.expand?.author}
+                        size={32}
+                        className="avatar--lg"
+                      />
                       <div className="comment-main">
                         <div className="comment-head">
                           <span className="comment-author">

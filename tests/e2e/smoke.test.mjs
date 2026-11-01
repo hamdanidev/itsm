@@ -193,6 +193,14 @@ before(async () => {
     name: "Wakil Manajer",
   });
 
+  state.profileUser = await addMember(state.org.admin, {
+    tenantId: state.org.tenant.id,
+    unitId: state.org.unit.id,
+    role: "requester",
+    label: "profil",
+    name: "Pengguna Profil",
+  });
+
   state.srDelegate = await createTicket(requester.client, {
     type: "service_request",
     title: "Akses akun baru untuk uji delegasi",
@@ -475,6 +483,70 @@ test("requester membuat tiket baru lewat form intake", async () => {
   } finally {
     await closePage(page);
   }
+});
+
+test("pengguna memperbarui profil, avatar, dan password", async () => {
+  const page = await login(state.profileUser.email, "**/tickets", "profil");
+  const newPassword = "PasswordBaruE2E!";
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
+    "base64"
+  );
+
+  try {
+    await page.locator(".user-trigger").click();
+    await page.getByRole("menuitem", { name: "Profil saya" }).click();
+    await page.waitForURL("**/profile", { timeout: 20_000 });
+    await page.waitForSelector("#profile-name", { timeout: 20_000 });
+
+    const newName = `Pengguna Profil ${Date.now()}`;
+    await page.fill("#profile-name", newName);
+    await page.getByRole("button", { name: "Simpan profil" }).click();
+    await page.waitForSelector(".alert--success", { timeout: 15_000 });
+
+    await waitFor(
+      async () => (await page.locator(".user-name").innerText()) === newName,
+      { label: "nama topbar berubah" }
+    );
+
+    await page.locator("#avatar-file").setInputFiles({
+      name: "avatar.png",
+      mimeType: "image/png",
+      buffer: png,
+    });
+    await page.waitForSelector(".user-trigger img.avatar--image", {
+      timeout: 20_000,
+    });
+
+    await page.fill("#current-password", PASSWORD);
+    await page.fill("#new-password", newPassword);
+    await page.fill("#confirm-password", newPassword);
+    await page.getByRole("button", { name: "Ubah password" }).click();
+
+    await page.waitForURL(/\/login\?changed=1/, { timeout: 20_000 });
+    await page.waitForSelector(".login-notice", { timeout: 10_000 });
+
+    await page.fill("#email", state.profileUser.email);
+    await page.fill("#password", newPassword);
+    await page.click('button[type="submit"]');
+    await page.waitForURL("**/tickets", { timeout: 20_000 });
+  } finally {
+    await closePage(page);
+  }
+
+  const oldLogin = await fetch(
+    `${state.pb.url}/api/collections/users/auth-with-password`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        identity: state.profileUser.email,
+        password: PASSWORD,
+      }),
+    }
+  );
+
+  assert.equal(oldLogin.status, 400, "password lama harus ditolak");
 });
 
 test("tidak ada console error selama alur diuji", () => {

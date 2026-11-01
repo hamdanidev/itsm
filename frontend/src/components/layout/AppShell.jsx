@@ -7,6 +7,7 @@ import { formatRelative, initials } from "../../lib/format";
 import { isLead, isStaff, roleLabel } from "../../lib/permissions";
 import { notificationIcon } from "../../features/notifications/notificationMeta";
 import BrandMark from "../ui/BrandMark";
+import Avatar from "../ui/Avatar";
 
 function navClass({ isActive }) {
   return `sidebar-link${isActive ? " is-active" : ""}`;
@@ -225,7 +226,7 @@ export default function AppShell() {
               aria-haspopup="menu"
               aria-expanded={menuOpen}
             >
-              <span className="avatar">{initials(user?.name)}</span>
+              <Avatar user={user} size={24} />
               <span className="user-copy">
                 <span className="user-name">{user?.name}</span>
                 <span className="user-role">{roleLabel(user)}</span>
@@ -241,6 +242,15 @@ export default function AppShell() {
                 <div className="menu-header">
                   <div className="menu-email">{user?.email}</div>
                 </div>
+                <Link
+                  className="menu-item"
+                  to="/profile"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <i className="bi bi-person-gear" aria-hidden="true" />
+                  Profil saya
+                </Link>
                 <button
                   className="menu-item is-danger"
                   type="button"

@@ -3809,3 +3809,117 @@ button {
 .report-table td.col-date {
   white-space: nowrap;
 }
+
+/* --------------------------------------------------------------------------
+   Profil pengguna
+   -------------------------------------------------------------------------- */
+
+.avatar--image {
+  display: block;
+  object-fit: cover;
+}
+
+.menu a.menu-item {
+  text-decoration: none;
+}
+
+.login-notice {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--green-bg);
+  color: var(--green);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.profile-side {
+  margin: 0;
+}
+
+.profile-avatar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--n30);
+  text-align: center;
+}
+
+.profile-avatar .avatar {
+  font-size: 28px;
+}
+
+.profile-avatar-name {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.profile-avatar-role {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.profile-avatar .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.profile-avatar .hint {
+  text-align: left;
+}
+
+.btn.is-disabled {
+  pointer-events: none;
+  opacity: 0.65;
+}
+
+.profile-error {
+  color: var(--red-text);
+  font-size: 12px;
+}
+
+.profile-meta {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.profile-meta-row strong {
+  color: var(--ink);
+  font-weight: 500;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.profile-forms {
+  display: grid;
+  gap: 16px;
+}
+
+.profile-forms .panel {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .profile-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

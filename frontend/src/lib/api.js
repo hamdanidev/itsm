@@ -168,3 +168,32 @@ export async function downloadSlaReportCsv(params = {}) {
   anchor.remove();
   URL.revokeObjectURL(url);
 }
+
+export async function fetchProfile() {
+  return pb.send("/api/itsm/profile");
+}
+
+export async function updateProfile(payload) {
+  return pb.send("/api/itsm/profile", { method: "PATCH", body: payload });
+}
+
+export async function changePassword(payload) {
+  return pb.send("/api/itsm/profile/password", { method: "POST", body: payload });
+}
+
+export async function uploadAvatar(file) {
+  const formData = new FormData();
+  formData.append("avatar", file);
+
+  const response = await fetch(`${pb.baseURL}/api/itsm/profile/avatar`, {
+    method: "POST",
+    headers: { Authorization: pb.authStore.token },
+    body: formData,
+  });
+
+  return parseResponse(response);
+}
+
+export async function removeAvatar() {
+  return pb.send("/api/itsm/profile/avatar", { method: "DELETE" });
+}

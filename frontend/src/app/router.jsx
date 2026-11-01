@@ -7,6 +7,7 @@ import DashboardPage from "../features/dashboard/pages/DashboardPage";
 import AdminPage from "../features/admin/pages/AdminPage";
 import NotificationsPage from "../features/notifications/pages/NotificationsPage";
 import ReportsPage from "../features/reports/pages/ReportsPage";
+import ProfilePage from "../features/profile/pages/ProfilePage";
 import TicketListPage from "../features/tickets/pages/TicketListPage";
 import TicketCreatePage from "../features/tickets/pages/TicketCreatePage";
 import TicketDetailPage from "../features/tickets/pages/TicketDetailPage";
@@ -112,6 +113,7 @@ export default function AppRoutes() {
         />
         <Route path="/tickets" element={<TicketListPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route path="/tickets/new" element={<TicketCreatePage />} />
         <Route path="/tickets/:id" element={<TicketDetailPage />} />
         <Route path="*" element={<NotFoundPage />} />

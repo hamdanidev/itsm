@@ -46,10 +46,15 @@ Rules:
 ### `users` (auth)
 
 Field sistem + `tenant`, `unit`, `name`, `role`, `phone`, `employee_no`,
-`is_active`, `external_id`, `external_issuer`, `external_groups`, `created`,
-`updated`.
+`avatar`, `is_active`, `external_id`, `external_issuer`, `external_groups`,
+`created`, `updated`.
 
 `role`: `requester | it_support | it_lead`.
+
+`avatar` adalah file gambar (PNG/JPG/WEBP, maks 2 MB, thumbnail `96x96`) yang
+tidak diproteksi agar bisa dirender di top bar dan komentar. Pengguna hanya
+dapat mengubah `name`, `phone`, `employee_no`, `avatar`, dan password miliknya
+lewat route profil; field lain tetap superuser.
 
 Rules:
 
@@ -330,6 +335,9 @@ Jeda dan recompute:
 | GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
 | GET | `/api/itsm/reports/sla` | Laporan SLA (JSON), hanya IT Lead |
 | GET | `/api/itsm/reports/sla.csv` | Ekspor CSV per tiket, hanya IT Lead |
+| GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri (nama, telepon, nomor pegawai) |
+| POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus avatar |
+| POST | `/api/itsm/profile/password` | Ganti password dengan verifikasi password lama |
 
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side.
 Service/Change Request harus berstatus approval `approved` sebelum pekerjaan bisa
@@ -366,6 +374,26 @@ Semua durasi memakai menit kalender.
 `GET /api/itsm/reports/sla.csv` memakai filter yang sama dan mengirim satu baris
 per tiket (UTF-8 + BOM, pemisah koma) untuk diolah di Excel.
 
+## Profil pengguna
+
+Route profil hanya menyentuh record `e.auth`; tidak ada parameter id, sehingga
+pengguna tidak bisa mengubah profil orang lain.
+
+- `GET /api/itsm/profile` — data sendiri + `unit_name`/`tenant_name`.
+- `PATCH /api/itsm/profile` — `name` (2–120 karakter), `phone` (angka dan
+  `+ - ( )`), `employee_no` (huruf/angka/titik/garis miring/strip). Field
+  `role`, `tenant`, `unit`, `is_active`, dan email diabaikan walau dikirim.
+- `POST /api/itsm/profile/avatar` — multipart `avatar`; PocketBase memvalidasi
+  tipe dan ukuran (maks 2 MB). `DELETE` menghapus avatar.
+- `POST /api/itsm/profile/password` — `current_password`, `new_password`,
+  `new_password_confirm`. Password lama diverifikasi dengan
+  `record.validatePassword()`, minimal 8 karakter, lalu `refreshTokenKey()`
+  membuat semua sesi lama tidak berlaku.
+
+Setiap perubahan menulis `audit_logs` dengan `action=update`,
+`collection_name=users`, `record_id` pengguna, dan `changes` tanpa nilai
+password. Notifikasi tidak dibuat untuk perubahan profil.
+
 ## SLA breach scan
 
 `backend/pb_hooks/sla_job.pb.js` berjalan setiap 5 menit, menandai
@@ -397,6 +425,9 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
   laporan), belum bisa difilter per unit dari UI, dan belum dikirim otomatis
   lewat email/PDF. Rentang dibatasi 366 hari dan agregasi berjalan di server
   (JS) atas tiket pada rentang tersebut.
+- Profil belum punya 2FA/OTP dan avatar tidak dimoderasi; kebijakan password
+  hanya panjang minimal 8 karakter. File avatar disajikan tanpa token (nama file
+  acak), jadi jangan dipakai untuk data sensitif.
 - Pengaturan tidak mengelola user; provisioning akun tetap lewat Admin UI
   PocketBase.
 - Belum ada SSO.
