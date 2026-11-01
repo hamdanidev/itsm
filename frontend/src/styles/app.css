@@ -2916,6 +2916,242 @@ button {
   color: var(--n60);
 }
 
+.sidebar-badge.is-count {
+  background: var(--blue);
+  color: #fff;
+}
+
+/* --------------------------------------------------------------------------
+   Notifikasi
+   -------------------------------------------------------------------------- */
+
+.notif-wrap {
+  position: relative;
+}
+
+.notif-trigger {
+  position: relative;
+}
+
+.notif-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.notif-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 120;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  background: #fff;
+  border: 1px solid var(--n40);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-overlay);
+}
+
+.notif-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--n30);
+}
+
+.notif-title {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notif-markall {
+  border: 0;
+  background: none;
+  color: var(--blue);
+  font-size: 12px;
+}
+
+.notif-markall:hover {
+  text-decoration: underline;
+}
+
+.notif-list {
+  max-height: 400px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.notif-item {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--n30);
+  background: #fff;
+  text-align: left;
+}
+
+.notif-item:hover {
+  background: var(--n10);
+}
+
+.notif-item.is-unread,
+.notif-page-item.is-unread {
+  background: var(--blue-bg);
+}
+
+.notif-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--n20);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.notif-icon.is-assigned {
+  background: var(--purple-bg);
+  color: var(--purple-text);
+}
+
+.notif-icon.is-comment {
+  background: var(--blue-subtle);
+  color: var(--blue-pressed);
+}
+
+.notif-icon.is-status {
+  background: var(--n20);
+  color: var(--text);
+}
+
+.notif-icon.is-approval {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.notif-icon.is-sla,
+.notif-icon.is-escalation {
+  background: var(--red-bg);
+  color: var(--red-text);
+}
+
+.notif-copy,
+.notif-page-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.notif-item-title {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notif-item-body {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notif-item-time {
+  margin-top: 2px;
+  color: var(--subtle);
+  font-size: 11px;
+}
+
+.notif-dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+.notif-empty {
+  padding: 24px 16px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.notif-foot {
+  padding: 8px 12px;
+  border-top: 1px solid var(--n30);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Halaman notifikasi */
+
+.notif-page-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notif-page-item {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--n30);
+  background: #fff;
+  text-align: left;
+}
+
+.notif-page-item:last-child {
+  border-bottom: 0;
+}
+
+.notif-page-item:hover {
+  background: var(--n10);
+}
+
+.notif-page-item .notif-icon {
+  flex-basis: 32px;
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+
+.notif-page-title {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.notif-page-body {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 /* --------------------------------------------------------------------------
    Modal
    -------------------------------------------------------------------------- */

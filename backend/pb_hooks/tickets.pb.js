@@ -167,6 +167,23 @@ routerAdd(
 
       txApp.save(ticket);
 
+      if (priority === "critical") {
+        var notify = require(__hooks + "/lib/notify.js");
+        var leads = notify.activeLeads(txApp, tenantId);
+
+        for (var i = 0; i < leads.length; i++) {
+          notify.create(txApp, {
+            tenant: tenantId,
+            user: leads[i].id,
+            ticket: ticket.id,
+            actor: auth.id,
+            type: "sla",
+            title: "Tiket kritis baru",
+            body: ticketNo + " · " + title,
+          });
+        }
+      }
+
       var meta = audit.requestMeta(e);
       audit.write(txApp, {
         tenant: tenantId,

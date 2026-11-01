@@ -160,6 +160,26 @@ Rules:
 
 Maksimal 3 lampiran per tiket. File diakses dengan file token.
 
+### `notifications`
+
+`tenant`, `user`, `ticket`, `type` (`assigned/comment/status/approval/sla/escalation`),
+`title`, `body`, `is_read`, `created`, `updated`.
+
+Rules:
+
+| Aksi | Rule |
+|---|---|
+| List/View | `AUTH && user = @request.auth.id && tenant = @request.auth.tenant` |
+| Update | rule yang sama (menandai `is_read`) |
+| Create/Delete | `null` (hanya hook server) |
+
+Dibuat oleh `lib/notify.js` dari route aksi tiket, komentar, approval, dan SLA
+scan. Notifikasi untuk diri sendiri tidak dibuat. Komentar/lampiran internal
+hanya dikirim ke assignee, tidak pernah ke requester. `ticket` boleh kosong
+untuk notifikasi non-tiket, tetapi saat ini semua notifikasi terkait tiket.
+Realtime subscribe memakai list rule yang sama sehingga user hanya menerima
+event miliknya.
+
 ### `audit_logs`
 
 `tenant`, `ticket`, `actor`, `actor_role`, `action`, `collection_name`,
@@ -273,7 +293,7 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 ## Known limitations
 
 - Approval masih satu level (IT Lead), belum berjenjang.
-- Eskalasi Level 3 baru terlihat in-app (badge + timeline + audit); belum ada
+- Eskalasi Level 3 terlihat in-app (badge + timeline + notifikasi); belum ada
   email/WhatsApp.
 - Dashboard belum punya tren historis atau ekspor; agregatnya dihitung di
   client dari tiket aktif per tenant (bukan seluruh riwayat).

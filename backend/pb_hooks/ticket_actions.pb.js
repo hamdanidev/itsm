@@ -89,6 +89,29 @@ routerAdd(
       current.set("last_activity_at", new Date().toISOString());
       txApp.save(current);
 
+      if (assigneeId) {
+        var notify = require(__hooks + "/lib/notify.js");
+        notify.create(txApp, {
+          tenant: String(current.get("tenant")),
+          user: assigneeId,
+          ticket: current.id,
+          actor: auth.id,
+          type: "assigned",
+          title: "Tiket ditugaskan kepada Anda",
+          body: notify.ticketLabel(current),
+        });
+
+        notify.create(txApp, {
+          tenant: String(current.get("tenant")),
+          user: String(current.get("requester") || ""),
+          ticket: current.id,
+          actor: auth.id,
+          type: "status",
+          title: "Tiket Anda sedang ditangani",
+          body: notify.ticketLabel(current),
+        });
+      }
+
       var meta = audit.requestMeta(e);
       audit.write(txApp, {
         tenant: current.get("tenant"),
@@ -391,6 +414,81 @@ routerAdd(
       current.set("last_activity_at", now);
       txApp.save(current);
 
+      var notify = require(__hooks + "/lib/notify.js");
+      var notifyBase = {
+        tenant: String(current.get("tenant")),
+        ticket: current.id,
+        actor: auth.id,
+        body: notify.ticketLabel(current),
+      };
+
+      if (target === "waiting") {
+        notify.create(txApp, {
+          tenant: notifyBase.tenant,
+          user: requester,
+          ticket: current.id,
+          actor: auth.id,
+          type: "status",
+          title: "Menunggu informasi Anda",
+          body: notifyBase.body,
+        });
+      } else if (target === "in_progress" && from === "waiting") {
+        notify.create(txApp, {
+          tenant: notifyBase.tenant,
+          user: requester,
+          ticket: current.id,
+          actor: auth.id,
+          type: "status",
+          title: "Tiket dilanjutkan",
+          body: notifyBase.body,
+        });
+      } else if (target === "resolved") {
+        notify.create(txApp, {
+          tenant: notifyBase.tenant,
+          user: requester,
+          ticket: current.id,
+          actor: auth.id,
+          type: "status",
+          title: "Tiket selesai",
+          body: notifyBase.body,
+        });
+      } else if (target === "closed") {
+        notify.create(txApp, {
+          tenant: notifyBase.tenant,
+          user: requester,
+          ticket: current.id,
+          actor: auth.id,
+          type: "status",
+          title: "Tiket ditutup",
+          body: notifyBase.body,
+        });
+      } else if (target === "reopened") {
+        if (assignee) {
+          notify.create(txApp, {
+            tenant: notifyBase.tenant,
+            user: assignee,
+            ticket: current.id,
+            actor: auth.id,
+            type: "status",
+            title: "Tiket dibuka kembali",
+            body: notifyBase.body,
+          });
+        } else {
+          var reopenLeads = notify.activeLeads(txApp, notifyBase.tenant);
+          for (var li = 0; li < reopenLeads.length; li++) {
+            notify.create(txApp, {
+              tenant: notifyBase.tenant,
+              user: reopenLeads[li].id,
+              ticket: current.id,
+              actor: auth.id,
+              type: "status",
+              title: "Tiket dibuka kembali",
+              body: notifyBase.body,
+            });
+          }
+        }
+      }
+
       var meta = audit.requestMeta(e);
       audit.write(txApp, {
         tenant: current.get("tenant"),
@@ -509,6 +607,20 @@ routerAdd(
       }
 
       txApp.save(current);
+
+      var notify = require(__hooks + "/lib/notify.js");
+      notify.create(txApp, {
+        tenant: String(current.get("tenant")),
+        user: String(current.get("requester") || ""),
+        ticket: current.id,
+        actor: auth.id,
+        type: "approval",
+        title:
+          decision === "approved"
+            ? "Permintaan disetujui"
+            : "Permintaan ditolak",
+        body: notify.ticketLabel(current),
+      });
 
       var meta = audit.requestMeta(e);
       audit.write(txApp, {

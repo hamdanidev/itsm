@@ -55,6 +55,38 @@ cronAdd("sla_breach_scan", "*/5 * * * *", () => {
             record_id: ticket.id,
             changes: { field: dueField, level: level },
           });
+
+          var notify = require(__hooks + "/lib/notify.js");
+          var notifyTenant = String(ticket.get("tenant"));
+          var notifyLabel = notify.ticketLabel(ticket);
+          var notifyTitle =
+            level >= 2
+              ? "SLA penyelesaian terlewati"
+              : "SLA respons/approval terlewati";
+          var notifyAssignee = String(ticket.get("assignee") || "");
+
+          if (notifyAssignee) {
+            notify.create(txApp, {
+              tenant: notifyTenant,
+              user: notifyAssignee,
+              ticket: ticket.id,
+              type: "sla",
+              title: notifyTitle,
+              body: notifyLabel,
+            });
+          }
+
+          var breachLeads = notify.activeLeads(txApp, notifyTenant);
+          for (var bi = 0; bi < breachLeads.length; bi++) {
+            notify.create(txApp, {
+              tenant: notifyTenant,
+              user: breachLeads[bi].id,
+              ticket: ticket.id,
+              type: "sla",
+              title: notifyTitle,
+              body: notifyLabel,
+            });
+          }
         });
       });
     }
@@ -108,6 +140,22 @@ cronAdd("sla_breach_scan", "*/5 * * * *", () => {
               resolution_breach_at: String(ticket.get("resolution_breach_at")),
             },
           });
+
+          var escNotify = require(__hooks + "/lib/notify.js");
+          var escTenant = String(ticket.get("tenant"));
+          var escLeads = escNotify.activeLeads(txApp, escTenant);
+          var escLabel = escNotify.ticketLabel(ticket);
+
+          for (var ei = 0; ei < escLeads.length; ei++) {
+            escNotify.create(txApp, {
+              tenant: escTenant,
+              user: escLeads[ei].id,
+              ticket: ticket.id,
+              type: "escalation",
+              title: "Eskalasi Level 3",
+              body: escLabel + " · breach penyelesaian > 4 jam",
+            });
+          }
         });
       });
     }

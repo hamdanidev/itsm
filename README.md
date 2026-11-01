@@ -4,13 +4,14 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **Stage 8 admin slice** — autentikasi staff, intake tiga jenis
-tiket, daftar tiket dengan pagination/filter/URL state, dashboard antrean kerja,
-detail tiket dengan riwayat aktivitas + pembaruan realtime, assignment, transisi
-status termasuk `waiting` dengan jeda SLA, recompute SLA saat reopen, eskalasi
-berjenjang, approval IT Lead, komentar publik/internal, lampiran terproteksi,
-pengaturan unit/kategori/SLA/hari libur dari dalam aplikasi, SLA awal + breach
-scan, dan audit log.
+Status saat ini: **Stage 9 notifications slice** — autentikasi staff, intake tiga
+jenis tiket, daftar tiket dengan pagination/filter/URL state, dashboard antrean
+kerja, detail tiket dengan riwayat aktivitas + pembaruan realtime, assignment,
+transisi status termasuk `waiting` dengan jeda SLA, recompute SLA saat reopen,
+eskalasi berjenjang, approval IT Lead, komentar publik/internal, lampiran
+terproteksi, pengaturan unit/kategori/SLA/hari libur dari dalam aplikasi,
+notifikasi in-app (bell + halaman notifikasi), SLA awal + breach scan, dan audit
+log.
 
 ## Stack
 
@@ -240,6 +241,31 @@ sla_breach — dan menyembunyikan komentar/lampiran internal dari requester.
 Realtime tetap menghormati API rule: requester hanya menerima event komentar
 publik pada tiket yang boleh dia lihat.
 
+## Notifikasi in-app
+
+Setiap pengguna punya pusat notifikasi sendiri: ikon lonceng di top bar dengan
+badge jumlah belum dibaca, dropdown 8 notifikasi terbaru, dan halaman
+`/notifications` (filter Semua/Belum dibaca, tandai semua dibaca). Badge dan
+daftar diperbarui realtime lewat subscribe ke collection `notifications`.
+
+| Event | Penerima |
+|---|---|
+| Tiket ditugaskan | assignee baru + requester ("sedang ditangani") |
+| Komentar publik | requester dan assignee (kecuali penulis) |
+| Komentar/lampiran internal | assignee saja; requester tidak pernah menerima |
+| Menunggu requester / dilanjutkan | requester |
+| Resolved / closed | requester |
+| Reopen | assignee, atau IT Lead bila belum ada assignee |
+| Approval disetujui/ditolak | requester |
+| Tiket kritis baru | semua IT Lead aktif |
+| SLA breach / Eskalasi Level 3 | assignee + IT Lead (Level 3 khusus lead) |
+
+- Notifikasi untuk diri sendiri tidak dibuat; klik notifikasi menandainya dibaca
+  lalu membuka tiket terkait.
+- Collection `notifications` hanya bisa dibaca/diubah pemiliknya (`user`), dan
+  hanya server yang membuat/menghapus (create/delete rule `null`).
+- Notifikasi bukan pengganti email/WhatsApp; keduanya belum ada.
+
 ## Pengaturan (admin in-app)
 
 IT Lead mengelola data master lewat `/admin`; menu **Pengaturan** hanya tampil
@@ -420,6 +446,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | GET | `/api/collections/ticket_comments/records` | List komentar sesuai rules |
 | GET | `/api/collections/ticket_attachments/records` | List lampiran sesuai rules |
 | GET | `/api/collections/audit_logs/records` | Audit; hanya IT Lead |
+| GET | `/api/collections/notifications/records` | Notifikasi milik sendiri |
 | GET | `/api/health` | Healthcheck |
 
 ## Verifikasi lokal yang sudah dilakukan
@@ -455,6 +482,11 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
   kode duplikat ditolak dengan pesan jelas, tombol tambah SLA nonaktif saat 12
   kombinasi terisi, perubahan tercatat di audit, dan requester/support dialihkan
   keluar dari `/admin`.
+- Notifikasi in-app diverifikasi Playwright + API (12 check, dua browser):
+  badge muncul untuk assignee dan requester, klik notifikasi membuka tiket dan
+  menandai dibaca, komentar publik memicu badge realtime, komentar internal
+  tidak menambah notifikasi requester, filter belum dibaca dan tandai semua
+  dibaca bekerja, serta notifikasi pengguna lain tidak bisa dibaca.
 - Alur UI end-to-end: login, pencarian, filter prioritas, buat tiket, komentar,
   upload lampiran, logout, tanpa console error.
 - Alur UI tiket: support assign ke diri sendiri → mulai → selesaikan lewat modal
@@ -469,5 +501,5 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 - Approval berjenjang dan delegasi saat IT Lead tidak tersedia.
 - Tren SLA mingguan/bulanan dan ekspor CSV.
-- Notifikasi email/WhatsApp (eskalasi saat ini baru in-app).
+- Notifikasi email/WhatsApp di luar in-app.
 - SSO SIMRS.

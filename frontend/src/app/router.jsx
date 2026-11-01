@@ -5,6 +5,7 @@ import EmptyState from "../components/ui/EmptyState";
 import LoginPage from "../features/auth/LoginPage";
 import DashboardPage from "../features/dashboard/pages/DashboardPage";
 import AdminPage from "../features/admin/pages/AdminPage";
+import NotificationsPage from "../features/notifications/pages/NotificationsPage";
 import TicketListPage from "../features/tickets/pages/TicketListPage";
 import TicketCreatePage from "../features/tickets/pages/TicketCreatePage";
 import TicketDetailPage from "../features/tickets/pages/TicketDetailPage";
@@ -101,6 +102,7 @@ export default function AppRoutes() {
           }
         />
         <Route path="/tickets" element={<TicketListPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/tickets/new" element={<TicketCreatePage />} />
         <Route path="/tickets/:id" element={<TicketDetailPage />} />
         <Route path="*" element={<NotFoundPage />} />

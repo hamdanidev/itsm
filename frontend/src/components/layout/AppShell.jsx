@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/providers/AuthProvider";
-import { initials } from "../../lib/format";
+import { useNotifications } from "../../app/providers/NotificationsProvider";
+import { formatRelative, initials } from "../../lib/format";
 import { isLead, isStaff, roleLabel } from "../../lib/permissions";
+import { notificationIcon } from "../../features/notifications/notificationMeta";
 import BrandMark from "../ui/BrandMark";
 
 function navClass({ isActive }) {
@@ -11,11 +13,19 @@ function navClass({ isActive }) {
 
 export default function AppShell() {
   const { user, logout } = useAuth();
+  const {
+    items: notifications,
+    unread,
+    markRead,
+    markAllRead,
+  } = useNotifications();
   const navigate = useNavigate();
   const location = useLocation();
   const menuRef = useRef(null);
+  const notifRef = useRef(null);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const ticketDetailActive =
     /^\/tickets\/[^/]+$/.test(location.pathname) &&
@@ -26,9 +36,14 @@ export default function AppShell() {
   }, [location.pathname]);
 
   useEffect(() => {
+    setNotifOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
     function handleKeyDown(event) {
       if (event.key === "Escape") {
         setMenuOpen(false);
+        setNotifOpen(false);
         setNavOpen(false);
       }
     }
@@ -41,11 +56,14 @@ export default function AppShell() {
   }, []);
 
   useEffect(() => {
-    if (!menuOpen) return undefined;
+    if (!menuOpen && !notifOpen) return undefined;
 
     function handlePointerDown(event) {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
         setMenuOpen(false);
+      }
+      if (notifRef.current && !notifRef.current.contains(event.target)) {
+        setNotifOpen(false);
       }
     }
 
@@ -54,7 +72,19 @@ export default function AppShell() {
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
     };
-  }, [menuOpen]);
+  }, [menuOpen, notifOpen]);
+
+  async function handleNotification(item) {
+    setNotifOpen(false);
+
+    if (!item.is_read) {
+      await markRead(item.id);
+    }
+
+    if (item.ticket) {
+      navigate(`/tickets/${item.ticket}`);
+    }
+  }
 
   function handleLogout() {
     logout();
@@ -95,6 +125,93 @@ export default function AppShell() {
             <i className="bi bi-plus-lg" aria-hidden="true" />
             <span>Buat</span>
           </Link>
+
+          <div className="notif-wrap" ref={notifRef}>
+            <button
+              className="icon-button notif-trigger"
+              type="button"
+              onClick={() => setNotifOpen((value) => !value)}
+              aria-haspopup="menu"
+              aria-expanded={notifOpen}
+              aria-label={
+                unread
+                  ? `Notifikasi, ${unread} belum dibaca`
+                  : "Notifikasi"
+              }
+            >
+              <i className="bi bi-bell" aria-hidden="true" />
+              {unread > 0 && (
+                <span className="notif-badge" aria-hidden="true">
+                  {unread > 9 ? "9+" : unread}
+                </span>
+              )}
+            </button>
+
+            {notifOpen && (
+              <div className="notif-menu" role="menu">
+                <div className="notif-head">
+                  <span className="notif-title">Notifikasi</span>
+                  {unread > 0 && (
+                    <button
+                      className="notif-markall"
+                      type="button"
+                      onClick={markAllRead}
+                    >
+                      Tandai semua dibaca
+                    </button>
+                  )}
+                </div>
+
+                {notifications.length === 0 ? (
+                  <div className="notif-empty">Belum ada notifikasi.</div>
+                ) : (
+                  <ul className="notif-list">
+                    {notifications.slice(0, 8).map((item) => (
+                      <li key={item.id}>
+                        <button
+                          className={`notif-item${
+                            item.is_read ? "" : " is-unread"
+                          }`}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => handleNotification(item)}
+                        >
+                          <span
+                            className={`notif-icon is-${item.type}`}
+                            aria-hidden="true"
+                          >
+                            <i
+                              className={`bi ${notificationIcon(item.type)}`}
+                            />
+                          </span>
+                          <span className="notif-copy">
+                            <span className="notif-item-title">
+                              {item.title}
+                            </span>
+                            <span className="notif-item-body">
+                              {item.body || "—"}
+                            </span>
+                            <span className="notif-item-time">
+                              {formatRelative(item.created)}
+                            </span>
+                          </span>
+                          {!item.is_read && (
+                            <span className="notif-dot" aria-hidden="true" />
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="notif-foot">
+                  <Link to="/notifications" onClick={() => setNotifOpen(false)}>
+                    Lihat semua notifikasi
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="user-menu" ref={menuRef}>
             <button
@@ -174,6 +291,14 @@ export default function AppShell() {
             <NavLink className={navClass} to="/tickets/new">
               <i className="bi bi-plus-square" aria-hidden="true" />
               Buat tiket
+            </NavLink>
+
+            <NavLink className={navClass} to="/notifications">
+              <i className="bi bi-bell" aria-hidden="true" />
+              Notifikasi
+              {unread > 0 && (
+                <span className="sidebar-badge is-count">{unread}</span>
+              )}
             </NavLink>
 
             {isLead(user) && (

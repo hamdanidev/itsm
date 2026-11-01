@@ -56,6 +56,28 @@ routerAdd(
 
       txApp.save(current);
 
+      var notify = require(__hooks + "/lib/notify.js");
+      var notifyTitle =
+        visibility === "internal" ? "Catatan internal baru" : "Komentar baru";
+      var recipients = [];
+
+      if (visibility === "public") {
+        recipients.push(String(current.get("requester") || ""));
+      }
+      recipients.push(String(current.get("assignee") || ""));
+
+      for (var i = 0; i < recipients.length; i++) {
+        notify.create(txApp, {
+          tenant: String(current.get("tenant")),
+          user: recipients[i],
+          ticket: current.id,
+          actor: auth.id,
+          type: "comment",
+          title: notifyTitle,
+          body: notify.ticketLabel(current),
+        });
+      }
+
       var meta = audit.requestMeta(e);
       audit.write(txApp, {
         tenant: current.get("tenant"),
