@@ -102,6 +102,11 @@ routerAdd(
         changes.to_name = userName(String(changes.to || ""));
       }
 
+      if (action === "delegate") {
+        changes.from_name = userName(String(changes.from || ""));
+        changes.to_name = userName(String(changes.to || ""));
+      }
+
       items.push({
         id: log.id,
         action: action,

@@ -1,4 +1,4 @@
-﻿// NOTE: PocketBase hook callbacks run in a fresh VM context, so helper
+// NOTE: PocketBase hook callbacks run in a fresh VM context, so helper
 // functions/constants declared at file top-level are not available inside
 // router callbacks. Keep shared values inside each handler.
 
@@ -556,14 +556,25 @@ routerAdd(
     var body = e.requestInfo().body || {};
     var decision = String(body.decision || "");
     var note = guards.cleanText(body.note, 2000);
+    var delegateId = guards.cleanText(body.delegate, 64);
 
-    if (["approved", "rejected"].indexOf(decision) < 0) {
+    if (["approved", "rejected", "delegated"].indexOf(decision) < 0) {
       throw new BadRequestError("Keputusan approval tidak valid");
     }
     if (decision === "rejected" && note.length < 5) {
       throw new BadRequestError(
         "Alasan penolakan wajib diisi minimal 5 karakter"
       );
+    }
+    if (decision === "delegated") {
+      if (!delegateId) {
+        throw new BadRequestError("Pilih approver pengganti");
+      }
+      if (note.length < 5) {
+        throw new BadRequestError(
+          "Alasan delegasi wajib diisi minimal 5 karakter"
+        );
+      }
     }
     if (String(ticket.get("type")) === "incident") {
       throw new BadRequestError("Incident tidak memerlukan approval");
@@ -572,12 +583,15 @@ routerAdd(
     var result;
     var responseStep = 0;
     var responseTotal = 0;
+    var activatedStep = 0;
+    var delegatedTo = "";
 
     $app.runInTransaction((txApp) => {
       var current = txApp.findRecordById("tickets", ticket.id);
       var status = String(current.get("status") || "");
       var now = new Date().toISOString();
       var lead = guards.isLead(auth);
+      var tenantId = String(current.get("tenant") || "");
 
       if (["resolved", "closed"].indexOf(status) >= 0) {
         throw new BadRequestError(
@@ -607,6 +621,11 @@ routerAdd(
       var step = pending.length ? pending[0] : null;
 
       if (currentApproval === "rejected") {
+        if (decision === "delegated") {
+          throw new BadRequestError(
+            "Approval sudah ditolak; delegasi tidak tersedia"
+          );
+        }
         if (!lead) {
           throw new ForbiddenError(
             "Approval ditolak; hanya IT Lead yang dapat menyetujui ulang"
@@ -622,6 +641,9 @@ routerAdd(
         if (currentApproval === "approved") {
           throw new BadRequestError("Approval tiket ini sudah disetujui");
         }
+        if (decision === "delegated") {
+          throw new BadRequestError("Tidak ada tahap approval yang menunggu");
+        }
         if (!lead) {
           throw new ForbiddenError("Approval sedang tidak menunggu keputusan");
         }
@@ -629,16 +651,130 @@ routerAdd(
           throw new BadRequestError("Tidak ada tahap yang menunggu penolakan");
         }
       } else {
+        var stepKind = String(step.get("kind") || "");
         var approverId = String(step.get("approver") || "");
-        var allowed = lead || (approverId !== "" && approverId === auth.id);
+        var allowed =
+          stepKind === "cab"
+            ? lead
+            : lead || (approverId !== "" && approverId === auth.id);
 
         if (!allowed) {
-          throw new ForbiddenError(
-            "Anda bukan approver untuk tahap ini"
-          );
+          throw new ForbiddenError("Anda bukan approver untuk tahap ini");
         }
 
         responseStep = Number(step.get("step")) || 0;
+
+        // Empat mata: tahap CAB harus diputuskan IT Lead yang berbeda dari
+        // tahap IT Lead sebelumnya.
+        if (stepKind === "cab") {
+          var cabLeadStep = approvals.stepOfKind(steps, "it_lead");
+          if (cabLeadStep && String(cabLeadStep.get("acted_by")) === auth.id) {
+            throw new ForbiddenError(
+              "Tahap CAB harus diputuskan IT Lead yang berbeda"
+            );
+          }
+        }
+      }
+
+      if (decision === "delegated") {
+        var target;
+        try {
+          target = txApp.findRecordById("users", delegateId);
+        } catch (err) {
+          throw new BadRequestError("Approver pengganti tidak ditemukan");
+        }
+
+        if (String(target.get("tenant")) !== tenantId) {
+          throw new BadRequestError(
+            "Approver pengganti berada di tenant yang berbeda"
+          );
+        }
+        if (!target.get("is_active")) {
+          throw new BadRequestError("Approver pengganti tidak aktif");
+        }
+        if (target.id === auth.id) {
+          throw new BadRequestError(
+            "Delegasi tidak dapat ditujukan ke diri sendiri"
+          );
+        }
+
+        var delegateStepKind = String(step.get("kind") || "");
+
+        if (delegateStepKind === "it_lead" || delegateStepKind === "cab") {
+          if (String(target.get("role")) !== "it_lead") {
+            throw new BadRequestError(
+              "Tahap ini hanya dapat didelegasikan ke IT Lead"
+            );
+          }
+        }
+
+        if (delegateStepKind === "cab") {
+          var cabStep = approvals.stepOfKind(steps, "it_lead");
+          if (cabStep && String(cabStep.get("acted_by")) === target.id) {
+            throw new BadRequestError(
+              "Tahap CAB harus diputuskan IT Lead yang berbeda"
+            );
+          }
+        }
+
+        var fromId = String(step.get("approver") || "");
+        step.set("approver", target.id);
+        step.set("delegated_from", fromId);
+        step.set("delegated_by", auth.id);
+        step.set("delegated_at", now);
+        step.set("delegation_note", note);
+        txApp.save(step);
+
+        delegatedTo = target.id;
+
+        // Penerima delegasi perlu akses baca tiket meski bukan staf/manager unit.
+        var currentDelegates = current.get("delegates");
+        var delegateList = [];
+
+        if (currentDelegates) {
+          for (var d = 0; d < currentDelegates.length; d++) {
+            delegateList.push(String(currentDelegates[d]));
+          }
+        }
+
+        if (delegateList.indexOf(target.id) < 0) {
+          delegateList.push(target.id);
+          current.set("delegates", delegateList);
+        }
+
+        notify.create(txApp, {
+          tenant: tenantId,
+          user: target.id,
+          ticket: current.id,
+          actor: auth.id,
+          type: "approval",
+          title: "Approval didelegasikan kepada Anda",
+          body: notify.ticketLabel(current) + " · " + note,
+        });
+
+        var delegateMeta = audit.requestMeta(e);
+        audit.write(txApp, {
+          tenant: tenantId,
+          actor: auth,
+          ticket: current,
+          action: "delegate",
+          collection_name: "ticket_approvals",
+          record_id: step.id,
+          changes: {
+            step: responseStep,
+            kind: delegateStepKind,
+            from: fromId,
+            to: target.id,
+            note: note,
+          },
+          ip: delegateMeta.ip,
+          user_agent: delegateMeta.user_agent,
+        });
+
+        current.set("last_activity_at", now);
+        txApp.save(current);
+        result = current;
+        return;
       }
 
       if (decision === "approved") {
@@ -660,17 +796,12 @@ routerAdd(
           }
         }
 
-        var next = null;
-        for (var j = 0; j < steps.length; j++) {
-          if (String(steps[j].get("status")) === "pending") {
-            next = steps[j];
-            break;
-          }
-        }
+        var next = approvals.activateNext(txApp, current, steps);
 
         if (next) {
+          activatedStep = Number(next.get("step")) || 0;
           current.set("approval_status", "pending");
-          approvals.notifyStep(txApp, current, next);
+          approvals.notifyStep(txApp, current, next, auth.id);
         } else {
           // Setelah final approval, gerbang SLA pindah ke penyelesaian (SR)
           // atau jadwal implementasi (CR).
@@ -748,6 +879,9 @@ routerAdd(
       approval_status: String(result.get("approval_status")),
       step: responseStep,
       total_steps: responseTotal,
+      next_step: activatedStep,
+      delegate: delegatedTo,
+      approval_due_at: String(result.get("approval_due_at") || ""),
       approved_at: String(result.get("approved_at") || ""),
     });
   },

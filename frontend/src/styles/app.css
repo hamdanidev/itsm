@@ -2177,6 +2177,30 @@ button {
   line-height: 1.4;
 }
 
+.approval-step-due {
+  color: var(--muted);
+}
+
+.approval-step-due.is-overdue {
+  color: var(--red-text);
+  font-weight: 600;
+}
+
+.approval-step-delegation {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.approval-step-delegation i {
+  margin-top: 1px;
+  font-size: 13px;
+}
+
 .sla-note i {
   margin-top: 1px;
   font-size: 13px;

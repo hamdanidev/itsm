@@ -4,15 +4,19 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **Stage 11 — baseline regresi**. Fitur sampai approval dua tahap
-(autentikasi staff, intake tiga jenis tiket, daftar tiket dengan
-pagination/filter/URL state, dashboard antrean kerja, detail tiket dengan
-riwayat aktivitas + pembaruan realtime, assignment, transisi status termasuk
-`waiting` dengan jeda SLA, recompute SLA saat reopen, eskalasi berjenjang,
-approval dua tahap (manajer unit → IT Lead), komentar publik/internal, lampiran
-terproteksi, pengaturan unit/kategori/SLA/hari libur dari dalam aplikasi,
-notifikasi in-app, SLA awal + breach scan, dan audit log) ditambah suite
-pengujian otomatis (unit, API, e2e smoke) dan CI.
+Status saat ini: **Stage 12 — approval lengkap**. Fitur sampai approval tiga
+tahap (delegasi approver, CAB untuk Change Request berisiko tinggi, SLA per
+tahap), ditambah suite pengujian otomatis dan CI:
+
+- autentikasi staff dan intake tiga jenis tiket;
+- daftar tiket dengan pagination/filter/URL state dan dashboard antrean kerja;
+- detail tiket dengan riwayat aktivitas + pembaruan realtime;
+- assignment, transisi status termasuk `waiting` dengan jeda SLA, recompute SLA
+  saat reopen, dan eskalasi berjenjang;
+- approval berjenjang (manajer unit → IT Lead → CAB), delegasi approver, dan
+  tenggat per tahap;
+- komentar publik/internal, lampiran terproteksi, pengaturan unit/kategori/SLA/
+  hari libur, notifikasi in-app, SLA awal + breach scan, dan audit log.
 
 ## Stack
 
@@ -157,8 +161,8 @@ Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`
 | Perintah | Cakupan | Butuh |
 |---|---|---|
 | `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, helper antrean dashboard | Node |
-| `npm test` | Unit + API: auth/RBAC, alur tiket & approval dua tahap, jeda SLA, reopen, validasi intake, lampiran terproteksi | Node + binary PocketBase |
-| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval dua tahap, intake | Node + PocketBase + Chromium |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi | Node + binary PocketBase |
+| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, intake | Node + PocketBase + Chromium |
 | `npm run test:all` | ketiganya | — |
 
 Cara kerjanya:
@@ -204,23 +208,28 @@ Status: `open → assigned → in_progress → resolved → closed`, dengan `wai
 | Selesaikan | — | assignee | — | ya | Wajib ringkasan resolusi ≥ 10 karakter + kode resolusi; approval harus approved untuk non-incident; tidak bisa dari waiting |
 | Tutup | — | ya | — | ya | Hanya dari status resolved |
 | Buka kembali | tiket sendiri | ya | — | ya | Dari resolved/closed; resolusi dibersihkan, `reopen_count` bertambah, dan SLA penyelesaian dihitung ulang |
-| Approval | — | — | tahap 1 (bila ditunjuk) | tahap akhir | Hanya sebelum pekerjaan dimulai; lihat bagian approval berjenjang |
+| Approval | — | — | tahap 1 (bila ditunjuk) | tahap 2 dan CAB | Hanya sebelum pekerjaan dimulai; CAB khusus CR high risk dan harus lead berbeda |
+| Delegasikan approval | — | — | tahap aktif miliknya | tahap mana pun | Pengganti harus aktif; tahap IT Lead/CAB hanya ke IT Lead; alasan wajib |
 
 Setiap aksi ditulis ke audit log (`assign`, `transition`, `approve`, `reject`)
 dengan aktor dan perubahan status.
 
 ## Approval berjenjang
 
-Service Request dan Change Request memakai **dua tahap berurutan**:
+Service Request dan Change Request memakai **dua sampai tiga tahap berurutan**:
 
 1. **Manajer unit pemohon** — hanya jika unit tersebut punya `manager` aktif.
    Bila belum ditunjuk, tahap ini dilewati dan alur langsung ke IT Lead.
-2. **IT Lead** — tahap akhir; siapa pun yang ber-role `it_lead` boleh memutuskan.
+2. **IT Lead** — siapa pun yang ber-role `it_lead` boleh memutuskan.
+3. **CAB** — hanya untuk Change Request dengan `change_risk=high` **dan** tenant
+   punya minimal dua IT Lead aktif. Tahap ini harus diputuskan IT Lead yang
+   berbeda dari tahap 2 (empat mata). Bila hanya ada satu lead, tahap ini
+   dilewati saat pembuatan agar perubahan tidak macet.
 
 - Pekerjaan (`in_progress`) baru bisa dimulai setelah **semua** tahap approved.
 - Setiap tahap disimpan di `ticket_approvals` (approver, status, catatan,
-  `acted_by`, `acted_at`), sehingga riwayatnya jelas di stepper detail tiket dan
-  audit log.
+  `due_at`, `acted_by`, `acted_at`), sehingga riwayatnya jelas di stepper detail
+  tiket dan audit log.
 - Penolakan menghentikan alur (`approval_status=rejected`). IT Lead dapat
   menyetujui ulang sebagai override; semua tahap yang tersisa ikut ditandai
   approved dengan catatan yang sama.
@@ -230,8 +239,35 @@ Service Request dan Change Request memakai **dua tahap berurutan**:
   diperluas ke `unit.manager`, jadi ia bisa membuka tiket unitnya.
 - Manajer unit ditunjuk lewat **Pengaturan > Unit > Manajer unit**.
 
-Belum termasuk: tahap ketiga untuk Change Request berisiko tinggi, delegasi saat
-approver cuti, dan SLA per tahap (saat ini memakai satu `approval_due_at`).
+### Delegasi approver
+
+Approver yang sedang cuti tidak perlu memblokir alur:
+
+- Approver tahap aktif **atau IT Lead mana pun** dapat menekan **Delegasikan**
+  di detail tiket, memilih pengganti, dan menulis alasan (wajib ≥ 5 karakter).
+- Pengganti harus aktif di tenant yang sama. Tahap IT Lead dan CAB hanya boleh
+  didelegasikan ke IT Lead; tahap manajer unit boleh ke pengguna aktif mana pun.
+- CAB tidak boleh didelegasikan ke lead yang baru saja menyetujui tahap 2.
+- Approver asli tetap tercatat (`delegated_from`, `delegated_by`,
+  `delegated_at`, `delegation_note`) dan tampil di stepper serta timeline.
+  Audit menulis aksi `delegate`.
+- Penerima delegasi otomatis masuk `tickets.delegates` sehingga bisa membuka
+  tiket (termasuk komentar/lampiran publik) meski bukan staf atau manajer unit.
+- Delegasi hanya berlaku untuk tahap yang sedang menunggu; tidak ada delegasi
+  otomatis dari kalender cuti dan belum ada pencabutan delegasi.
+
+### SLA per tahap approval
+
+- Setiap tahap punya `due_at` sendiri, dihitung dari kebijakan saat tahap itu
+  **aktif** (bukan saat tiket dibuat). Tahap berikutnya mendapat tenggat baru.
+- `tickets.approval_due_at` selalu mencerminkan tahap aktif dan dipakai scan
+  breach serta `sort=due`; riwayat tenggat tiap tahap tersimpan di
+  `ticket_approvals.due_at`.
+- Setelah approval final, gate SLA pindah ke `resolution_due_at` (SR) atau
+  `planned_end` (CR).
+
+Belum termasuk: tahap CAB dengan peran/komite terpisah, delegasi otomatis
+berdasarkan kalender cuti, dan pencabutan delegasi sebelum tahap diputuskan.
 
 ## SLA, jeda, dan eskalasi
 
@@ -338,6 +374,7 @@ daftar diperbarui realtime lewat subscribe ke collection `notifications`.
 | Resolved / closed | requester |
 | Reopen | assignee, atau IT Lead bila belum ada assignee |
 | Approval disetujui/ditolak | requester |
+| Approval didelegasikan | penerima delegasi |
 | Tiket kritis baru | semua IT Lead aktif |
 | SLA breach / Eskalasi Level 3 | assignee + IT Lead (Level 3 khusus lead) |
 
@@ -538,8 +575,14 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 22 unit test, 36 test API, dan 7
+- Suite otomatis lulus lokal (Windows): 22 unit test, 58 test API, dan 8
   skenario e2e smoke — lihat bagian Testing.
+- Stage 12 diverifikasi test API: rencana tiga tahap untuk CR high risk (dan
+  pelewatan CAB bila hanya satu lead), tenggat tahap dihitung ulang saat aktif,
+  empat mata CAB, delegasi manajer unit dan IT Lead, penolakan validasi
+  delegasi, serta audit `delegate`.
+- Delegasi UI diverifikasi Playwright: manajer mendelegasikan tahap 1 ke wakil,
+  jejak delegasi tampil di stepper, dan wakil dapat menyetujui tahap tersebut.
 - Perbaikan: hari libur kini benar-benar dipakai dalam perhitungan SLA. Sebelumnya
   daftar record `holidays` diberikan langsung ke fungsi kalender sehingga tidak
   pernah cocok; unit test menangkap regresi ini.

@@ -120,6 +120,9 @@ routerAdd(
       ticket.set("requester", auth.id);
       ticket.set("created_by", auth.id);
       ticket.set("unit", unitId);
+      // Relasi delegates dipakai juga untuk penerima delegasi approval; isi
+      // minimal requester agar filter relasi selalu bisa dievaluasi.
+      ticket.set("delegates", [auth.id]);
       ticket.set("patient_data_confirmed", true);
       ticket.set("approval_status", type === "incident" ? "not_required" : "pending");
       ticket.set("last_activity_at", new Date().toISOString());
@@ -169,7 +172,11 @@ routerAdd(
 
       if (type !== "incident") {
         var approvals = require(__hooks + "/lib/approvals.js");
-        var flow = approvals.createFlow(txApp, ticket);
+        var flow = approvals.createFlow(
+          txApp,
+          ticket,
+          due.approval ? due.approval.toISOString() : ""
+        );
 
         if (flow.length) {
           approvals.notifyStep(txApp, ticket, flow[0]);

@@ -12,6 +12,7 @@ import { chromium } from "playwright-core";
 
 import { freePort, startPocketBase } from "../lib/pocketbase-server.mjs";
 import {
+  addMember,
   assignTicket,
   createTicket,
   postComment,
@@ -184,6 +185,20 @@ before(async () => {
     description: "Akun kasir terkunci dan perlu direset oleh tim IT.",
   });
 
+  state.deputy = await addMember(state.org.admin, {
+    tenantId: state.org.tenant.id,
+    unitId: state.org.unit.id,
+    role: "requester",
+    label: "wakil",
+    name: "Wakil Manajer",
+  });
+
+  state.srDelegate = await createTicket(requester.client, {
+    type: "service_request",
+    title: "Akses akun baru untuk uji delegasi",
+    description: "Permintaan ini dipakai memverifikasi delegasi approval di UI.",
+  });
+
   state.web = await startVite(state.pb.url);
   state.browser = await chromium.launch({
     executablePath: await findChromium(),
@@ -290,6 +305,63 @@ test("manajer unit menyetujui tahap 1 dari dua tahap", async () => {
     );
   } finally {
     await closePage(page);
+  }
+});
+
+test("manajer mendelegasikan approval ke wakil lewat UI", async () => {
+  const page = await login(state.org.manager.email, "**/tickets", "manajer-delegasi");
+
+  try {
+    await page.goto(`${state.web.url}/tickets/${state.srDelegate.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForSelector(".approval-step", { timeout: 20_000 });
+
+    await page.getByRole("button", { name: "Delegasikan" }).click();
+    await page.waitForSelector("#delegateTarget", { timeout: 10_000 });
+    await page.selectOption("#delegateTarget", state.deputy.user.id);
+    await page.fill("#delegateNote", "Manajer unit cuti sampai Jumat");
+
+    await page
+      .locator(".modal")
+      .getByRole("button", { name: "Delegasikan" })
+      .click();
+
+    await waitFor(
+      async () =>
+        (await page.getByText("Didelegasikan").count()) >= 1 &&
+        (await page.getByText("Manajer unit cuti sampai Jumat").count()) >= 1,
+      { label: "jejak delegasi tampil" }
+    );
+  } finally {
+    await closePage(page);
+  }
+
+  const deputyPage = await login(state.deputy.email, "**/tickets", "wakil");
+
+  try {
+    await deputyPage.goto(`${state.web.url}/tickets/${state.srDelegate.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await deputyPage.waitForSelector(".approval-step", { timeout: 20_000 });
+
+    assert.equal(
+      await deputyPage.getByRole("button", { name: "Setujui", exact: true }).count(),
+      1,
+      "penerima delegasi harus bisa menyetujui tahap tersebut"
+    );
+
+    await deputyPage.getByRole("button", { name: "Setujui", exact: true }).click();
+    await deputyPage.waitForSelector(".modal");
+    await deputyPage.getByRole("button", { name: "Setujui permintaan" }).click();
+
+    await waitFor(
+      async () =>
+        (await deputyPage.locator(".approval-step.is-approved").count()) === 1,
+      { label: "tahap 1 disetujui pengganti" }
+    );
+  } finally {
+    await closePage(deputyPage);
   }
 });
 

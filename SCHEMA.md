@@ -15,7 +15,7 @@ AUTH     = @request.auth.id != "" && @request.auth.is_active = true
 TENANT   = tenant = @request.auth.tenant
 STAFF    = (@request.auth.role = "it_support" || @request.auth.role = "it_lead")
 LEAD     = @request.auth.role = "it_lead"
-TICKET_R = (requester = @request.auth.id || assignee = @request.auth.id || unit.manager = @request.auth.id || STAFF)
+TICKET_R = (requester = @request.auth.id || assignee = @request.auth.id || unit.manager = @request.auth.id || delegates.id ?= @request.auth.id || STAFF)
 ```
 
 Semua koleksi bisnis memiliki `tenant`. Server mengambil tenant dari `e.auth`,
@@ -136,6 +136,11 @@ Rincian per tahap ada di collection `ticket_approvals`; `approval_status`
 menjadi ringkasan (`pending` selama masih ada tahap menunggu, `approved` setelah
 semua tahap setuju, `rejected` bila satu tahap menolak).
 
+Delegasi: `delegates` (relasi multi ke `users`). Minimal berisi requester agar
+filter relasi tidak kosong (relasi kosong membuat evaluasi rule error), dan
+setiap penerima delegasi approval ditambahkan ke sini supaya bisa membuka tiket
+meski bukan staf/manajer unit.
+
 Change: `change_risk`, `implementation_plan`, `rollback_plan`, `planned_start`,
 `planned_end`, `actual_start`, `actual_end`, `change_outcome`.
 
@@ -179,9 +184,11 @@ Maksimal 3 lampiran per tiket. File diakses dengan file token.
 
 ### `ticket_approvals`
 
-`tenant`, `ticket`, `step` (number), `kind` (`unit_manager/it_lead`), `approver`
-(relasi user; kosong untuk tahap IT Lead), `status` (`pending/approved/rejected`),
-`note`, `acted_by`, `acted_at`, `created`, `updated`.
+`tenant`, `ticket`, `step` (number), `kind` (`unit_manager/it_lead/cab`),
+`approver` (relasi user; kosong untuk tahap IT Lead/CAB), `status`
+(`pending/approved/rejected`), `note`, `due_at`, `acted_by`, `acted_at`,
+`delegated_from`, `delegated_by`, `delegated_at`, `delegation_note`, `created`,
+`updated`.
 
 Rules:
 
@@ -190,11 +197,25 @@ Rules:
 | List/View | `AUTH && TENANT && TICKET_R` |
 | Create/Update/Delete | `null` (hanya route approval) |
 
-Dibuat otomatis saat Service/Change Request dibuat: tahap 1 = manajer unit
-pemohon (bila `units.manager` aktif), tahap 2 = IT Lead. Pekerjaan baru boleh
-dimulai setelah semua tahap `approved`. Penolakan menghentikan alur; IT Lead
-dapat override dengan menyetujui semua tahap yang tersisa. Backfill migrasi
-membuat satu tahap `it_lead` untuk tiket lama.
+Dibuat otomatis saat Service/Change Request dibuat:
+
+- tahap 1 = manajer unit pemohon (bila `units.manager` aktif);
+- tahap 2 = IT Lead;
+- tahap 3 `cab` = khusus Change Request `change_risk=high` dan tenant punya
+  minimal dua IT Lead aktif. Harus diputuskan IT Lead yang berbeda dari tahap 2.
+
+`due_at` dihitung saat tahap itu aktif memakai `tickets.sla_snapshot`;
+`tickets.approval_due_at` selalu menunjuk tenggat tahap aktif. Pekerjaan baru
+boleh dimulai setelah semua tahap `approved`. Penolakan menghentikan alur; IT
+Lead dapat override dengan menyetujui semua tahap yang tersisa.
+
+Delegasi mengubah `approver` tahap aktif, mencatat `delegated_from`/`delegated_by`/
+`delegated_at`/`delegation_note`, menambah penerima ke `tickets.delegates`, dan
+menulis audit `delegate`. Approver asli atau IT Lead dapat mendelegasikan; tahap
+IT Lead/CAB hanya ke IT Lead, dan CAB tidak boleh ke lead yang menyetujui tahap 2.
+
+Backfill migrasi membuat satu tahap `it_lead` untuk tiket lama dan menyalin
+`tickets.approval_due_at` ke `due_at` tahap yang masih pending.
 
 ### `notifications`
 
@@ -303,7 +324,7 @@ Jeda dan recompute:
 | POST | `/api/itsm/tickets` | Buat tiket |
 | POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee |
 | POST | `/api/itsm/tickets/{id}/transition` | Mulai, menunggu/lanjutkan, selesaikan, tutup, buka kembali |
-| POST | `/api/itsm/tickets/{id}/approval` | Setujui/tolak tahap approval aktif |
+| POST | `/api/itsm/tickets/{id}/approval` | Setujui/tolak/delegasikan tahap approval aktif |
 | POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
 | POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran |
 | GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
@@ -311,6 +332,10 @@ Jeda dan recompute:
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side.
 Service/Change Request harus berstatus approval `approved` sebelum pekerjaan bisa
 dimulai, dijeda, atau diselesaikan. Setiap aksi menulis audit log.
+
+Route approval menerima `decision` `approved` / `rejected` / `delegated`. Untuk
+delegasi, sertakan `delegate` (id user) dan `note` sebagai alasan (wajib ≥ 5
+karakter).
 
 ## SLA breach scan
 
@@ -329,9 +354,11 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 
 ## Known limitations
 
-- Approval dua tahap (manajer unit → IT Lead); tahap ketiga untuk Change
-  Request berisiko tinggi dan delegasi approver belum ada.
-- SLA approval masih satu `approval_due_at`, belum per tahap.
+- CAB memakai IT Lead kedua (belum ada peran/komite CAB terpisah). Bila tenant
+  hanya punya satu IT Lead aktif, tahap CAB dilewati saat tiket dibuat.
+- Delegasi tidak otomatis dari kalender cuti dan belum dapat dicabut sebelum
+  tahap diputuskan; penerima delegasi tetap punya akses baca tiket.
+- SLA approval per tahap memakai `sla_snapshot` tiket, bukan policy terbaru.
 - Eskalasi Level 3 terlihat in-app (badge + timeline + notifikasi); belum ada
   email/WhatsApp.
 - Dashboard belum punya tren historis atau ekspor; agregatnya dihitung di

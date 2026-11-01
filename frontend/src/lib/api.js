@@ -115,3 +115,10 @@ export async function getAttachmentUrl(record) {
 export function escapeFilterValue(value) {
   return String(value || "").replace(/["\\]/g, "");
 }
+
+export async function delegateTicketApproval(ticketId, delegate, note) {
+  return pb.send(`/api/itsm/tickets/${ticketId}/approval`, {
+    method: "POST",
+    body: { decision: "delegated", delegate, note },
+  });
+}

@@ -44,16 +44,46 @@ function findTicket(e, id) {
 }
 
 function assertTicketAccess(e, ticket) {
-  var collection = e.app.findCollectionByNameOrId("tickets");
-  var allowed = false;
+  if (!canAccessTicket(e, ticket)) {
+    throw new NotFoundError("Ticket not found");
+  }
+}
 
-  try {
-    allowed = e.app.canAccessRecord(ticket, e.requestInfo(), collection.viewRule);
-  } catch (err) {
-    allowed = false;
+// Cek akses tiket di server. Manual, bukan canAccessRecord(), karena rule
+// dengan relasi `delegates` tidak selalu bisa dievaluasi oleh canAccessRecord;
+// API rules tetap menjadi lapisan pertama untuk akses REST langsung.
+function canAccessTicket(e, ticket) {
+  var auth = e.auth;
+  if (!auth || !ticket) return false;
+  if (String(auth.get("tenant") || "") !== String(ticket.get("tenant") || "")) {
+    return false;
   }
 
-  if (!allowed) throw new NotFoundError("Ticket not found");
+  var userId = String(auth.id || "");
+  if (!userId) return false;
+  if (!auth.get("is_active")) return false;
+  if (STAFF_ROLES.indexOf(String(auth.get("role") || "")) >= 0) return true;
+  if (String(ticket.get("requester") || "") === userId) return true;
+  if (String(ticket.get("assignee") || "") === userId) return true;
+
+  var delegates = ticket.get("delegates");
+  if (delegates) {
+    for (var i = 0; i < delegates.length; i++) {
+      if (String(delegates[i]) === userId) return true;
+    }
+  }
+
+  var unitId = String(ticket.get("unit") || "");
+  if (unitId) {
+    try {
+      var unit = e.app.findRecordById("units", unitId);
+      if (String(unit.get("manager") || "") === userId) return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  return false;
 }
 
 function cleanText(value, maxLength) {
@@ -83,6 +113,7 @@ module.exports = {
   assertSameTenant: assertSameTenant,
   findTicket: findTicket,
   assertTicketAccess: assertTicketAccess,
+  canAccessTicket: canAccessTicket,
   cleanText: cleanText,
   optionalDate: optionalDate,
 };

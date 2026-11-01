@@ -59,16 +59,67 @@ async function loggedIn(url, email) {
   return { client, record };
 }
 
-export async function seedOrg({ label = uniqueLabel("org"), withManager = true } = {}) {
+// Menambah anggota (lead kedua, wakil manajer, dsb.) ke organisasi yang sudah
+// di-seed, lengkap dengan sesi login-nya.
+export async function addMember(
+  admin,
+  { tenantId, unitId, role, label, name, isActive = true }
+) {
+  const { url } = readEnv();
+  const suffix = uniqueLabel(label);
+  const email = `${label}.${suffix}@uji.local`;
+
+  const user = await createUser(admin, {
+    email,
+    name: name || `${label} ${suffix}`,
+    role,
+    unitId,
+    tenantId,
+    isActive,
+  });
+
+  if (!isActive) return { user, email, client: null };
+
+  const session = await loggedIn(url, email);
+  return { user, email, ...session };
+}
+
+export async function seedOrg({
+  label = uniqueLabel("org"),
+  withManager = true,
+  isolatedTenant = false,
+} = {}) {
   const { url } = readEnv();
   const admin = await adminClient();
 
-  const tenants = await admin.list("tenants", { filter: 'code="RS01"', perPage: 1 });
-  const tenant = tenants.items[0];
-  if (!tenant) throw new Error("Seed tenant RS01 tidak ditemukan; migrasi gagal?");
+  let tenant;
+  let itUnit;
 
-  const itUnits = await admin.list("units", { filter: 'code="IT"', perPage: 1 });
-  const itUnit = itUnits.items[0];
+  if (isolatedTenant) {
+    tenant = await admin.create("tenants", {
+      name: `RS ${label}`,
+      code: `T${(Date.now().toString(36) + Math.random().toString(36).slice(2, 6))
+        .toUpperCase()
+        .slice(0, 12)}`,
+      timezone: "Asia/Jakarta",
+      is_active: true,
+    });
+
+    itUnit = await admin.create("units", {
+      tenant: tenant.id,
+      name: "IT",
+      code: "IT",
+      kind: "support",
+      is_active: true,
+    });
+  } else {
+    const tenants = await admin.list("tenants", { filter: 'code="RS01"', perPage: 1 });
+    tenant = tenants.items[0];
+    if (!tenant) throw new Error("Seed tenant RS01 tidak ditemukan; migrasi gagal?");
+
+    const itUnits = await admin.list("units", { filter: 'code="IT"', perPage: 1 });
+    itUnit = itUnits.items[0];
+  }
 
   const unit = await admin.create("units", {
     tenant: tenant.id,
@@ -167,5 +218,11 @@ export async function transition(client, ticketId, status, extra = {}) {
 export async function decide(client, ticketId, decision, note = "") {
   return client.json("POST", `/api/itsm/tickets/${ticketId}/approval`, {
     body: { decision, note },
+  });
+}
+
+export async function delegateApproval(client, ticketId, delegate, note) {
+  return client.json("POST", `/api/itsm/tickets/${ticketId}/approval`, {
+    body: { decision: "delegated", delegate, note },
   });
 }

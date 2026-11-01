@@ -5,6 +5,7 @@ import {
   assignTicket,
   createComment,
   decideTicketApproval,
+  delegateTicketApproval,
   fetchTimeline,
   getAttachmentUrl,
   getErrorMessage,
@@ -62,6 +63,7 @@ const SLA_FIELD_LABELS = {
 const APPROVAL_KIND_LABELS = {
   unit_manager: "Manajer unit",
   it_lead: "IT Lead",
+  cab: "CAB · IT Lead kedua",
 };
 
 const APPROVAL_STATUS_LABELS = {
@@ -127,6 +129,16 @@ function eventMeta(event) {
         tone: "is-rejected",
         text: "menolak permintaan",
       };
+    case "delegate": {
+      const to = changes.to_name;
+      return {
+        icon: "bi-person-up",
+        tone: "is-assign",
+        text: to
+          ? `mendelegasikan approval ke ${to}`
+          : "mendelegasikan approval",
+      };
+    }
     case "comment":
       return {
         icon: "bi-chat-left-text",
@@ -304,6 +316,12 @@ export default function TicketDetailPage() {
   const [approvalNote, setApprovalNote] = useState("");
   const [approvalSteps, setApprovalSteps] = useState([]);
 
+  const [delegateOpen, setDelegateOpen] = useState(false);
+  const [delegateTarget, setDelegateTarget] = useState("");
+  const [delegateNote, setDelegateNote] = useState("");
+  const [delegateOptions, setDelegateOptions] = useState([]);
+  const [delegateLoading, setDelegateLoading] = useState(false);
+
   const loadData = useCallback(async () => {
     setError("");
     try {
@@ -326,7 +344,7 @@ export default function TicketDetailPage() {
           pb.collection("ticket_approvals").getFullList({
             filter: `ticket = "${id}"`,
             sort: "step",
-            expand: "approver,acted_by",
+            expand: "approver,acted_by,delegated_from,delegated_by",
           }),
         ]);
 
@@ -615,6 +633,64 @@ export default function TicketDetailPage() {
     }
   }
 
+  async function openDelegate() {
+    setActionError("");
+    setActionNotice("");
+    setDelegateTarget("");
+    setDelegateNote("");
+    setDelegateOpen(true);
+    setDelegateLoading(true);
+
+    try {
+      const kind = currentApproval?.kind;
+      const filter =
+        kind === "it_lead" || kind === "cab"
+          ? 'is_active = true && role = "it_lead"'
+          : "is_active = true";
+
+      const list = await pb.collection("users").getFullList({
+        filter,
+        sort: "name",
+      });
+
+      setDelegateOptions(list.filter((item) => item.id !== user?.id));
+    } catch (err) {
+      setDelegateOptions([]);
+      setActionError(getErrorMessage(err));
+    } finally {
+      setDelegateLoading(false);
+    }
+  }
+
+  function closeDelegate() {
+    if (busyAction) return;
+    setDelegateOpen(false);
+    setActionError("");
+  }
+
+  async function handleDelegate() {
+    if (!delegateTarget) {
+      setActionError("Pilih approver pengganti.");
+      return;
+    }
+    if (delegateNote.trim().length < 5) {
+      setActionError("Alasan delegasi wajib diisi minimal 5 karakter.");
+      return;
+    }
+
+    const ok = await runAction(
+      "delegate",
+      () => delegateTicketApproval(id, delegateTarget, delegateNote.trim()),
+      "Approval didelegasikan."
+    );
+
+    if (ok) {
+      setDelegateOpen(false);
+      setDelegateTarget("");
+      setDelegateNote("");
+    }
+  }
+
   if (loading) {
     return (
       <div className="page-state">
@@ -686,6 +762,13 @@ export default function TicketDetailPage() {
       ? lead
       : lead ||
         Boolean(currentApproval && currentApproval.approver === user?.id));
+  const canDelegate =
+    approvalRequired &&
+    !approvalApproved &&
+    !approvalRejected &&
+    ["open", "assigned", "reopened"].includes(status) &&
+    Boolean(currentApproval) &&
+    (lead || currentApproval.approver === user?.id);
 
   const primaryAction = canApprove
     ? "approve"
@@ -889,6 +972,18 @@ export default function TicketDetailPage() {
               </>
             )}
 
+            {canDelegate && (
+              <button
+                className="btn btn-outline"
+                type="button"
+                onClick={openDelegate}
+                disabled={Boolean(busyAction)}
+              >
+                <i className="bi bi-person-up" aria-hidden="true" />
+                Delegasikan
+              </button>
+            )}
+
             {!canStart &&
               !canResolve &&
               !canClose &&
@@ -902,7 +997,9 @@ export default function TicketDetailPage() {
                     : approvalRequired && !approvalApproved
                       ? approvalRejected
                         ? "Permintaan ditolak. IT Lead dapat menyetujui ulang."
-                        : "Menunggu approval IT Lead sebelum pekerjaan dapat dimulai."
+                        : currentApproval?.kind === "cab"
+                          ? "Menunggu persetujuan IT Lead kedua (CAB)."
+                          : "Menunggu approval IT Lead sebelum pekerjaan dapat dimulai."
                       : status === "closed"
                         ? "Tiket sudah ditutup."
                         : "Tidak ada aksi status untuk Anda."}
@@ -1430,11 +1527,42 @@ export default function TicketDetailPage() {
                           {step.expand?.approver?.name ||
                             (step.kind === "it_lead"
                               ? "Salah satu IT Lead"
-                              : "—")}
+                              : step.kind === "cab"
+                                ? "IT Lead lain (belum ditentukan)"
+                                : "—")}
                           {step.acted_at
                             ? ` · ${formatRelative(step.acted_at)}`
                             : ""}
+                          {step.due_at && step.status === "pending" ? (
+                            <span
+                              className={`approval-step-due${
+                                new Date(step.due_at) < new Date()
+                                  ? " is-overdue"
+                                  : ""
+                              }`}
+                            >
+                              {" · batas "}
+                              {formatDateTime(step.due_at)}
+                            </span>
+                          ) : null}
                         </div>
+                        {step.delegated_at && (
+                          <div className="approval-step-delegation">
+                            <i className="bi bi-person-up" aria-hidden="true" />
+                            <span>
+                              Didelegasikan
+                              {step.expand?.delegated_from?.name
+                                ? ` dari ${step.expand.delegated_from.name}`
+                                : ""}
+                              {step.expand?.delegated_by?.name
+                                ? ` oleh ${step.expand.delegated_by.name}`
+                                : ""}
+                              {step.delegation_note
+                                ? ` · ${step.delegation_note}`
+                                : ""}
+                            </span>
+                          </div>
+                        )}
                         {step.note && step.status !== "pending" && (
                           <div className="approval-step-note">{step.note}</div>
                         )}
@@ -1590,6 +1718,102 @@ export default function TicketDetailPage() {
               </select>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {delegateOpen && (
+        <Modal
+          title="Delegasikan approval"
+          description={`${ticket.ticket_no} · ${ticket.title}${
+            currentApproval
+              ? ` · Tahap ${currentApproval.step} dari ${approvalSteps.length}`
+              : ""
+          }`}
+          onClose={closeDelegate}
+          footer={
+            <>
+              <button
+                className="btn btn-subtle"
+                type="button"
+                onClick={closeDelegate}
+                disabled={Boolean(busyAction)}
+              >
+                Batal
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={handleDelegate}
+                disabled={
+                  Boolean(busyAction) || delegateLoading || !delegateTarget
+                }
+              >
+                {busyAction === "delegate" ? (
+                  <span className="spinner" aria-hidden="true" />
+                ) : (
+                  <i className="bi bi-person-up" aria-hidden="true" />
+                )}
+                Delegasikan
+              </button>
+            </>
+          }
+        >
+          {actionError && (
+            <div className="alert alert--error" role="alert">
+              <i className="bi bi-exclamation-triangle" aria-hidden="true" />
+              <div>{actionError}</div>
+            </div>
+          )}
+
+          <div className="modal-field">
+            <label className="form-label" htmlFor="delegateTarget">
+              Approver pengganti <span className="req">*</span>
+            </label>
+            <select
+              id="delegateTarget"
+              className="select"
+              value={delegateTarget}
+              onChange={(event) => setDelegateTarget(event.target.value)}
+              disabled={delegateLoading}
+            >
+              <option value="">
+                {delegateLoading ? "Memuat pengguna..." : "Pilih approver"}
+              </option>
+              {delegateOptions.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name || item.email} ·{" "}
+                  {item.role === "it_lead"
+                    ? "IT Lead"
+                    : item.role === "it_support"
+                      ? "IT Support"
+                      : "Staf"}
+                </option>
+              ))}
+            </select>
+            <div className="hint">
+              Delegasi berlaku untuk tahap yang sedang menunggu. Approver asli
+              tetap tercatat di riwayat.
+            </div>
+          </div>
+
+          <div className="modal-field">
+            <label className="form-label" htmlFor="delegateNote">
+              Alasan delegasi <span className="req">*</span>
+            </label>
+            <textarea
+              id="delegateNote"
+              className="textarea"
+              rows={3}
+              maxLength={2000}
+              minLength={5}
+              value={delegateNote}
+              onChange={(event) => setDelegateNote(event.target.value)}
+              placeholder="Contoh: manajer unit sedang cuti sampai Jumat."
+            />
+            <div className="hint">
+              Alasan ini tersimpan di audit log dan riwayat tiket.
+            </div>
+          </div>
         </Modal>
       )}
 
