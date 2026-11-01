@@ -712,13 +712,6 @@ export default function TicketDetailPage() {
               </span>
             </div>
           </div>
-
-          <div className="page-actions">
-            <Link className="btn btn-subtle" to="/tickets">
-              <i className="bi bi-arrow-left" aria-hidden="true" />
-              Kembali
-            </Link>
-          </div>
         </div>
       </div>
 

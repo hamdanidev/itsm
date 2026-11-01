@@ -111,9 +111,6 @@ export default function AppShell() {
           </span>
         </Link>
 
-        <span className="topbar-divider" aria-hidden="true" />
-        <span className="topbar-context">Service desk</span>
-
         <div className="topbar-spacer" />
 
         <div className="topbar-actions">
@@ -123,7 +120,7 @@ export default function AppShell() {
             aria-label="Buat tiket"
           >
             <i className="bi bi-plus-lg" aria-hidden="true" />
-            <span>Buat</span>
+            <span>Buat tiket</span>
           </Link>
 
           <div className="notif-wrap" ref={notifRef}>
@@ -286,11 +283,6 @@ export default function AppShell() {
             >
               <i className="bi bi-ticket-detailed" aria-hidden="true" />
               Tiket
-            </NavLink>
-
-            <NavLink className={navClass} to="/tickets/new">
-              <i className="bi bi-plus-square" aria-hidden="true" />
-              Buat tiket
             </NavLink>
 
             <NavLink className={navClass} to="/notifications">

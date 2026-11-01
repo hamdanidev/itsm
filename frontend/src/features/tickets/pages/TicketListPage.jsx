@@ -307,12 +307,6 @@ export default function TicketListPage() {
             ? "Antrean insiden, permintaan layanan, dan perubahan SIMRS."
             : "Status dan riwayat tiket yang Anda laporkan."
         }
-        actions={
-          <Link className="btn btn-primary" to="/tickets/new">
-            <i className="bi bi-plus-lg" aria-hidden="true" />
-            Buat tiket
-          </Link>
-        }
       />
 
       <div className="tabs" role="tablist" aria-label="Filter status">

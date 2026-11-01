@@ -437,18 +437,6 @@ button {
   color: var(--text);
 }
 
-.topbar-divider {
-  width: 1px;
-  height: 20px;
-  margin: 0 4px;
-  background: var(--n40);
-}
-
-.topbar-context {
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .topbar-spacer {
   flex: 1;
 }
@@ -3384,11 +3372,6 @@ button {
 }
 
 @media (max-width: 720px) {
-  .topbar-context,
-  .topbar-divider {
-    display: none;
-  }
-
   .page-head {
     flex-direction: column;
     align-items: stretch;

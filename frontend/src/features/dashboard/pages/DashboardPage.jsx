@@ -336,12 +336,6 @@ export default function DashboardPage() {
         description={`Antrean ${roleLabel(
           user
         )} pada tenant ini. Angka dihitung dari tiket yang belum ditutup.`}
-        actions={
-          <Link className="btn btn-primary" to="/tickets/new">
-            <i className="bi bi-plus-lg" aria-hidden="true" />
-            Buat tiket
-          </Link>
-        }
       />
 
       {error && (
