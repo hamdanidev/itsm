@@ -3989,3 +3989,30 @@ button {
   color: var(--text);
   font-weight: 600;
 }
+/* Subjudul pendek pada kartu login/ganti password. */
+.login-sub {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Password awal yang ditampilkan sekali kepada IT Lead. */
+.secret-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--n10);
+  border: 1px dashed var(--n60);
+  border-radius: 6px;
+}
+
+.secret-box code {
+  color: var(--ink-strong);
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  word-break: break-all;
+}

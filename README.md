@@ -185,7 +185,7 @@ Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`
 | Perintah | Cakupan | Butuh |
 |---|---|---|
 | `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, scope platform, mode tenancy, validasi input konsol vendor, helper antrean dashboard, agregasi laporan | Node |
-| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, konsol vendor (tenant, seed, provisioning, isolasi), vendor sebagai resolver tiket, laporan & audit lintas RS | Node + binary PocketBase |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, tim rumah sakit (provisioning + wajib ganti password), konsol vendor (tenant, seed, provisioning, isolasi), vendor sebagai resolver tiket, laporan & audit lintas RS | Node + binary PocketBase |
 | `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, profil, intake, konsol vendor (mode vendor) | Node + PocketBase + Chromium |
 | `npm run test:all` | ketiganya | — |
 
@@ -578,9 +578,9 @@ dan `POST /api/itsm/profile/password`.
 
 ## Pengaturan (admin in-app)
 
-IT Lead mengelola data master lewat `/admin`; menu **Pengaturan** hanya tampil
-untuk role `it_lead`, dan requester/IT Support yang membuka URL-nya dialihkan ke
-daftar tiket.
+IT Lead mengelola data master dan timnya sendiri lewat `/admin`; menu
+**Pengaturan** hanya tampil untuk role `it_lead`, dan requester/IT Support yang
+membuka URL-nya dialihkan ke daftar tiket.
 
 | Tab | Isi | Catatan |
 |---|---|---|
@@ -588,6 +588,17 @@ daftar tiket.
 | Kategori | nama, kode, jenis tiket | filter pilihan kategori per tipe |
 | Kebijakan SLA | tipe, prioritas, respons/approval/penyelesaian, kalender | unik per `(tipe, prioritas)` |
 | Hari libur | tanggal + nama | memengaruhi SLA jam kerja |
+| Tim | anggota tim IT, role, unit, status | password awal dibuat sistem |
+
+Aturan tab **Tim**:
+
+- Cakupan selalu tenant si lead (diambil server dari `e.auth`).
+- Role yang bisa dibuat: `requester`, `it_support`, `it_lead`.
+- Password awal **dibuat sistem** (16 karakter) dan hanya ditampilkan sekali;
+  anggota wajib menggantinya saat login pertama.
+- Lead tidak bisa menonaktifkan akun sendiri atau mengubah role sendiri.
+- IT Lead aktif terakhir tidak bisa dinonaktifkan atau diturunkan.
+- Email tidak bisa diubah setelah akun dibuat; tidak ada hard delete.
 
 - Semua data memakai `tenant` dari user, bukan dari body bebas.
 - Tidak ada hard delete dari UI. Tombol **Nonaktifkan** mengubah `is_active`
@@ -770,6 +781,10 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri |
 | POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus foto profil |
 | POST | `/api/itsm/profile/password` | Ganti password (verifikasi password lama) |
+| GET | `/api/itsm/team` | Daftar anggota tim; hanya IT Lead |
+| POST | `/api/itsm/team` | Tambah anggota (password awal dari sistem); hanya IT Lead |
+| PATCH | `/api/itsm/team/{userId}` | Ubah nama/role/unit/status anggota; hanya IT Lead |
+| POST | `/api/itsm/team/{userId}/password` | Reset password anggota; hanya IT Lead |
 | GET | `/api/itsm/app-meta` | Mode tenancy aktif (publik) |
 | GET | `/api/itsm/platform/tenants` | Daftar rumah sakit + hitungan; akun vendor |
 | GET | `/api/itsm/platform/audit` | Audit lintas rumah sakit; akun vendor |
@@ -791,7 +806,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 44 unit test, 132 test API, dan 20
+- Suite otomatis lulus lokal (Windows): 44 unit test, 145 test API, dan 22
   skenario e2e — lihat bagian Testing.
 - Konsol Vendor diverifikasi test API: mode `standalone` menolak login akun
   vendor, mode `vendor` mengizinkan; pengguna rumah sakit ditolak dari route
@@ -820,6 +835,14 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
   rumah sakit yang sama, kebijakan SLA memvalidasi jam kerja dan respons,
   record tenant lain tidak bisa diubah lewat id (404), dan perubahan tercatat
   di audit.
+- Tim rumah sakit diverifikasi test API: IT Lead melihat/menambah/mengubah
+  stafnya, support dan requester ditolak, email duplikat dan role asing ditolak,
+  unit lintas tenant ditolak, lead boleh membuat lead lain, tidak bisa
+  menonaktifkan akun sendiri atau mengubah role sendiri, staf tenant lain tidak
+  dapat disentuh (404), reset password mematikan password lama, akun baru
+  terhalang dari route ITSM sampai password diganti, dan setiap aksi tercatat
+  di audit. Skenario UI-nya (buat anggota → login password awal → wajib ganti →
+  login ulang) diuji Playwright.
 - Konsol Vendor diverifikasi Playwright (instance `TENANCY_MODE=vendor` sendiri):
   login vendor mendarat di `/platform`, sidebar berisi menu vendor, pembuatan
   rumah sakit lewat modal, detail master data + pengguna tampil, pemilih tenant

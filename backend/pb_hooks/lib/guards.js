@@ -1,7 +1,17 @@
 var STAFF_ROLES = ["it_support", "it_lead"];
 
-function requireAuth(e) {
+function requireAuth(e, options) {
   if (!e.auth) throw new UnauthorizedError("Authentication required");
+
+  // Akun dengan password awal (dibuat IT Lead) wajib mengganti password lebih
+  // dulu. Hanya route ganti password sendiri yang boleh melewati gerbang ini.
+  if (
+    !(options && options.allowPendingPassword) &&
+    e.auth.get("must_change_password")
+  ) {
+    throw new ForbiddenError("Ganti password Anda terlebih dahulu");
+  }
+
   return e.auth;
 }
 

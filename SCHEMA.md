@@ -163,16 +163,20 @@ Rules:
 ### `users` (auth)
 
 Field sistem + `tenant`, `unit`, `name`, `role`, `phone`, `employee_no`,
-`avatar`, `is_active`, `is_platform_staff`, `external_id`, `external_issuer`,
-`external_groups`, `created`, `updated`.
+`avatar`, `is_active`, `is_platform_staff`, `must_change_password`,
+`external_id`, `external_issuer`, `external_groups`, `created`, `updated`.
 
 `role`: `requester | it_support | it_lead`.
+
+`must_change_password` menandai akun yang dibuat IT Lead dengan password awal
+buatan sistem. Selama flag ini `true`, `guards.requireAuth` menolak semua route
+`/api/itsm/*` kecuali `POST /profile/password`; UI mengalihkan ke
+`/change-password`. Flag turun otomatis setelah password berhasil diubah.
 
 `is_platform_staff` memisahkan **scope** dari **role**: role menentukan boleh
 apa, flag ini menentukan bahwa akun bekerja lintas tenant (vendor) dan karenanya
 **tidak punya `tenant`**. `tenant` karena itu opsional di skema, tetapi invariant
 berikut ditegakkan hook `onRecordValidate`:
-
 - `is_platform_staff = false` → `tenant` wajib terisi.
 - `is_platform_staff = true` → `tenant` wajib kosong.
 
@@ -478,6 +482,10 @@ Jeda dan recompute:
 | GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri (nama, telepon, nomor pegawai) |
 | POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus avatar |
 | POST | `/api/itsm/profile/password` | Ganti password dengan verifikasi password lama |
+| GET | `/api/itsm/team` | Daftar anggota tim rumah sakit; hanya IT Lead |
+| POST | `/api/itsm/team` | Tambah anggota (password awal dibuat sistem); hanya IT Lead |
+| PATCH | `/api/itsm/team/{userId}` | Ubah nama/role/unit/status anggota; hanya IT Lead |
+| POST | `/api/itsm/team/{userId}/password` | Reset password anggota; hanya IT Lead |
 | GET | `/api/itsm/app-meta` | Mode tenancy aktif (publik, tanpa auth) |
 | GET | `/api/itsm/platform/tenants` | Daftar tenant + hitungan; akun platform |
 | POST | `/api/itsm/platform/tenants` | Buat tenant + seed + akun IT pertama; platform admin |
@@ -574,6 +582,30 @@ Setiap perubahan menulis `audit_logs` dengan `action=update`,
 `collection_name=users`, `record_id` pengguna, dan `changes` tanpa nilai
 password. Notifikasi tidak dibuat untuk perubahan profil.
 
+## Tim rumah sakit
+
+IT Lead mengelola staf di tenant-nya sendiri lewat `/api/itsm/team`. Penulisan
+memakai `$app.save`, sehingga `users.createRule` tetap `null` (superuser saja).
+
+- Cakupan: `tenant = e.auth.tenant`; akun platform dan pengguna tenant lain
+  selalu menghasilkan 404.
+- Role yang boleh dibuat: `requester`, `it_support`, `it_lead`.
+- Email wajib unik global dan tidak dapat diubah setelah akun dibuat.
+- Password awal dibuat server: 16 karakter dari alfabet tanpa karakter ambigu.
+  Password hanya dikembalikan sekali pada respons `POST` (create) dan
+  `POST .../password` (reset); `audit_logs` tidak menyimpannya.
+- `POST` membuat akun dengan `must_change_password = true`; reset password juga
+  menaikkan flag itu dan memanggil `refreshTokenKey()` (sesi lama berakhir).
+- Lead tidak dapat menonaktifkan akun sendiri atau mengubah role sendiri.
+- IT Lead aktif terakhir tidak dapat dinonaktifkan atau diturunkan; bila
+  perubahan itu dicoba, server menolak 400.
+- Unit yang dipasang harus milik tenant yang sama.
+- Setiap create/update/reset menulis `audit_logs` (`collection_name=users`).
+
+Halaman `/change-password` dipakai untuk memaksa penggantian password awal:
+selama `must_change_password = true`, `guards.requireAuth` menolak route ITSM
+lain dan router mengalihkan pengguna ke halaman itu.
+
 ## SLA breach scan
 
 `backend/pb_hooks/sla_job.pb.js` berjalan setiap 5 menit, menandai
@@ -609,9 +641,10 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 - Profil belum punya 2FA/OTP dan avatar tidak dimoderasi; kebijakan password
   hanya panjang minimal 8 karakter. File avatar disajikan tanpa token (nama file
   acak), jadi jangan dipakai untuk data sensitif.
-- Pengaturan tidak mengelola user tenant. Provisioning akun rumah sakit lewat
-  Admin UI (superuser) atau Konsol Vendor; akun platform sendiri tetap hanya
-  bisa dibuat superuser.
+- Provisioning akun: IT Lead rumah sakit bisa mengelola timnya sendiri lewat
+  tab **Tim** di `/admin`. Akun platform tetap hanya bisa dibuat superuser.
+  Belum ada undangan lewat email; password awal diserahkan manual oleh lead
+  (dan wajib diganti saat login pertama).
 - Konsol Vendor: akun vendor sudah bisa menjadi assignee, approver, dan penerima
   notifikasi tiket lintas tenant (Fase 2), serta mengelola data master rumah
   sakit dari konsol. Yang belum: membuat tiket (akun platform tidak punya

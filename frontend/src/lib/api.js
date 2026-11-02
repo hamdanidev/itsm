@@ -266,6 +266,22 @@ export async function createPlatformTenantUser(tenantId, payload) {
   });
 }
 
+export async function fetchTeam() {
+  return pb.send("/api/itsm/team");
+}
+
+export async function createTeamMember(payload) {
+  return pb.send("/api/itsm/team", { method: "POST", body: payload });
+}
+
+export async function updateTeamMember(userId, payload) {
+  return pb.send(`/api/itsm/team/${userId}`, { method: "PATCH", body: payload });
+}
+
+export async function resetTeamPassword(userId) {
+  return pb.send(`/api/itsm/team/${userId}/password`, { method: "POST" });
+}
+
 export async function fetchTenantMaster(tenantId) {
   return pb.send(`/api/itsm/platform/tenants/${tenantId}/master`);
 }

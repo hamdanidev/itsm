@@ -151,7 +151,7 @@ routerAdd(
     var guards = require(__hooks + "/lib/guards.js");
     var audit = require(__hooks + "/lib/audit.js");
 
-    var auth = guards.requireAuth(e);
+    var auth = guards.requireAuth(e, { allowPendingPassword: true });
     var body = e.requestInfo().body || {};
 
     var current = String(body.current_password || "");
@@ -180,6 +180,7 @@ routerAdd(
     }
 
     record.setPassword(next);
+    record.set("must_change_password", false);
     record.refreshTokenKey();
     $app.save(record);
 

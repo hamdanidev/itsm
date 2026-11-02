@@ -12,6 +12,7 @@ function serialize(user) {
     tenant: String(user.get("tenant") || ""),
     avatar: String(user.get("avatar") || ""),
     is_active: Boolean(user.get("is_active")),
+    must_change_password: Boolean(user.get("must_change_password")),
   };
 }
 

@@ -6,12 +6,14 @@ import { pb } from "../../../lib/pocketbase";
 import { getErrorMessage } from "../../../lib/api";
 import { priorityLabel, typeLabel } from "../../../lib/format";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import TeamTab from "../components/TeamTab";
 
 const TABS = [
   { key: "units", label: "Unit" },
   { key: "categories", label: "Kategori" },
   { key: "policies", label: "Kebijakan SLA" },
   { key: "holidays", label: "Hari libur" },
+  { key: "tim", label: "Tim" },
 ];
 
 const COLLECTIONS = {
@@ -223,7 +225,8 @@ export default function AdminPage() {
     load();
   }, [load]);
 
-  const items = data[tab];
+  const isTeamTab = tab === "tim";
+  const items = isTeamTab ? [] : data[tab];
 
   const missingPolicyCombos = useMemo(() => {
     const taken = new Set(
@@ -377,22 +380,24 @@ export default function AdminPage() {
       <PageHeader
         breadcrumb={[{ label: "Service desk" }, { label: "Pengaturan" }]}
         title="Pengaturan"
-        description="Kelola unit, kategori, kebijakan SLA, dan hari libur tenant. Perubahan berlaku untuk tiket baru; tiket lama memakai snapshot SLA saat dibuat."
+        description="Kelola unit, kategori, kebijakan SLA, hari libur, dan tim IT rumah sakit. Perubahan data master berlaku untuk tiket baru; tiket lama memakai snapshot SLA saat dibuat."
         actions={
-          <button
-            className="btn btn-primary"
-            type="button"
-            onClick={openCreate}
-            disabled={createDisabled}
-            title={
-              createDisabled
-                ? "Semua kombinasi tipe dan prioritas sudah memiliki kebijakan"
-                : undefined
-            }
-          >
-            <i className="bi bi-plus-lg" aria-hidden="true" />
-            Tambah {titleByTab[tab]}
-          </button>
+          isTeamTab ? undefined : (
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={openCreate}
+              disabled={createDisabled}
+              title={
+                createDisabled
+                  ? "Semua kombinasi tipe dan prioritas sudah memiliki kebijakan"
+                  : undefined
+              }
+            >
+              <i className="bi bi-plus-lg" aria-hidden="true" />
+              Tambah {titleByTab[tab]}
+            </button>
+          )
         }
       />
 
@@ -424,7 +429,9 @@ export default function AdminPage() {
             }}
           >
             {item.label}
-            <span className="tab-count">{data[item.key].length}</span>
+            {item.key !== "tim" && (
+              <span className="tab-count">{(data[item.key] || []).length}</span>
+            )}
           </button>
         ))}
       </div>
@@ -439,7 +446,11 @@ export default function AdminPage() {
         </div>
       )}
 
-      <div className="list-panel admin-panel">
+      {isTeamTab ? (
+        <TeamTab units={data.units} currentUser={user} />
+      ) : (
+        <>
+          <div className="list-panel admin-panel">
         {loading ? (
           <div className="admin-loading">
             <span className="spinner spinner--dark" role="status" />
@@ -561,6 +572,8 @@ export default function AdminPage() {
             {renderForm()}
           </form>
         </Modal>
+      )}
+        </>
       )}
     </>
   );

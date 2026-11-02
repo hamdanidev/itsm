@@ -3,6 +3,7 @@ import { useAuth } from "./providers/AuthProvider";
 import AppShell from "../components/layout/AppShell";
 import EmptyState from "../components/ui/EmptyState";
 import LoginPage from "../features/auth/LoginPage";
+import ChangePasswordPage from "../features/auth/ChangePasswordPage";
 import DashboardPage from "../features/dashboard/pages/DashboardPage";
 import AdminPage from "../features/admin/pages/AdminPage";
 import NotificationsPage from "../features/notifications/pages/NotificationsPage";
@@ -28,12 +29,21 @@ function FullPageLoader() {
 }
 
 function RequireAuth({ children }) {
-  const { ready, isAuthenticated } = useAuth();
+  const { ready, isAuthenticated, user } = useAuth();
   const location = useLocation();
 
   if (!ready) return <FullPageLoader />;
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  // Akun dengan password awal wajib mengganti password sebelum masuk ke
+  // ruang kerja. Gerbang server juga menolak route ITSM sampai flag turun.
+  if (
+    user?.must_change_password &&
+    location.pathname !== "/change-password"
+  ) {
+    return <Navigate to="/change-password" replace />;
   }
 
   return children;
@@ -102,6 +112,14 @@ export default function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/change-password"
+        element={
+          <RequireAuth>
+            <ChangePasswordPage />
+          </RequireAuth>
+        }
+      />
       <Route
         element={
           <RequireAuth>

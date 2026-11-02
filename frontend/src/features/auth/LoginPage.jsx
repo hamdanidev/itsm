@@ -17,7 +17,10 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const from = location.state?.from?.pathname || "/";
+  // Jangan pernah kembali ke halaman wajib-ganti-password setelah login ulang;
+  // halaman itu hanya untuk sesi yang masih membawa password awal.
+  const rawFrom = location.state?.from?.pathname || "/";
+  const from = rawFrom === "/change-password" ? "/" : rawFrom;
   const changed = new URLSearchParams(location.search).get("changed") === "1";
 
   useEffect(() => {

@@ -566,6 +566,59 @@ test("login menampilkan petunjuk akun untuk staf rumah sakit", async () => {
   await context.close();
 });
 
+test("IT Lead menambah anggota tim dan anggota wajib ganti password", async () => {
+  const page = await login(state.org.lead.email, "**/dashboard", "lead-tim");
+
+  await page.goto(`${state.web.url}/admin`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("tab", { name: /Tim/ }).click();
+  await page.waitForTimeout(1200);
+
+  await page.getByRole("button", { name: /Tambah anggota/ }).first().click();
+
+  const modal = page.getByRole("dialog");
+  const memberEmail = `anggota.${Date.now()}@uji.local`;
+
+  await modal.locator("#team-name").fill("Anggota Baru E2E");
+  await modal.locator("#team-email").fill(memberEmail);
+  await modal.locator("#team-role").selectOption("it_support");
+  await modal.getByRole("button", { name: "Simpan" }).click();
+
+  const secretBox = page.locator(".secret-box code");
+  await secretBox.waitFor();
+  const initialPassword = (await secretBox.innerText()).trim();
+  assert.ok(initialPassword.length >= 12, "password awal harus dibuat sistem");
+
+  await page.getByRole("dialog").getByRole("button", { name: "Selesai" }).click();
+  await page.locator("tbody").getByText("Anggota Baru E2E").waitFor();
+  await page.context().close();
+
+  // Anggota baru masuk dengan password awal -> wajib ganti password.
+  const memberContext = await state.browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const memberPage = await memberContext.newPage();
+
+  await memberPage.goto(`${state.web.url}/login`, { waitUntil: "domcontentloaded" });
+  await memberPage.fill("#email", memberEmail);
+  await memberPage.fill("#password", initialPassword);
+  await memberPage.click('button[type="submit"]');
+  await memberPage.waitForURL("**/change-password", { timeout: 20_000 });
+
+  await memberPage.fill("#current-password", initialPassword);
+  await memberPage.fill("#new-password", "PasswordBaru123!");
+  await memberPage.fill("#confirm-password", "PasswordBaru123!");
+  await memberPage.getByRole("button", { name: "Simpan password" }).click();
+  await memberPage.waitForURL(/\/login\?changed=1/, { timeout: 20_000 });
+
+  // Masuk lagi dengan password baru -> langsung ke ruang kerja.
+  await memberPage.fill("#email", memberEmail);
+  await memberPage.fill("#password", "PasswordBaru123!");
+  await memberPage.click('button[type="submit"]');
+  await memberPage.waitForURL("**/dashboard", { timeout: 20_000 });
+
+  await memberContext.close();
+});
+
 test("tidak ada console error selama alur diuji", () => {
   assert.deepEqual(
     state.consoleErrors,
