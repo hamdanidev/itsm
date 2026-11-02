@@ -58,7 +58,8 @@ export default function LoginPage() {
             Masuk ke Healthcare ITSM
           </h1>
           <p className="login-sub">
-            Gunakan akun staf rumah sakit yang diberikan oleh tim IT.
+            Gunakan akun staf rumah sakit atau akun vendor yang diberikan
+            administrator.
           </p>
 
           {new URLSearchParams(location.search).get("changed") === "1" &&

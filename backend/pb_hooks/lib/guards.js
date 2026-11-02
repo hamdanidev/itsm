@@ -25,6 +25,35 @@ function assertLead(auth) {
   if (!isLead(auth)) throw new ForbiddenError("IT Lead role required");
 }
 
+// Scope akun platform (vendor). Orthogonal terhadap `role`: role menentukan
+// boleh apa, scope menentukan di tenant mana. Fase 1 hanya membuka Konsol
+// Vendor; akses tiket lintas tenant belum diberikan.
+function isPlatformStaff(auth) {
+  if (!auth) return false;
+
+  try {
+    return !!auth.get("is_platform_staff");
+  } catch (err) {
+    return false;
+  }
+}
+
+function isPlatformAdmin(auth) {
+  return isPlatformStaff(auth) && roleOf(auth) === "it_lead";
+}
+
+function assertPlatformStaff(auth) {
+  if (!isPlatformStaff(auth)) {
+    throw new ForbiddenError("Platform staff role required");
+  }
+}
+
+function assertPlatformAdmin(auth) {
+  if (!isPlatformAdmin(auth)) {
+    throw new ForbiddenError("Platform admin role required");
+  }
+}
+
 function assertSameTenant(auth, record) {
   if (!auth || !record) throw new NotFoundError("Record not found");
   if (String(auth.get("tenant")) !== String(record.get("tenant"))) {
@@ -110,6 +139,10 @@ module.exports = {
   isLead: isLead,
   assertStaff: assertStaff,
   assertLead: assertLead,
+  isPlatformStaff: isPlatformStaff,
+  isPlatformAdmin: isPlatformAdmin,
+  assertPlatformStaff: assertPlatformStaff,
+  assertPlatformAdmin: assertPlatformAdmin,
   assertSameTenant: assertSameTenant,
   findTicket: findTicket,
   assertTicketAccess: assertTicketAccess,

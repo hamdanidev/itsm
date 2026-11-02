@@ -2,6 +2,10 @@
 import { spawn } from "node:child_process";
 import { startPocketBase } from "./lib/pocketbase-server.mjs";
 
+// Suite API berjalan pada mode vendor supaya route /api/itsm/platform/* aktif.
+// Perilaku mode standalone diuji terpisah dengan instance PocketBase sendiri.
+process.env.TENANCY_MODE = process.env.TENANCY_MODE || "vendor";
+
 const server = await startPocketBase();
 console.log(`[test:api] PocketBase siap di ${server.url}`);
 

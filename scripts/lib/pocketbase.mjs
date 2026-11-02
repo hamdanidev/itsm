@@ -256,7 +256,9 @@ export async function spawnPocketBase(extraArgs = []) {
   return spawn(binary, serveArgs(extraArgs), {
     cwd: rootDir,
     stdio: "inherit",
-    env: { ...process.env, TZ: process.env.TZ || "Asia/Jakarta" },
+    // `.env` diteruskan juga ke PocketBase supaya `TENANCY_MODE` (dan setelan
+    // lain) berlaku sama seperti instalasi Docker. Environment shell menang.
+    env: { ...dotEnv, ...process.env, TZ: process.env.TZ || "Asia/Jakarta" },
   });
 }
 
@@ -291,7 +293,7 @@ export async function runPocketBase(args, label = "pocketbase") {
   const child = spawn(binary, args, {
     cwd: rootDir,
     stdio: "inherit",
-    env: { ...process.env, TZ: process.env.TZ || "Asia/Jakarta" },
+    env: { ...dotEnv, ...process.env, TZ: process.env.TZ || "Asia/Jakarta" },
   });
 
   return new Promise((resolve, reject) => {

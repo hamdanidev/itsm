@@ -4,7 +4,7 @@ import { useAuth } from "../../app/providers/AuthProvider";
 import { useNotifications } from "../../app/providers/NotificationsProvider";
 import { useTenant } from "../../app/providers/TenantProvider";
 import { formatRelative, initials } from "../../lib/format";
-import { isLead, isStaff, roleLabel } from "../../lib/permissions";
+import { isLead, isPlatformStaff, isStaff, roleLabel } from "../../lib/permissions";
 import { notificationIcon } from "../../features/notifications/notificationMeta";
 import BrandMark from "../ui/BrandMark";
 import Avatar from "../ui/Avatar";
@@ -94,10 +94,14 @@ export default function AppShell() {
     navigate("/login", { replace: true });
   }
 
-  const tenantName = tenant?.name || "Service Desk";
-  const tenantMeta = tenant?.code
-    ? `Kode ${tenant.code} · Layanan TI`
-    : "Layanan TI rumah sakit";
+  const tenantName = isPlatformStaff(user)
+    ? "Konsol Vendor"
+    : tenant?.name || "Service Desk";
+  const tenantMeta = isPlatformStaff(user)
+    ? "Kelola banyak rumah sakit"
+    : tenant?.code
+      ? `Kode ${tenant.code} · Layanan TI`
+      : "Layanan TI rumah sakit";
 
   return (
     <>
@@ -122,14 +126,16 @@ export default function AppShell() {
         <div className="topbar-spacer" />
 
         <div className="topbar-actions">
-          <Link
-            className="btn btn-primary topbar-create"
-            to="/tickets/new"
-            aria-label="Buat tiket"
-          >
-            <i className="bi bi-plus-lg" aria-hidden="true" />
-            <span>Buat tiket</span>
-          </Link>
+          {!isPlatformStaff(user) && (
+            <Link
+              className="btn btn-primary topbar-create"
+              to="/tickets/new"
+              aria-label="Buat tiket"
+            >
+              <i className="bi bi-plus-lg" aria-hidden="true" />
+              <span>Buat tiket</span>
+            </Link>
+          )}
 
           <div className="notif-wrap" ref={notifRef}>
             <button
@@ -286,42 +292,55 @@ export default function AppShell() {
           </div>
 
           <nav aria-label="Navigasi utama">
-            <div className="sidebar-heading">Ruang kerja</div>
+            <div className="sidebar-heading">
+              {isPlatformStaff(user) ? "Vendor" : "Ruang kerja"}
+            </div>
 
-            {isStaff(user) && (
+            {isPlatformStaff(user) && (
+              <NavLink className={navClass} to="/platform">
+                <i className="bi bi-buildings" aria-hidden="true" />
+                Konsol Vendor
+              </NavLink>
+            )}
+
+            {!isPlatformStaff(user) && isStaff(user) && (
               <NavLink className={navClass} to="/dashboard">
                 <i className="bi bi-grid-1x2" aria-hidden="true" />
                 Ringkasan
               </NavLink>
             )}
 
-            <NavLink
-              className={({ isActive }) =>
-                `sidebar-link${isActive || ticketDetailActive ? " is-active" : ""}`
-              }
-              to="/tickets"
-              end
-            >
-              <i className="bi bi-ticket-detailed" aria-hidden="true" />
-              Tiket
-            </NavLink>
+            {!isPlatformStaff(user) && (
+              <NavLink
+                className={({ isActive }) =>
+                  `sidebar-link${isActive || ticketDetailActive ? " is-active" : ""}`
+                }
+                to="/tickets"
+                end
+              >
+                <i className="bi bi-ticket-detailed" aria-hidden="true" />
+                Tiket
+              </NavLink>
+            )}
 
-            <NavLink className={navClass} to="/notifications">
-              <i className="bi bi-bell" aria-hidden="true" />
-              Notifikasi
-              {unread > 0 && (
-                <span className="sidebar-badge is-count">{unread}</span>
-              )}
-            </NavLink>
+            {!isPlatformStaff(user) && (
+              <NavLink className={navClass} to="/notifications">
+                <i className="bi bi-bell" aria-hidden="true" />
+                Notifikasi
+                {unread > 0 && (
+                  <span className="sidebar-badge is-count">{unread}</span>
+                )}
+              </NavLink>
+            )}
 
-            {isLead(user) && (
+            {!isPlatformStaff(user) && isLead(user) && (
               <NavLink className={navClass} to="/reports">
                 <i className="bi bi-bar-chart-line" aria-hidden="true" />
                 Laporan
               </NavLink>
             )}
 
-            {isLead(user) && (
+            {!isPlatformStaff(user) && isLead(user) && (
               <NavLink className={navClass} to="/admin">
                 <i className="bi bi-sliders" aria-hidden="true" />
                 Pengaturan
@@ -333,8 +352,9 @@ export default function AppShell() {
             <div className="privacy-note">
               <i className="bi bi-shield-check" aria-hidden="true" />
               <span>
-                Jangan menuliskan nama, NIK, atau nomor rekam medis pasien di
-                tiket.
+                {isPlatformStaff(user)
+                  ? "Akun vendor dapat mengelola data semua rumah sakit. Setiap tindakan tercatat di audit log."
+                  : "Jangan menuliskan nama, NIK, atau nomor rekam medis pasien di tiket."}
               </span>
             </div>
           </div>

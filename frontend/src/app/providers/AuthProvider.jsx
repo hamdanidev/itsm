@@ -59,6 +59,7 @@ export function AuthProvider({ children }) {
       user,
       ready,
       isAuthenticated: Boolean(user),
+      isPlatformStaff: Boolean(user?.is_platform_staff),
       login,
       logout,
     }),

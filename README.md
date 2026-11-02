@@ -115,6 +115,27 @@ Lewat Admin UI (`Collections > users`), buat record dengan field:
 Catatan: `users.createRule` sengaja dikunci. Provisioning akun dilakukan oleh
 superuser lewat Admin UI pada MVP ini. IT Lead adalah role bisnis, bukan superuser.
 
+### 3b. Akun vendor (hanya instalasi mode vendor)
+
+Instalasi `TENANCY_MODE=vendor` dikelola dari akun platform (vendor). Buat akun
+pertama lewat Admin UI dengan field:
+
+| Field | Nilai |
+|---|---|
+| `email` | email vendor |
+| `password` | password awal |
+| `name` | nama tampilan |
+| `role` | `it_lead` (admin konsol) atau `it_support` (hanya baca) |
+| `tenant` | **kosong** |
+| `is_platform_staff` | **true** |
+| `is_active` | **true** |
+| `verified` | true |
+
+`tenant` kosong dan `is_platform_staff = true` harus diisi dalam satu kali
+simpan: hook validasi menolak akun rumah sakit tanpa tenant, dan menolak akun
+platform yang punya tenant. Setelah akun ini ada, rumah sakit baru dibuat dari
+dalam aplikasi (menu **Konsol Vendor**), bukan dari Admin UI.
+
 ### 4. Perintah dev lain
 
 ```bash
@@ -163,19 +184,22 @@ Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`
 
 | Perintah | Cakupan | Butuh |
 |---|---|---|
-| `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, helper antrean dashboard, agregasi laporan | Node |
-| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password | Node + binary PocketBase |
-| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, profil, intake | Node + PocketBase + Chromium |
+| `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, scope platform, mode tenancy, validasi input konsol vendor, helper antrean dashboard, agregasi laporan | Node |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, konsol vendor (tenant, seed, provisioning, isolasi) | Node + binary PocketBase |
+| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, profil, intake, konsol vendor (mode vendor) | Node + PocketBase + Chromium |
 | `npm run test:all` | ketiganya | — |
 
 Cara kerjanya:
 
 - `tests/run-api.mjs` menyalakan PocketBase di data dir sementara dan port acak,
   membuat superuser `admin@uji.local`, menjalankan migrasi + seed dari
-  `backend/pb_migrations`, lalu menjalankan `node --test` pada test API.
+  `backend/pb_migrations`, lalu menjalankan `node --test` pada test API. Suite API
+  berjalan pada `TENANCY_MODE=vendor`; perilaku standalone diuji dengan instance
+  PocketBase terpisah di dalam test.
 - Test e2e menyalakan Vite sendiri lewat `PB_TARGET`
   (`frontend/vite.config.js`), jadi tidak perlu `npm run dev` lebih dulu dan
-  tidak bentrok dengan dev server di 5173/8090.
+  tidak bentrok dengan dev server di 5173/8090. File e2e konsol vendor menyalakan
+  instance PocketBase sendiri dalam mode vendor.
 - Setiap file test membuat organisasinya sendiri (unit + manajer + requester +
   support + lead) sehingga file test aman berjalan paralel.
 - Binary PocketBase memakai `PB_VERSION` yang sama dengan dev dan diunduh sekali
@@ -289,22 +313,73 @@ berdasarkan kalender cuti, dan pencabutan delegasi sebelum tahap diputuskan.
   menulis event `escalate` ke timeline. Notifikasi baru sebatas in-app; email
   dan WhatsApp belum ada.
 
+## Mode tenancy
+
+Kode yang sama dipakai pada dua bentuk instalasi. Bentuk instalasi ditentukan
+environment `TENANCY_MODE` (bukan setting database, dan tidak dapat dinaikkan
+dari dalam aplikasi):
+
+| Mode | Isi `tenants` | Konsol Vendor | Login akun vendor |
+|---|---|---|---|
+| `standalone` (default) | tepat 1 baris | tersembunyi | ditolak (403) |
+| `vendor` | banyak baris | aktif | diizinkan |
+
+Nilai tidak dikenal jatuh ke `standalone` (gagal tertutup). Isinya bisa
+diletakkan di `.env` (dibaca `scripts/lib/pocketbase.mjs` dan diteruskan ke
+PocketBase, sama seperti Docker) atau dari shell:
+
+```powershell
+$env:TENANCY_MODE="vendor"; npm run dev
+```
+
+Perubahan mode tidak mengubah data: instalasi standalone bisa dinaikkan ke
+vendor kapan saja.
+
+Mode ditegakkan di tiga tempat, karena API rule PocketBase statis dan tidak bisa
+membaca environment:
+
+1. `onRecordAuthRequest` menolak login **dan refresh** akun platform saat mode
+   bukan vendor, sehingga sesi lama tidak bertahan.
+2. Route `/api/itsm/platform/*` memanggil `tenancy.assertVendor()`.
+3. Frontend menyembunyikan menu dari `GET /api/itsm/app-meta`.
+
+### Konsol Vendor
+
+Hanya untuk akun `is_platform_staff`. `role` tetap menentukan kewenangan:
+`it_lead` = admin konsol (boleh membuat/mengubah), `it_support` = hanya baca.
+
+| Kemampuan | Keterangan |
+|---|---|
+| Daftar rumah sakit | Nama, kode, zona waktu, status, jumlah pengguna, tiket aktif |
+| Tambah rumah sakit | Membuat tenant + data master default + akun IT pertama dalam satu transaksi |
+| Data master default | 10 unit, 9 kategori, 12 kebijakan SLA, 3 hari libur; idempoten, bisa diulang |
+| Pengguna tenant | Tambah pengguna, aktif/nonaktif, reset password |
+| Audit | Setiap aksi menulis `audit_logs` dengan `actor_role` berawalan `platform_` |
+
+Semua pembacaan lintas tenant dilakukan di server dengan filter eksplisit. Akun
+platform **tidak** otomatis bisa membaca koleksi lewat REST: `users.tenant`
+kosong sehingga rule `tenant = @request.auth.tenant` tidak cocok. Akses tiket
+lintas tenant (vendor sebagai resolver) belum dibuka — itu Fase 2.
+
 ## Tenant
 
 `tenants` adalah identitas organisasi (rumah sakit) sekaligus batas isolasi
-data. Setiap user memiliki tepat satu `tenant`; backend mengambil tenant dari
-`e.auth`, bukan dari body request, dan seluruh API rule memfilter
-`tenant = @request.auth.tenant`.
+data. Setiap akun rumah sakit memiliki tepat satu `tenant`; akun platform tidak
+punya tenant sama sekali. Backend mengambil tenant dari `e.auth`, bukan dari body
+request, dan seluruh API rule memfilter `tenant = @request.auth.tenant`.
 
 - Satu baris seed: `Rumah Sakit Contoh` (`RS01`), `Asia/Jakarta`, aktif.
 - Sidebar menampilkan `name` dan `code` tenant (avatar diambil dari inisial
   nama), bukan teks hardcoded.
-- Menonaktifkan tenant (`is_active = false`) memblokir login semua user tenant
-  tersebut karena rule auth user memakai `tenant.is_active`.
-- Membuat/mengubah tenant hanya lewat Admin UI PocketBase (superuser); belum
-  ada pengelolaan tenant in-app karena satu instalasi saat ini melayani satu RS.
-- `timezone` tenant disimpan tetapi belum dipakai untuk SLA; perhitungan jam
-  kerja memakai `sla_policies.timezone` atau default `Asia/Jakarta`.
+- Menonaktifkan tenant (`is_active = false`) memblokir login baru semua
+  penggunanya karena rule auth user memakai `tenant.is_active`. Sesi yang sedang
+  berjalan tetap hidup sampai token akses kedaluwarsa.
+- Di mode vendor, tenant dibuat dan diubah dari Konsol Vendor. Di mode
+  standalone, tenant tunggal tetap dapat diubah superuser lewat Admin UI.
+- `timezone` tenant disimpan dan dipakai saat membuat kebijakan SLA default
+  tenant baru, tetapi perhitungan SLA tetap memakai `sla_policies.timezone`.
+- Akun vendor diarahkan ke `/platform` setelah login; semua route ruang kerja
+  tenant (`/tickets`, `/dashboard`, `/admin`, `/reports`) mengalihkannya kembali.
 
 ## Dashboard dan antrean kerja
 
@@ -595,6 +670,19 @@ origin lain.
 Dev memakai proxy Vite untuk `/api` dan `/_`. PocketBase dijalankan dengan
 `--origins` eksplisit (lihat `scripts/lib/pocketbase.mjs`), bukan `*`.
 
+Environment yang dibaca backend:
+
+| Variabel | Default | Keterangan |
+|---|---|---|
+| `TENANCY_MODE` | `standalone` | `vendor` mengaktifkan Konsol Vendor dan akun platform |
+| `PB_ENCRYPTION_KEY` | — | Enkripsi setting PocketBase (opsional) |
+| `TZ` | `Asia/Jakarta` | Zona proses; cron SLA tetap `Asia/Jakarta` |
+| `GOMEMLIMIT` | `512MiB` | Batas memori Go |
+
+`TENANCY_MODE` dibaca saat request (bukan di-cache), jadi mengubahnya cukup
+dengan restart PocketBase. Saat dev, seluruh isi `.env` diteruskan ke proses
+PocketBase oleh `scripts/lib/pocketbase.mjs`.
+
 ## Desain antarmuka
 
 UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
@@ -638,6 +726,14 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri |
 | POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus foto profil |
 | POST | `/api/itsm/profile/password` | Ganti password (verifikasi password lama) |
+| GET | `/api/itsm/app-meta` | Mode tenancy aktif (publik) |
+| GET | `/api/itsm/platform/tenants` | Daftar rumah sakit + hitungan; akun vendor |
+| POST | `/api/itsm/platform/tenants` | Buat rumah sakit + seed + akun IT pertama; vendor admin |
+| GET | `/api/itsm/platform/tenants/{id}` | Detail rumah sakit, pengguna, unit |
+| PATCH | `/api/itsm/platform/tenants/{id}` | Ubah nama/kode/zona waktu/status |
+| POST | `/api/itsm/platform/tenants/{id}/seed` | Lengkapi data master default |
+| POST | `/api/itsm/platform/tenants/{id}/users` | Tambah pengguna rumah sakit |
+| PATCH | `/api/itsm/platform/tenants/{id}/users/{userId}` | Ubah status/role/unit/password |
 | GET | `/api/collections/tickets/records` | List tiket sesuai API rules |
 | GET | `/api/collections/ticket_comments/records` | List komentar sesuai rules |
 | GET | `/api/collections/ticket_attachments/records` | List lampiran sesuai rules |
@@ -647,8 +743,18 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 30 unit test, 77 test API, dan 11
-  skenario e2e smoke — lihat bagian Testing.
+- Suite otomatis lulus lokal (Windows): 43 unit test, 87 test API, dan 15
+  skenario e2e — lihat bagian Testing.
+- Konsol Vendor diverifikasi test API: mode `standalone` menolak login akun
+  vendor, mode `vendor` mengizinkan; pengguna rumah sakit ditolak dari route
+  platform; `it_support` hanya baca; pembuatan tenant (seed 10 unit, 9 kategori,
+  12 kebijakan, 3 hari libur + akun IT pertama) atomik; seed idempoten; kode
+  unik; email duplikat ditolak; menonaktifkan tenant memblokir login; akun
+  vendor tidak bisa membaca tiket lewat REST.
+- Konsol Vendor diverifikasi Playwright (instance `TENANCY_MODE=vendor` sendiri):
+  login vendor mendarat di `/platform`, sidebar berisi menu vendor (tanpa menu
+  rumah sakit), pembuatan rumah sakit lewat modal, dan detail master data +
+  pengguna tampil tanpa console error.
 - Laporan SLA diverifikasi test API: ringkasan, compliance, median, agregat
   unit/prioritas/jenis, filter rentang, bucket mingguan, validasi 366 hari,
   ekspor CSV (BOM, header, isi baris), dan akses khusus IT Lead.

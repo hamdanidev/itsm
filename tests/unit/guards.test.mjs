@@ -62,3 +62,42 @@ test("assertStaff dan assertLead melempar untuk peran yang salah", () => {
   assert.doesNotThrow(() => guards.assertLead(auth("it_lead")));
   assert.throws(() => guards.assertLead(auth("it_support")), /IT Lead role required/);
 });
+
+function scopedAuth(role, isPlatform) {
+  return {
+    get: (key) => {
+      if (key === "role") return role;
+      if (key === "is_platform_staff") return isPlatform;
+      return undefined;
+    },
+  };
+}
+
+test("scope platform dikenali terpisah dari role", () => {
+  assert.equal(guards.isPlatformStaff(scopedAuth("it_lead", true)), true);
+  assert.equal(guards.isPlatformStaff(scopedAuth("it_lead", false)), false);
+  assert.equal(guards.isPlatformStaff(scopedAuth("it_lead", undefined)), false);
+  assert.equal(guards.isPlatformStaff(null), false);
+
+  assert.equal(guards.isPlatformAdmin(scopedAuth("it_lead", true)), true);
+  assert.equal(guards.isPlatformAdmin(scopedAuth("it_support", true)), false);
+  assert.equal(guards.isPlatformAdmin(scopedAuth("it_lead", false)), false);
+});
+
+test("assertPlatformStaff dan assertPlatformAdmin menolak akun tenant", () => {
+  assert.doesNotThrow(() =>
+    guards.assertPlatformStaff(scopedAuth("it_support", true))
+  );
+  assert.throws(
+    () => guards.assertPlatformStaff(scopedAuth("it_lead", false)),
+    /Platform staff role required/
+  );
+
+  assert.doesNotThrow(() =>
+    guards.assertPlatformAdmin(scopedAuth("it_lead", true))
+  );
+  assert.throws(
+    () => guards.assertPlatformAdmin(scopedAuth("it_support", true)),
+    /Platform admin role required/
+  );
+});

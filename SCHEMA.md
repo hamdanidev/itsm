@@ -21,6 +21,30 @@ TICKET_R = (requester = @request.auth.id || assignee = @request.auth.id || unit.
 Semua koleksi bisnis memiliki `tenant`. Server mengambil tenant dari `e.auth`,
 bukan dari body request. Frontend guard bukan otorisasi.
 
+## Mode tenancy
+
+Instalasi yang sama melayani dua bentuk deployment, ditentukan environment
+`TENANCY_MODE` (dibaca `lib/tenancy.js` saat request, bukan dari database):
+
+| Mode | `tenants` | Konsol Vendor | Login akun platform |
+|---|---|---|---|
+| `standalone` (default) | 1 baris | 403 | 403 |
+| `vendor` | N baris | aktif | diizinkan |
+
+Nilai tidak dikenal → `standalone` (gagal tertutup). Mode tidak mengubah schema
+maupun data; instalasi standalone bisa naik ke vendor tanpa migrasi.
+
+Karena API rule statis, mode ditegakkan di luar rule:
+
+1. `onRecordAuthRequest` (main.pb.js) menolak login **dan** refresh akun
+   platform saat mode bukan vendor.
+2. Semua route `/api/itsm/platform/*` memanggil `tenancy.assertVendor()`.
+3. `GET /api/itsm/app-meta` memberi tahu frontend mode aktif.
+
+Akun platform (`is_platform_staff = true`) **belum** mendapat akses baca tiket
+lintas tenant; semua pembacaan lintas tenant pada fase ini lewat route server
+dengan filter eksplisit.
+
 ## Koleksi
 
 ### `tenants`
@@ -28,28 +52,42 @@ bukan dari body request. Frontend guard bukan otorisasi.
 `name`, `code`, `timezone`, `is_active`, `created`, `updated`.
 
 Satu baris = satu organisasi/rumah sakit; menjadi batas isolasi seluruh data
-bisnis. Setiap user memiliki tepat satu `tenant`, dan backend mengambil tenant
-dari `e.auth` (bukan body request). `is_active = false` membuat semua user
-tenant tersebut tidak bisa login (rule auth user memakai `tenant.is_active`).
-Sidebar menampilkan `name` dan `code` dari record ini.
+bisnis. Setiap akun rumah sakit memiliki tepat satu `tenant`, akun platform tidak
+punya tenant, dan backend mengambil tenant dari `e.auth` (bukan body request).
+`is_active = false` membuat pengguna tenant tersebut tidak bisa login baru (rule
+auth user memakai `tenant.is_active`); sesi berjalan tetap hidup sampai token
+akses kedaluwarsa. Sidebar menampilkan `name` dan `code` dari record ini.
 
-`timezone` saat ini hanya disimpan; perhitungan SLA memakai `sla_policies.timezone`
-atau default `Asia/Jakarta` dan cron di-hardcode ke `Asia/Jakarta`.
+`timezone` dipakai saat membuat kebijakan SLA default tenant baru, tetapi
+perhitungan SLA tetap memakai `sla_policies.timezone` atau default `Asia/Jakarta`
+dan cron di-hardcode ke `Asia/Jakarta`.
 
 Rules:
 
 | Aksi | Rule |
 |---|---|
 | List/View | `AUTH && id = @request.auth.tenant` |
-| Create/Update/Delete | `null` (superuser lewat Admin UI) |
+| Create/Update/Delete | `null` (superuser lewat Admin UI, atau route Konsol Vendor) |
 
 ### `users` (auth)
 
 Field sistem + `tenant`, `unit`, `name`, `role`, `phone`, `employee_no`,
-`avatar`, `is_active`, `external_id`, `external_issuer`, `external_groups`,
-`created`, `updated`.
+`avatar`, `is_active`, `is_platform_staff`, `external_id`, `external_issuer`,
+`external_groups`, `created`, `updated`.
 
 `role`: `requester | it_support | it_lead`.
+
+`is_platform_staff` memisahkan **scope** dari **role**: role menentukan boleh
+apa, flag ini menentukan bahwa akun bekerja lintas tenant (vendor) dan karenanya
+**tidak punya `tenant`**. `tenant` karena itu opsional di skema, tetapi invariant
+berikut ditegakkan hook `onRecordValidate`:
+
+- `is_platform_staff = false` → `tenant` wajib terisi.
+- `is_platform_staff = true` → `tenant` wajib kosong.
+
+Akun platform hanya bisa login pada instalasi `TENANCY_MODE=vendor`
+(`onRecordAuthRequest`). Admin konsol = `is_platform_staff + role = it_lead`;
+`it_support` hanya baca.
 
 `avatar` adalah file gambar (PNG/JPG/WEBP, maks 2 MB, thumbnail `96x96`) yang
 tidak diproteksi agar bisa dirender di top bar dan komentar. Pengguna hanya
@@ -63,10 +101,12 @@ Rules:
 | List/View | `AUTH && TENANT` |
 | Create/Update/Delete | `null` |
 | Manage | `null` |
-| Auth | `is_active = true && tenant.is_active = true` |
+| Auth | `is_active = true && (is_platform_staff = true \|\| tenant.is_active = true)` |
 
-Provisioning akun hanya superuser. `onRecordEnrich` menyembunyikan `phone`,
-`employee_no`, dan field SSO dari user selain diri sendiri/IT Lead.
+Provisioning akun hanya superuser (Admin UI) atau route Konsol Vendor.
+`onRecordEnrich` menyembunyikan `phone`, `employee_no`, dan field SSO dari user
+selain diri sendiri/IT Lead. Akun platform tidak cocok dengan rule List/View
+(`tenant` kosong), sehingga tidak bisa membaca data rumah sakit lewat REST.
 
 ### `units`
 
@@ -247,6 +287,12 @@ event miliknya.
 `tenant`, `ticket`, `actor`, `actor_role`, `action`, `collection_name`,
 `record_id`, `changes`, `ip`, `user_agent`, `created`.
 
+`tenant` **tidak wajib** hanya untuk baris milik akun platform. Baris seperti
+itu tidak terlihat tenant mana pun karena rule baca mewajibkan
+`tenant = @request.auth.tenant` (hanya superuser yang bisa membacanya). Aksi
+akun platform memakai `actor_role` berawalan `platform_` (mis.
+`platform_it_lead`) agar asal kewenangan jelas.
+
 Rules:
 
 | Aksi | Rule |
@@ -338,6 +384,14 @@ Jeda dan recompute:
 | GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri (nama, telepon, nomor pegawai) |
 | POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus avatar |
 | POST | `/api/itsm/profile/password` | Ganti password dengan verifikasi password lama |
+| GET | `/api/itsm/app-meta` | Mode tenancy aktif (publik, tanpa auth) |
+| GET | `/api/itsm/platform/tenants` | Daftar tenant + hitungan; akun platform |
+| POST | `/api/itsm/platform/tenants` | Buat tenant + seed + akun IT pertama; platform admin |
+| GET | `/api/itsm/platform/tenants/{id}` | Detail tenant, hitungan, pengguna, unit |
+| PATCH | `/api/itsm/platform/tenants/{id}` | Ubah nama/kode/zona waktu/status; platform admin |
+| POST | `/api/itsm/platform/tenants/{id}/seed` | Lengkapi data master default (idempoten) |
+| POST | `/api/itsm/platform/tenants/{id}/users` | Tambah pengguna tenant; platform admin |
+| PATCH | `/api/itsm/platform/tenants/{id}/users/{userId}` | Ubah status/role/unit/password |
 
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side.
 Service/Change Request harus berstatus approval `approved` sebelum pekerjaan bisa
@@ -346,6 +400,12 @@ dimulai, dijeda, atau diselesaikan. Setiap aksi menulis audit log.
 Route approval menerima `decision` `approved` / `rejected` / `delegated`. Untuk
 delegasi, sertakan `delegate` (id user) dan `note` sebagai alasan (wajib ≥ 5
 karakter).
+
+Route `/api/itsm/platform/*` hanya menerima `users.is_platform_staff`; aksi
+tulis menuntut `role = it_lead`. Route ini juga memanggil `tenancy.assertVendor()`
+sehingga selalu 403 pada instalasi standalone. Pembacaan lintas tenant dilakukan
+dengan `findRecordsByFilter` ber-`tenant` eksplisit — bukan dengan melonggarkan
+API rule.
 
 ## Laporan SLA
 
@@ -428,8 +488,21 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 - Profil belum punya 2FA/OTP dan avatar tidak dimoderasi; kebijakan password
   hanya panjang minimal 8 karakter. File avatar disajikan tanpa token (nama file
   acak), jadi jangan dipakai untuk data sensitif.
-- Pengaturan tidak mengelola user; provisioning akun tetap lewat Admin UI
-  PocketBase.
+- Pengaturan tidak mengelola user tenant. Provisioning akun rumah sakit lewat
+  Admin UI (superuser) atau Konsol Vendor; akun platform sendiri tetap hanya
+  bisa dibuat superuser.
+- Konsol Vendor masih Fase 1: akun vendor belum bisa menjadi assignee,
+  approver, atau menerima notifikasi tiket lintas tenant. Semua route tiket
+  menolak `tenant` kosong (`assertSameTenant`), jadi vendor belum bisa menangani
+  tiket rumah sakit.
+- Belum ada pemilih tenant di UI tiket; data tiket tetap dikunci ke satu tenant
+  per akun.
+- Audit aksi akun platform tidak punya `tenant`, jadi hanya terlihat lewat
+  Admin UI/superuser, belum ada layar audit platform.
+- Reset password oleh vendor tidak mencabut token akses yang masih berlaku;
+  pengguna lama tetap aktif sampai token kedaluwarsa.
+- Mode tenancy hanya bisa diubah lewat environment; tidak ada tombol ubah mode
+  di aplikasi (disengaja agar mode tidak bisa dinaikkan dari dalam).
 - Belum ada SSO.
 - `tenants.timezone` belum dipakai untuk perhitungan SLA; jam kerja masih
   mengikuti policy atau default `Asia/Jakarta`.

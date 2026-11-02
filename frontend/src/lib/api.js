@@ -197,3 +197,54 @@ export async function uploadAvatar(file) {
 export async function removeAvatar() {
   return pb.send("/api/itsm/profile/avatar", { method: "DELETE" });
 }
+
+// ---------------------------------------------------------------------------
+// Konsol Vendor (platform). Semua route memerlukan akun `is_platform_staff`
+// dan instalasi bertipe `TENANCY_MODE=vendor`; penolakan datang dari server.
+// ---------------------------------------------------------------------------
+
+export async function fetchAppMeta() {
+  return pb.send("/api/itsm/app-meta");
+}
+
+export async function fetchPlatformTenants() {
+  return pb.send("/api/itsm/platform/tenants");
+}
+
+export async function fetchPlatformTenant(tenantId) {
+  return pb.send(`/api/itsm/platform/tenants/${tenantId}`);
+}
+
+export async function createPlatformTenant(payload) {
+  return pb.send("/api/itsm/platform/tenants", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function updatePlatformTenant(tenantId, payload) {
+  return pb.send(`/api/itsm/platform/tenants/${tenantId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export async function seedPlatformTenant(tenantId) {
+  return pb.send(`/api/itsm/platform/tenants/${tenantId}/seed`, {
+    method: "POST",
+  });
+}
+
+export async function createPlatformTenantUser(tenantId, payload) {
+  return pb.send(`/api/itsm/platform/tenants/${tenantId}/users`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function updatePlatformTenantUser(tenantId, userId, payload) {
+  return pb.send(`/api/itsm/platform/tenants/${tenantId}/users/${userId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}

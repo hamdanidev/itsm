@@ -8,10 +8,11 @@ import AdminPage from "../features/admin/pages/AdminPage";
 import NotificationsPage from "../features/notifications/pages/NotificationsPage";
 import ReportsPage from "../features/reports/pages/ReportsPage";
 import ProfilePage from "../features/profile/pages/ProfilePage";
+import PlatformPage from "../features/platform/pages/PlatformPage";
 import TicketListPage from "../features/tickets/pages/TicketListPage";
 import TicketCreatePage from "../features/tickets/pages/TicketCreatePage";
 import TicketDetailPage from "../features/tickets/pages/TicketDetailPage";
-import { isLead, isStaff } from "../lib/permissions";
+import { isLead, isPlatformStaff, isStaff } from "../lib/permissions";
 
 function FullPageLoader() {
   return (
@@ -36,6 +37,24 @@ function RequireAuth({ children }) {
   return children;
 }
 
+// Akun vendor bekerja di Konsol Vendor, bukan di ruang kerja satu rumah sakit.
+// Penjagaan ini hanya UX; otorisasi sebenarnya ada di API rule dan route server.
+function RequireTenantUser({ children }) {
+  const { user } = useAuth();
+
+  if (isPlatformStaff(user)) return <Navigate to="/platform" replace />;
+
+  return children;
+}
+
+function RequirePlatformStaff({ children }) {
+  const { user } = useAuth();
+
+  if (!isPlatformStaff(user)) return <Navigate to="/tickets" replace />;
+
+  return children;
+}
+
 function RequireStaff({ children }) {
   const { user } = useAuth();
 
@@ -54,6 +73,8 @@ function RequireLead({ children }) {
 
 function HomeRedirect() {
   const { user } = useAuth();
+
+  if (isPlatformStaff(user)) return <Navigate to="/platform" replace />;
 
   return <Navigate to={isStaff(user) ? "/dashboard" : "/tickets"} replace />;
 }
@@ -88,34 +109,76 @@ export default function AppRoutes() {
       >
         <Route index element={<HomeRedirect />} />
         <Route
+          path="/platform"
+          element={
+            <RequirePlatformStaff>
+              <PlatformPage />
+            </RequirePlatformStaff>
+          }
+        />
+        <Route
           path="/dashboard"
           element={
-            <RequireStaff>
-              <DashboardPage />
-            </RequireStaff>
+            <RequireTenantUser>
+              <RequireStaff>
+                <DashboardPage />
+              </RequireStaff>
+            </RequireTenantUser>
           }
         />
         <Route
           path="/admin"
           element={
-            <RequireLead>
-              <AdminPage />
-            </RequireLead>
+            <RequireTenantUser>
+              <RequireLead>
+                <AdminPage />
+              </RequireLead>
+            </RequireTenantUser>
           }
         />
         <Route
           path="/reports"
           element={
-            <RequireLead>
-              <ReportsPage />
-            </RequireLead>
+            <RequireTenantUser>
+              <RequireLead>
+                <ReportsPage />
+              </RequireLead>
+            </RequireTenantUser>
           }
         />
-        <Route path="/tickets" element={<TicketListPage />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
+        <Route
+          path="/tickets"
+          element={
+            <RequireTenantUser>
+              <TicketListPage />
+            </RequireTenantUser>
+          }
+        />
+        <Route
+          path="/notifications"
+          element={
+            <RequireTenantUser>
+              <NotificationsPage />
+            </RequireTenantUser>
+          }
+        />
         <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/tickets/new" element={<TicketCreatePage />} />
-        <Route path="/tickets/:id" element={<TicketDetailPage />} />
+        <Route
+          path="/tickets/new"
+          element={
+            <RequireTenantUser>
+              <TicketCreatePage />
+            </RequireTenantUser>
+          }
+        />
+        <Route
+          path="/tickets/:id"
+          element={
+            <RequireTenantUser>
+              <TicketDetailPage />
+            </RequireTenantUser>
+          }
+        />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

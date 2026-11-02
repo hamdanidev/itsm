@@ -11,6 +11,14 @@ onBootstrap((e) => {
 });
 
 onRecordAuthRequest((e) => {
+  var tenancy = require(__hooks + "/lib/tenancy.js");
+
+  // Akun vendor hanya boleh masuk pada instalasi mode vendor. Ditegakkan di
+  // sini (bukan di rule) karena mode adalah environment, dan hook ini juga
+  // menutup `auth-refresh` sehingga sesi lama tidak bertahan setelah mode
+  // berubah menjadi standalone.
+  tenancy.assertPlatformLoginAllowed(e.record);
+
   e.next();
 
   try {
@@ -29,6 +37,33 @@ onRecordAuthRequest((e) => {
   } catch (err) {
     // Authentication must not fail because audit logging failed.
     console.log("Login audit failed", err);
+  }
+}, "users");
+
+// Invariant scope akun: akun platform tidak punya tenant, akun rumah sakit
+// wajib punya tepat satu tenant. Kolom `tenant` dibuat opsional di skema hanya
+// untuk memberi ruang akun platform.
+//
+// `e.next()` WAJIB dipanggil lebih dulu: validasi bawaan PocketBase (termasuk
+// tipe dan ukuran file avatar) berjalan di rantai hook ini.
+onRecordValidate((e) => {
+  e.next();
+
+  var record = e.record;
+  if (!record) return;
+
+  var isPlatform = Boolean(record.get("is_platform_staff"));
+  var tenant = String(record.get("tenant") || "");
+
+  if (isPlatform) {
+    if (tenant) {
+      throw new BadRequestError("Akun vendor tidak boleh terikat satu rumah sakit");
+    }
+    return;
+  }
+
+  if (!tenant) {
+    throw new BadRequestError("Tenant wajib diisi untuk akun rumah sakit");
   }
 }, "users");
 

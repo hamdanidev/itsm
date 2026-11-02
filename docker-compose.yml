@@ -15,6 +15,7 @@ services:
       - .env
     environment:
       TZ: ${TZ:-Asia/Jakarta}
+      TENANCY_MODE: ${TENANCY_MODE:-standalone}
       APP_ORIGIN: https://${APP_DOMAIN}
       AUTOMIGRATE: "false"
       GOMEMLIMIT: ${GOMEMLIMIT:-512MiB}

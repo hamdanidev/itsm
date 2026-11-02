@@ -53,6 +53,32 @@ export async function createUser(
   });
 }
 
+// Akun platform (vendor) tidak punya tenant dan harus dibuat dalam satu save:
+// hook onRecordValidate menolak akun rumah sakit tanpa tenant dan akun platform
+// yang punya tenant.
+export async function createPlatformUser(admin, { role = "it_lead", label = "vendor" } = {}) {
+  const { url } = readEnv();
+  const suffix = uniqueLabel(label);
+  const email = `${label}.${suffix}@uji.local`;
+
+  const user = await admin.create("users", {
+    email,
+    password: PASSWORD,
+    passwordConfirm: PASSWORD,
+    emailVisibility: true,
+    verified: true,
+    name: `Vendor ${suffix}`,
+    role,
+    is_active: true,
+    is_platform_staff: true,
+  });
+
+  const client = new ApiClient(url);
+  await client.login(email, PASSWORD);
+
+  return { user, email, client };
+}
+
 async function loggedIn(url, email) {
   const client = new ApiClient(url);
   const record = await client.login(email, PASSWORD);
