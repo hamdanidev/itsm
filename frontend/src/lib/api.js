@@ -128,6 +128,8 @@ function reportQuery(params = {}) {
   if (params.from) query.set("from", params.from);
   if (params.to) query.set("to", params.to);
   if (params.bucket) query.set("bucket", params.bucket);
+  // Akun vendor: kosong berarti gabungan semua rumah sakit.
+  if (params.tenant) query.set("tenant", params.tenant);
   return query.toString();
 }
 

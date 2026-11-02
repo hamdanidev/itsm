@@ -372,6 +372,7 @@ Akun vendor tidak berhenti di konsol: mereka mengerjakan tiket rumah sakit.
 | Kerja tiket | Komentar (publik/internal), mulai, menunggu, selesaikan, tutup, buka kembali |
 | Approval | Lead vendor bisa menyetujui tahap IT Lead/CAB dan menerima delegasi |
 | Notifikasi | Penugasan, komentar, approval, dan tiket kritis ikut masuk ke akun vendor |
+| Laporan lintas RS | Compliance dan median per rumah sakit, plus tabel perbandingan antar RS |
 
 Aturan mainnya:
 
@@ -447,13 +448,25 @@ Request akan selalu muncul di atas karena tidak punya resolution SLA.
 
 ## Laporan SLA
 
-Menu **Laporan** (`/reports`) hanya tersedia untuk IT Lead. Halaman ini memakai
+Menu **Laporan** (`/reports`) tersedia untuk IT Lead. Halaman ini memakai
 route server-side, bukan agregasi di browser seperti dashboard, sehingga angkanya
 konsisten untuk rentang tanggal berapa pun.
+
+Akun vendor (lead) memakai halaman yang sama dengan tambahan filter **Rumah
+sakit**:
+
+- **Semua rumah sakit** — ringkasan gabungan, tabel **Perbandingan rumah sakit**,
+  dan kolom tenant pada daftar breach terbaru serta ekspor CSV.
+- **Satu rumah sakit** — tampilan seperti IT Lead rumah sakit tersebut (tanpa
+  tabel perbandingan, header CSV lama).
+
+Median dihitung dari gabungan seluruh tiket pada cakupan terpilih, bukan
+rata-rata median per rumah sakit, jadi angka gabungan tetap benar.
 
 | Bagian | Isi |
 |---|---|
 | Ringkasan | tiket dibuat, selesai, compliance, median respons, median resolusi |
+| Perbandingan RS | khusus vendor: total, selesai, breach, compliance, median per rumah sakit |
 | Tren | jumlah dibuat/selesai/breach dan compliance per bulan atau per minggu |
 | Per unit | total, selesai, breach, compliance per unit pemohon |
 | Per prioritas / jenis | agregat yang sama per prioritas dan jenis tiket |
@@ -772,7 +785,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 43 unit test, 99 test API, dan 16
+- Suite otomatis lulus lokal (Windows): 44 unit test, 108 test API, dan 18
   skenario e2e — lihat bagian Testing.
 - Konsol Vendor diverifikasi test API: mode `standalone` menolak login akun
   vendor, mode `vendor` mengizinkan; pengguna rumah sakit ditolak dari route
@@ -785,6 +798,11 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
   `audit_logs` mencatat `actor_role=platform_it_lead`, vendor tidak bisa
   membuat tiket atau menulis lewat REST, dan isolasi antar rumah sakit untuk
   pengguna biasa tetap utuh.
+- Laporan lintas RS diverifikasi test API: vendor mendapat mode `all` dengan
+  ringkasan per rumah sakit, bisa membatasi ke satu tenant, tenant tak dikenal
+  ditolak 404, vendor support ditolak 403, parameter `tenant` tidak bisa dipakai
+  IT Lead rumah sakit untuk memperluas cakupan, serta CSV gabungan memakai
+  kolom `tenant` sementara ekspor satu RS tetap memakai header lama.
 - Konsol Vendor diverifikasi Playwright (instance `TENANCY_MODE=vendor` sendiri):
   login vendor mendarat di `/platform`, sidebar berisi menu vendor, pembuatan
   rumah sakit lewat modal, detail master data + pengguna tampil, pemilih tenant

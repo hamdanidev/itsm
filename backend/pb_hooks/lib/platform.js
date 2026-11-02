@@ -299,6 +299,45 @@ function writeAudit(e, auth, opts) {
   }
 }
 
+// Cakupan laporan SLA:
+//   akun rumah sakit -> selalu tenant sendiri ("own")
+//   akun vendor      -> satu tenant bila parameternya diisi ("one"),
+//                       atau seluruh tenant ("all")
+function reportScope(app, auth, requestedTenantId, isPlatform) {
+  var requested = String(requestedTenantId || "").trim();
+
+  if (!isPlatform) {
+    var own = String(auth.get("tenant") || "");
+    if (!own) throw new BadRequestError("Akun tidak memiliki tenant");
+
+    var ownRecord;
+    try {
+      ownRecord = app.findRecordById("tenants", own);
+    } catch (err) {
+      throw new NotFoundError("Rumah sakit tidak ditemukan");
+    }
+
+    return { mode: "own", selected: own, tenants: [ownRecord] };
+  }
+
+  if (requested) {
+    var one;
+    try {
+      one = app.findRecordById("tenants", requested);
+    } catch (err) {
+      throw new NotFoundError("Rumah sakit tidak ditemukan");
+    }
+
+    return { mode: "one", selected: requested, tenants: [one] };
+  }
+
+  return {
+    mode: "all",
+    selected: "",
+    tenants: app.findRecordsByFilter("tenants", 'id != ""', "name", 500, 0),
+  };
+}
+
 module.exports = {
   ROLES: ROLES,
   DEFAULT_TIMEZONE: DEFAULT_TIMEZONE,
@@ -316,4 +355,5 @@ module.exports = {
   findTenantUser: findTenantUser,
   createTenantUser: createTenantUser,
   writeAudit: writeAudit,
+  reportScope: reportScope,
 };

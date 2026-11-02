@@ -139,11 +139,9 @@ export default function AppRoutes() {
         <Route
           path="/reports"
           element={
-            <RequireTenantUser>
-              <RequireLead>
-                <ReportsPage />
-              </RequireLead>
-            </RequireTenantUser>
+            <RequireLead>
+              <ReportsPage />
+            </RequireLead>
           }
         />
         {/* Vendor boleh membuka tiket & notifikasi; halaman lain tetap khusus

@@ -160,6 +160,18 @@ test("CSV mengutip koma, tanda kutip, dan memakai header tetap", () => {
   assert.equal(lines.length, 2);
 });
 
+test("CSV lintas rumah sakit menambahkan kolom tenant", () => {
+  const csv = reporting.toCsv(
+    [row({ ticketNo: "INC-1", tenant: "RS A" }), row({ ticketNo: "INC-2", tenant: "RS B" })],
+    { withTenant: true }
+  );
+  const lines = csv.split("\r\n");
+
+  assert.match(lines[0], /^tenant,ticket_no,type,priority,/);
+  assert.match(lines[1], /^RS A,INC-1,/);
+  assert.match(lines[2], /^RS B,INC-2,/);
+});
+
 test("parseRange memvalidasi rentang dan default 90 hari", () => {
   const now = wib(2026, 11, 2, 12);
   const def = reporting.parseRange({}, now);

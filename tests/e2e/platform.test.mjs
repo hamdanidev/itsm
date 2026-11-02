@@ -251,6 +251,36 @@ test("pemilih tenant mengikuti tiket yang dibuka", async () => {
   await page.context().close();
 });
 
+test("vendor membandingkan SLA antar rumah sakit", async () => {
+  const page = await login(state.vendor.email, "**/platform", "vendor-laporan");
+
+  await page.locator(".sidebar").getByRole("link", { name: "Laporan" }).click();
+  await page.waitForURL("**/reports", { timeout: 15_000 });
+  await page.waitForTimeout(2000);
+
+  await page.getByRole("heading", { name: "Laporan SLA lintas RS" }).waitFor();
+
+  const comparison = page.locator(".report-panel", {
+    hasText: "Perbandingan rumah sakit",
+  });
+  await comparison.waitFor();
+
+  const rows = comparison.locator("tbody tr");
+  assert.ok((await rows.count()) >= 2, "perbandingan memuat minimal dua RS");
+  await comparison.getByText("Rumah Sakit Contoh").first().waitFor();
+
+  // Membatasi ke satu rumah sakit menghilangkan tabel perbandingan.
+  await page.locator("#report-tenant").selectOption({ label: "Rumah Sakit Contoh" });
+  await page.getByRole("button", { name: "Terapkan" }).click();
+  await page.waitForTimeout(1800);
+
+  await page
+    .getByText("Perbandingan rumah sakit")
+    .waitFor({ state: "detached", timeout: 15_000 });
+
+  await page.context().close();
+});
+
 test("vendor membuat rumah sakit baru beserta akun IT pertama", async () => {
   const page = await login(state.vendor.email, "**/platform", "vendor-create");
 

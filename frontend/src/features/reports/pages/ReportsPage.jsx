@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import PageHeader from "../../../components/ui/PageHeader";
 import EmptyState from "../../../components/ui/EmptyState";
+import { useAuth } from "../../../app/providers/AuthProvider";
+import { useTenant } from "../../../app/providers/TenantProvider";
+import { isPlatformStaff } from "../../../lib/permissions";
 import {
   downloadSlaReportCsv,
   fetchSlaReport,
@@ -139,9 +142,15 @@ function GroupTable({ rows, label }) {
 }
 
 export default function ReportsPage() {
+  const { user } = useAuth();
+  const { tenants } = useTenant();
+  const isVendor = isPlatformStaff(user);
+
   const [from, setFrom] = useState(() => daysAgo(89));
   const [to, setTo] = useState(() => wibDateString());
   const [bucket, setBucket] = useState("month");
+  // Kosong = gabungan semua rumah sakit (hanya berlaku untuk akun vendor).
+  const [tenantFilter, setTenantFilter] = useState("");
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
@@ -170,11 +179,13 @@ export default function ReportsPage() {
       from: next.from ?? from,
       to: next.to ?? to,
       bucket: next.bucket ?? bucket,
+      tenant: next.tenant ?? tenantFilter,
     };
 
     setFrom(params.from);
     setTo(params.to);
     setBucket(params.bucket);
+    if (next.tenant !== undefined) setTenantFilter(next.tenant);
     load(params);
   }
 
@@ -192,7 +203,7 @@ export default function ReportsPage() {
     setError("");
 
     try {
-      await downloadSlaReportCsv({ from, to });
+      await downloadSlaReportCsv({ from, to, tenant: tenantFilter });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -203,13 +214,19 @@ export default function ReportsPage() {
   const summary = report?.summary;
   const isEmpty = Boolean(report) && report.summary.total === 0;
   const trendMax = Math.max(1, ...(report?.trend || []).map((item) => item.created));
+  // Laporan gabungan: breach perlu menyebut rumah sakitnya.
+  const allTenants = report?.scope?.mode === "all";
 
   return (
     <>
       <PageHeader
         breadcrumb={[{ label: "Laporan" }]}
-        title="Laporan SLA"
-        description="Compliance, tren, dan waktu penyelesaian tiket per unit, prioritas, dan jenis."
+        title={isVendor && !tenantFilter ? "Laporan SLA lintas RS" : "Laporan SLA"}
+        description={
+          isVendor
+            ? "Compliance, tren, dan perbandingan SLA antar rumah sakit yang Anda layani."
+            : "Compliance, tren, dan waktu penyelesaian tiket per unit, prioritas, dan jenis."
+        }
         actions={
           <button
             className="btn btn-primary"
@@ -229,6 +246,27 @@ export default function ReportsPage() {
 
       <div className="report-filters">
         <div className="report-fields">
+          {isVendor && (
+            <div className="report-field">
+              <label className="form-label" htmlFor="report-tenant">
+                Rumah sakit
+              </label>
+              <select
+                id="report-tenant"
+                className="select"
+                value={tenantFilter}
+                onChange={(event) => setTenantFilter(event.target.value)}
+              >
+                <option value="">Semua rumah sakit</option>
+                {tenants.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="report-field">
             <label className="form-label" htmlFor="report-from">
               Dari
@@ -351,6 +389,58 @@ export default function ReportsPage() {
               hint="Tiket yang selesai"
             />
           </div>
+
+          {report.tenants && report.tenants.length > 0 && (
+            <section className="panel report-panel">
+              <div className="panel-head">
+                <div className="panel-title">Perbandingan rumah sakit</div>
+                <span className="panel-count">
+                  {report.tenants.length} rumah sakit
+                </span>
+              </div>
+              <div className="panel-body">
+                <div className="report-table-wrap">
+                  <table className="admin-table report-table">
+                    <thead>
+                      <tr>
+                        <th>Rumah sakit</th>
+                        <th className="col-num">Dibuat</th>
+                        <th className="col-num">Selesai</th>
+                        <th className="col-num">Breach</th>
+                        <th className="col-num">Compliance</th>
+                        <th className="col-num">Median respons</th>
+                        <th className="col-num">Median resolusi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.tenants.map((item) => (
+                        <tr key={item.id}>
+                          <td>
+                            <span className="admin-name">{item.name}</span>
+                            <div className="admin-sub">
+                              <code>{item.code}</code>
+                            </div>
+                          </td>
+                          <td className="col-num">{item.summary.total}</td>
+                          <td className="col-num">{item.summary.resolved}</td>
+                          <td className="col-num">{item.summary.breached}</td>
+                          <td className="col-num">
+                            <ComplianceCell value={item.summary.compliance} />
+                          </td>
+                          <td className="col-num">
+                            {formatDuration(item.summary.median_response_minutes)}
+                          </td>
+                          <td className="col-num">
+                            {formatDuration(item.summary.median_resolution_minutes)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          )}
 
           {isEmpty ? (
             <div className="panel">
@@ -483,7 +573,12 @@ export default function ReportsPage() {
                           <tbody>
                             {report.breaches.map((item) => (
                               <tr key={`${item.ticket_no}-${item.breached_at}`}>
-                                <td className="col-code">{item.ticket_no}</td>
+                                <td className="col-code">
+                                  {item.ticket_no}
+                                  {allTenants && item.tenant && (
+                                    <div className="admin-sub">{item.tenant}</div>
+                                  )}
+                                </td>
                                 <td>{item.unit}</td>
                                 <td>{PRIORITY_LABELS[item.priority] || item.priority}</td>
                                 <td>{STATUS_LABELS[item.status] || item.status}</td>

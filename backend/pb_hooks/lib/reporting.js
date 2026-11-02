@@ -266,6 +266,7 @@ function recentBreaches(rows, limit) {
       priority: row.priority,
       type: row.type,
       unit: row.unit,
+      tenant: row.tenant || "",
       status: row.status,
       breached_at: row.breachedMs ? new Date(row.breachedMs).toISOString() : "",
       escalation_level: row.escalationLevel,
@@ -326,7 +327,8 @@ function csvCell(value) {
   return text;
 }
 
-function toCsv(rows) {
+function toCsv(rows, options) {
+  var withTenant = Boolean(options && options.withTenant);
   var header = [
     "ticket_no",
     "type",
@@ -344,6 +346,8 @@ function toCsv(rows) {
     "resolution_code",
     "reopen_count",
   ];
+
+  if (withTenant) header.unshift("tenant");
 
   var lines = [header.join(",")];
 
@@ -366,6 +370,8 @@ function toCsv(rows) {
       row.resolutionCode || "",
       row.reopenCount || 0,
     ];
+
+    if (withTenant) cells.unshift(row.tenant || "");
 
     lines.push(cells.map(csvCell).join(","));
   }
@@ -514,32 +520,75 @@ function collectNames(app, collection, tenantId) {
   return map;
 }
 
-function build(app, tenantId, options) {
-  var fromMs = options.fromMs;
-  var toMs = options.toMs;
-  var bucket = options.bucket === "week" ? "week" : "month";
-
+// Membaca tiket satu tenant pada rentang laporan menjadi baris siap agregasi.
+// `tenantName` hanya dilampirkan agar laporan lintas rumah sakit bisa
+// dikelompokkan dan diekspor dengan kolom tenant.
+function collectRows(app, tenantId, tenantName, options) {
+  var rows = [];
   var tickets = app.findRecordsByFilter(
     "tickets",
     "tenant = {:tenant} && created >= {:from} && created <= {:to}",
     "-created",
     0,
     0,
-    { tenant: tenantId, from: pbDate(fromMs), to: pbDate(toMs) }
+    { tenant: tenantId, from: pbDate(options.fromMs), to: pbDate(options.toMs) }
   );
 
   var units = collectNames(app, "units", tenantId);
   var categories = collectNames(app, "ticket_categories", tenantId);
-  var rows = [];
 
   for (var i = 0; i < tickets.length; i++) {
-    rows.push(rowFromRecord(tickets[i], units, categories));
+    var row = rowFromRecord(tickets[i], units, categories);
+    row.tenantId = tenantId;
+    row.tenant = tenantName || "";
+    rows.push(row);
   }
 
+  return rows;
+}
+
+function build(app, tenantId, options) {
+  var rows = collectRows(app, tenantId, "", options);
+
   return {
-    report: aggregate(rows, { fromMs: fromMs, toMs: toMs, bucket: bucket }),
+    report: aggregate(rows, options),
     rows: rows,
   };
+}
+
+// Laporan lintas rumah sakit (akun vendor). Mediana dihitung dari gabungan
+// seluruh baris, bukan rata-rata median per tenant, supaya angkanya benar.
+// Selain ringkasan gabungan, hasilnya memuat ringkasan per rumah sakit.
+function buildMulti(app, tenants, options) {
+  var rows = [];
+  var perTenant = [];
+
+  for (var i = 0; i < tenants.length; i++) {
+    var tenant = tenants[i];
+    var tenantRows = collectRows(
+      app,
+      String(tenant.id),
+      String(tenant.get("name") || ""),
+      options
+    );
+
+    perTenant.push({
+      id: String(tenant.id),
+      name: String(tenant.get("name") || ""),
+      code: String(tenant.get("code") || ""),
+      summary: summarize(tenantRows),
+    });
+
+    rows = rows.concat(tenantRows);
+  }
+
+  var report = aggregate(rows, options);
+
+  report.tenants = perTenant.sort(function (a, b) {
+    return b.summary.total - a.summary.total || a.name.localeCompare(b.name);
+  });
+
+  return { report: report, rows: rows };
 }
 
 module.exports = {
@@ -552,5 +601,7 @@ module.exports = {
   summarize: summarize,
   toCsv: toCsv,
   build: build,
+  buildMulti: buildMulti,
   parseRange: parseRange,
+  queryText: queryText,
 };

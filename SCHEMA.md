@@ -459,18 +459,38 @@ API rule.
 `from`–`to` (WIB, `YYYY-MM-DD`), default 90 hari, maksimal 366 hari. Agregasi
 dijalankan di server (`pb_hooks/lib/reporting.js`), bukan di browser.
 
-Parameter: `from`, `to`, `bucket` (`month` default, `week` memakai ISO week).
+Parameter: `from`, `to`, `bucket` (`month` default, `week` memakai ISO week),
+dan `tenant` (khusus akun vendor).
+
+Cakupan ditentukan `lib/platform.js#reportScope`:
+
+| Akun | `tenant` | Cakupan |
+|---|---|---|
+| IT Lead rumah sakit | diabaikan | selalu `own` — tenant sendiri |
+| Vendor lead | kosong | `all` — gabungan semua rumah sakit |
+| Vendor lead | `<id>` | `one` — satu rumah sakit |
+
+Akun vendor **tidak** bisa memakai `tenant` untuk keluar dari batasnya sendiri,
+dan akun rumah sakit tidak bisa memperluas cakupan dengan parameter itu
+(diabaikan). Vendor support (`it_support`) tetap ditolak karena laporan
+memakai `assertLead`.
 
 Respons:
 
 - `range` — `from`, `to`, `days`, `bucket`.
+- `scope` — `{ mode: "own"|"one"|"all", tenant }`.
 - `summary` — `total`, `resolved`, `breached`, `compliance` (persen),
   `median_response_minutes`, `median_resolution_minutes`, `reopens`.
 - `trend` — per bucket: `created`, `resolved`, `breached`, `compliance`.
 - `units`, `priorities`, `types` — `{ name, summary }` dengan bentuk summary yang
   sama.
-- `breaches` — maksimal 20 tiket breach terbaru (nomor, unit, prioritas, status,
-  waktu breach, level eskalasi).
+- `breaches` — maksimal 20 tiket breach terbaru (nomor, unit, tenant,
+  prioritas, status, waktu breach, level eskalasi).
+- `tenants` — hanya pada mode `all`: `{ id, name, code, summary }` per rumah
+  sakit, urut dari tiket terbanyak. Ini yang dipakai tabel perbandingan RS.
+
+Median dihitung dari gabungan seluruh baris (bukan rata-rata median per
+tenant), sehingga angka laporan lintas RS tetap benar.
 
 `breached` dihitung dari field `response_breach_at`, `approval_breach_at`, atau
 `resolution_breach_at`. Median respons memakai `first_response_at − created`;
@@ -478,7 +498,9 @@ median resolusi memakai `resolved_at − created` untuk tiket yang sudah selesai
 Semua durasi memakai menit kalender.
 
 `GET /api/itsm/reports/sla.csv` memakai filter yang sama dan mengirim satu baris
-per tiket (UTF-8 + BOM, pemisah koma) untuk diolah di Excel.
+per tiket (UTF-8 + BOM, pemisah koma) untuk diolah di Excel. Saat cakupannya
+`all`, kolom pertama menjadi `tenant`; ekspor satu rumah sakit memakai header
+lama tanpa kolom itu.
 
 ## Profil pengguna
 
