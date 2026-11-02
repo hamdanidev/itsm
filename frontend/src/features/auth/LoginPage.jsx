@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/providers/AuthProvider";
+import { useMeta } from "../../app/providers/MetaProvider";
 import { getErrorMessage } from "../../lib/api";
 import BrandMark from "../../components/ui/BrandMark";
 
 export default function LoginPage() {
   const { ready, isAuthenticated, login } = useAuth();
+  const { isVendor } = useMeta();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -137,6 +139,13 @@ export default function LoginPage() {
               )}
             </button>
           </form>
+
+          <p className="login-note">
+            Butuh akun?{" "}
+            <strong>
+              {isVendor ? "Hubungi administrator vendor." : "Hubungi IT rumah sakit."}
+            </strong>
+          </p>
         </section>
       </main>
 

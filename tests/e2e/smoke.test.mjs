@@ -549,6 +549,23 @@ test("pengguna memperbarui profil, avatar, dan password", async () => {
   assert.equal(oldLogin.status, 400, "password lama harus ditolak");
 });
 
+test("login menampilkan petunjuk akun untuk staf rumah sakit", async () => {
+  const context = await state.browser.newContext({
+    viewport: { width: 1280, height: 900 },
+  });
+  const page = await context.newPage();
+
+  await page.goto(`${state.web.url}/login`, { waitUntil: "domcontentloaded" });
+  await page.locator(".login-note").waitFor();
+
+  assert.match(
+    await page.locator(".login-note").innerText(),
+    /Hubungi IT rumah sakit/
+  );
+
+  await context.close();
+});
+
 test("tidak ada console error selama alur diuji", () => {
   assert.deepEqual(
     state.consoleErrors,

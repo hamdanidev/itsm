@@ -3974,3 +3974,18 @@ button {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Catatan singkat di bawah form login (akun & reset password). */
+.login-note {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--n30);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.login-note strong {
+  color: var(--text);
+  font-weight: 600;
+}
