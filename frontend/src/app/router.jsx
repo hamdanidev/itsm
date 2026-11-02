@@ -9,6 +9,7 @@ import NotificationsPage from "../features/notifications/pages/NotificationsPage
 import ReportsPage from "../features/reports/pages/ReportsPage";
 import ProfilePage from "../features/profile/pages/ProfilePage";
 import PlatformPage from "../features/platform/pages/PlatformPage";
+import MasterDataPage from "../features/platform/pages/MasterDataPage";
 import AuditPage from "../features/audit/pages/AuditPage";
 import TicketListPage from "../features/tickets/pages/TicketListPage";
 import TicketCreatePage from "../features/tickets/pages/TicketCreatePage";
@@ -122,6 +123,14 @@ export default function AppRoutes() {
           element={
             <RequirePlatformStaff>
               <AuditPage />
+            </RequirePlatformStaff>
+          }
+        />
+        <Route
+          path="/platform/tenants/:id"
+          element={
+            <RequirePlatformStaff>
+              <MasterDataPage />
             </RequirePlatformStaff>
           }
         />

@@ -293,6 +293,47 @@ test("vendor menelusuri audit lintas rumah sakit", async () => {
   await page.context().close();
 });
 
+test("vendor mengelola data master rumah sakit", async () => {
+  const page = await login(state.vendor.email, "**/platform", "vendor-master");
+
+  const row = page.locator("tr", { hasText: "RS01" });
+  await row.getByRole("button", { name: "Kelola" }).click();
+
+  const detail = page.getByRole("dialog");
+  await detail.getByRole("button", { name: "Kelola data master" }).click();
+  await page.waitForURL("**/platform/tenants/*", { timeout: 15_000 });
+  await page.waitForTimeout(1600);
+
+  await page.getByRole("heading", { name: /Data master/ }).waitFor();
+  assert.ok(
+    (await page.locator("tbody tr").count()) >= 10,
+    "unit hasil seed harus tampil"
+  );
+
+  // Pemilih tenant mengikuti rumah sakit yang sedang dikelola.
+  const selected = await page
+    .locator(".tenant-switcher select option:checked")
+    .innerText();
+  assert.equal(selected, "Rumah Sakit Contoh");
+
+  await page.getByRole("button", { name: /Tambah unit/ }).click();
+
+  const modal = page.getByRole("dialog");
+  await modal.locator("#master-name").fill("Unit E2E Vendor");
+  await modal.locator("#master-code").fill("E2E-V");
+  await modal.getByRole("button", { name: "Simpan" }).click();
+
+  await page.getByText("Data baru ditambahkan.").waitFor();
+  await page.locator("tbody").getByText("Unit E2E Vendor").waitFor();
+
+  // Tab kebijakan SLA memuat 12 kombinasi hasil seed.
+  await page.getByRole("tab", { name: /Kebijakan SLA/ }).click();
+  await page.waitForTimeout(500);
+  assert.ok((await page.locator("tbody tr").count()) >= 12);
+
+  await page.context().close();
+});
+
 test("vendor membandingkan SLA antar rumah sakit", async () => {
   const page = await login(state.vendor.email, "**/platform", "vendor-laporan");
 

@@ -266,6 +266,24 @@ export async function createPlatformTenantUser(tenantId, payload) {
   });
 }
 
+export async function fetchTenantMaster(tenantId) {
+  return pb.send(`/api/itsm/platform/tenants/${tenantId}/master`);
+}
+
+export async function createTenantMaster(tenantId, kind, payload) {
+  return pb.send(`/api/itsm/platform/tenants/${tenantId}/master/${kind}`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function updateTenantMaster(tenantId, kind, recordId, payload) {
+  return pb.send(
+    `/api/itsm/platform/tenants/${tenantId}/master/${kind}/${recordId}`,
+    { method: "PATCH", body: payload }
+  );
+}
+
 export async function updatePlatformTenantUser(tenantId, userId, payload) {
   return pb.send(`/api/itsm/platform/tenants/${tenantId}/users/${userId}`, {
     method: "PATCH",

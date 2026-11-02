@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import PageHeader from "../../../components/ui/PageHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import Modal from "../../../components/ui/Modal";
@@ -812,6 +813,7 @@ export default function PlatformPage() {
 }
 
 function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -968,9 +970,21 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
       onClose={onClose}
       xl
       footer={
-        <button className="btn btn-subtle" type="button" onClick={onClose}>
-          Tutup
-        </button>
+        <>
+          {canManage && (
+            <button
+              className="btn btn-outline"
+              type="button"
+              onClick={() => navigate(`/platform/tenants/${tenantId}`)}
+            >
+              <i className="bi bi-sliders" aria-hidden="true" />
+              Kelola data master
+            </button>
+          )}
+          <button className="btn btn-subtle" type="button" onClick={onClose}>
+            Tutup
+          </button>
+        </>
       }
     >
       {error && (

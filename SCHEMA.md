@@ -104,6 +104,28 @@ Catatan semantik:
   `actor_role = "superuser"` dan **tanpa** relasi `actor`, karena superuser
   bukan record `users`. Sebelumnya baris ini tidak tersimpan sama sekali.
 
+### Data master per rumah sakit
+
+`GET`/`POST`/`PATCH` pada `/api/itsm/platform/tenants/{id}/master...` memberi
+vendor akses kelola unit, kategori, kebijakan SLA, dan hari libur tanpa
+melonggarkan rule tulis `LEAD && TENANT` milik rumah sakit.
+
+- `kind`: `units` | `categories` | `policies` | `holidays`.
+- Baca untuk semua akun platform; tulis hanya `role = it_lead` (vendor admin).
+- Setiap record dipaksa `tenant = {id}` dari URL. Record milik tenant lain
+  menghasilkan 404, termasuk saat `recordId` valid tetapi beda rumah sakit.
+- Validasi di `lib/master_data.js`: kode huruf besar 1–20 karakter, jenis
+  unit/kategori dikenal, jam `HH:MM` dengan mulai < selesai, hari kerja 1–7,
+  respons ≥ 1 menit, tanggal `YYYY-MM-DD`.
+- Keunikan dijaga manual: `(tenant, code)` untuk unit/kategori,
+  `(tenant, ticket_type, priority)` untuk kebijakan SLA, `(tenant, date)` untuk
+  hari libur. Pelanggaran → 400.
+- Manajer unit harus pengguna aktif pada rumah sakit yang sama.
+- Tidak ada hard delete; gunakan `is_active = false` agar riwayat tiket lama
+  tetap valid.
+- Setiap create/update menulis `audit_logs` pada tenant terkait dengan
+  `collection_name` yang diubah dan `actor_role` platform.
+
 Di UI, vendor memilih satu rumah sakit aktif lewat pemilih tenant di top bar.
 Pilihan disimpan di `localStorage` dan menjadi filter daftar tiket; ia **bukan**
 batas keamanan (vendor memang boleh melihat semua), melainkan konteks kerja.
@@ -458,13 +480,16 @@ Jeda dan recompute:
 | POST | `/api/itsm/profile/password` | Ganti password dengan verifikasi password lama |
 | GET | `/api/itsm/app-meta` | Mode tenancy aktif (publik, tanpa auth) |
 | GET | `/api/itsm/platform/tenants` | Daftar tenant + hitungan; akun platform |
-| GET | `/api/itsm/platform/audit` | Audit lintas tenant (filter RS, aktor, aksi, cakupan, tanggal, nomor tiket) |
 | POST | `/api/itsm/platform/tenants` | Buat tenant + seed + akun IT pertama; platform admin |
 | GET | `/api/itsm/platform/tenants/{id}` | Detail tenant, hitungan, pengguna, unit |
 | PATCH | `/api/itsm/platform/tenants/{id}` | Ubah nama/kode/zona waktu/status; platform admin |
 | POST | `/api/itsm/platform/tenants/{id}/seed` | Lengkapi data master default (idempoten) |
 | POST | `/api/itsm/platform/tenants/{id}/users` | Tambah pengguna tenant; platform admin |
 | PATCH | `/api/itsm/platform/tenants/{id}/users/{userId}` | Ubah status/role/unit/password |
+| GET | `/api/itsm/platform/tenants/{id}/master` | Data master RS: unit, kategori, kebijakan SLA, hari libur, pengguna |
+| POST | `/api/itsm/platform/tenants/{id}/master/{kind}` | Tambah data master; vendor admin |
+| PATCH | `/api/itsm/platform/tenants/{id}/master/{kind}/{recordId}` | Ubah/nonaktifkan data master; vendor admin |
+| GET | `/api/itsm/platform/audit` | Audit lintas tenant (filter RS, aktor, aksi, cakupan, tanggal, nomor tiket) |
 
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side.
 Service/Change Request harus berstatus approval `approved` sebelum pekerjaan bisa
@@ -588,9 +613,9 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
   Admin UI (superuser) atau Konsol Vendor; akun platform sendiri tetap hanya
   bisa dibuat superuser.
 - Konsol Vendor: akun vendor sudah bisa menjadi assignee, approver, dan penerima
-  notifikasi tiket lintas tenant (Fase 2), tetapi **belum** bisa membuat tiket
-  atau mengubah data master rumah sakit lewat UI tiket — keduanya lewat Konsol
-  Vendor/tenant sendiri.
+  notifikasi tiket lintas tenant (Fase 2), serta mengelola data master rumah
+  sakit dari konsol. Yang belum: membuat tiket (akun platform tidak punya
+  tenant/unit) dan mengubah data master dari UI tiket (hanya lewat konsol).
 - Gate CAB hanya menghitung IT Lead rumah sakit. Rumah sakit yang sepenuhnya
   dioperasikan vendor (tanpa lead sendiri) tidak akan pernah membentuk tahap
   CAB, meski vendor punya beberapa lead. Vendor tetap bisa menyetujui tahap

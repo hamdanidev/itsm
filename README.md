@@ -353,6 +353,7 @@ Hanya untuk akun `is_platform_staff`. `role` tetap menentukan kewenangan:
 | Daftar rumah sakit | Nama, kode, zona waktu, status, jumlah pengguna, tiket aktif |
 | Tambah rumah sakit | Membuat tenant + data master default + akun IT pertama dalam satu transaksi |
 | Data master default | 10 unit, 9 kategori, 12 kebijakan SLA, 3 hari libur; idempoten, bisa diulang |
+| Data master per RS | Kelola unit, kategori, kebijakan SLA, dan hari libur setelah RS berjalan |
 | Pengguna tenant | Tambah pengguna, aktif/nonaktif, reset password |
 | Audit | Setiap aksi menulis `audit_logs` dengan `actor_role` berawalan `platform_` |
 
@@ -778,6 +779,9 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | POST | `/api/itsm/platform/tenants/{id}/seed` | Lengkapi data master default |
 | POST | `/api/itsm/platform/tenants/{id}/users` | Tambah pengguna rumah sakit |
 | PATCH | `/api/itsm/platform/tenants/{id}/users/{userId}` | Ubah status/role/unit/password |
+| GET | `/api/itsm/platform/tenants/{id}/master` | Data master rumah sakit (unit, kategori, SLA, hari libur, pengguna) |
+| POST | `/api/itsm/platform/tenants/{id}/master/{kind}` | Tambah data master; vendor admin |
+| PATCH | `/api/itsm/platform/tenants/{id}/master/{kind}/{recordId}` | Ubah/nonaktifkan data master; vendor admin |
 | GET | `/api/collections/tickets/records` | List tiket sesuai API rules |
 | GET | `/api/collections/ticket_comments/records` | List komentar sesuai rules |
 | GET | `/api/collections/ticket_attachments/records` | List lampiran sesuai rules |
@@ -787,7 +791,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 44 unit test, 116 test API, dan 19
+- Suite otomatis lulus lokal (Windows): 44 unit test, 132 test API, dan 20
   skenario e2e — lihat bagian Testing.
 - Konsol Vendor diverifikasi test API: mode `standalone` menolak login akun
   vendor, mode `vendor` mengizinkan; pengguna rumah sakit ditolak dari route
@@ -810,6 +814,12 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
   paginasi membatasi baris, vendor support boleh membaca, filter tidak valid
   ditolak 400/404, dan pengguna rumah sakit ditolak 403. Perubahan data master
   oleh superuser kini ikut tercatat (`actor_role=superuser`).
+- Data master per RS diverifikasi test API: vendor membaca seluruh master,
+  support hanya baca (tulis 403), unit/kategori/hari libur bisa dibuat dan
+  diubah, kode & tanggal duplikat ditolak, manajer unit harus pengguna aktif
+  rumah sakit yang sama, kebijakan SLA memvalidasi jam kerja dan respons,
+  record tenant lain tidak bisa diubah lewat id (404), dan perubahan tercatat
+  di audit.
 - Konsol Vendor diverifikasi Playwright (instance `TENANCY_MODE=vendor` sendiri):
   login vendor mendarat di `/platform`, sidebar berisi menu vendor, pembuatan
   rumah sakit lewat modal, detail master data + pengguna tampil, pemilih tenant
