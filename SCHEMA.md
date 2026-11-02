@@ -80,6 +80,30 @@ Konsekuensi lain yang disengaja:
 - Vendor tidak bisa membuat tiket: route create membutuhkan `tenant` dan `unit`
   milik akun, yang tidak dimiliki akun platform.
 
+### Layar audit vendor
+
+`GET /api/itsm/platform/audit` membaca `audit_logs` lintas tenant tanpa
+melonggarkan rule koleksi (rule baca audit tetap milik IT Lead per tenant).
+
+Parameter: `tenant`, `actor` (id user), `scope` (`platform` / `tenant` /
+`superuser`), `action`, `collection`, `q` (nomor tiket), `from`, `to`, `page`,
+`perPage` (maks 100; default 25). Rentang tanggal memakai parser laporan
+(default 90 hari, maks 366).
+
+Respons memuat `items` yang sudah dilengkapi `tenant_name`, `tenant_code`,
+`actor_name`, `actor_role`, `actor_scope`, `ticket_no`, `changes`, `ip`, dan
+`user_agent`, plus `totalItems`, `totalPages`, dan `actors` (pilihan filter
+aktor: staf vendor + staf tenant terpilih).
+
+Catatan semantik:
+
+- `scope=tenant` berarti staf rumah sakit saja; baris `superuser` tidak ikut.
+- Aksi vendor tercatat dengan `actor_role` `platform_*` dan `actor_scope`
+  `platform`.
+- Perubahan data master lewat Admin UI (superuser) tercatat dengan
+  `actor_role = "superuser"` dan **tanpa** relasi `actor`, karena superuser
+  bukan record `users`. Sebelumnya baris ini tidak tersimpan sama sekali.
+
 Di UI, vendor memilih satu rumah sakit aktif lewat pemilih tenant di top bar.
 Pilihan disimpan di `localStorage` dan menjadi filter daftar tiket; ia **bukan**
 batas keamanan (vendor memang boleh melihat semua), melainkan konteks kerja.
@@ -337,7 +361,9 @@ event miliknya.
 itu tidak terlihat tenant mana pun karena rule baca mewajibkan
 `tenant = @request.auth.tenant` (hanya superuser yang bisa membacanya). Aksi
 akun platform memakai `actor_role` berawalan `platform_` (mis.
-`platform_it_lead`) agar asal kewenangan jelas.
+`platform_it_lead`) agar asal kewenangan jelas. Perubahan data master oleh
+superuser lewat Admin UI memakai `actor_role = "superuser"` tanpa relasi
+`actor` (superuser bukan record `users`).
 
 Rules:
 
@@ -432,6 +458,7 @@ Jeda dan recompute:
 | POST | `/api/itsm/profile/password` | Ganti password dengan verifikasi password lama |
 | GET | `/api/itsm/app-meta` | Mode tenancy aktif (publik, tanpa auth) |
 | GET | `/api/itsm/platform/tenants` | Daftar tenant + hitungan; akun platform |
+| GET | `/api/itsm/platform/audit` | Audit lintas tenant (filter RS, aktor, aksi, cakupan, tanggal, nomor tiket) |
 | POST | `/api/itsm/platform/tenants` | Buat tenant + seed + akun IT pertama; platform admin |
 | GET | `/api/itsm/platform/tenants/{id}` | Detail tenant, hitungan, pengguna, unit |
 | PATCH | `/api/itsm/platform/tenants/{id}` | Ubah nama/kode/zona waktu/status; platform admin |

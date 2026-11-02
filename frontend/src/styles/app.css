@@ -3967,3 +3967,17 @@ button {
 .tenant-switcher .select {
   max-width: 220px;
 }
+/* Detail perubahan pada layar audit vendor. */
+.audit-changes {
+  margin: 0;
+  padding: 12px;
+  background: var(--n10);
+  border: 1px solid var(--n30);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

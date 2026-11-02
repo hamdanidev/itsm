@@ -57,23 +57,44 @@ function write(e, action, before) {
   try {
     var audit = require(__hooks + "/lib/audit.js");
     var record = e.record;
+
+    if (!record) return;
+
+    // Superuser bukan record `users`, sehingga relasi `audit_logs.actor`
+    // (khusus koleksi users) tidak bisa diisi. Catat sebagai aktor
+    // "superuser" tanpa relasi agar perubahan data master tidak hilang.
+    var info = null;
+    try {
+      info = e.requestInfo ? e.requestInfo() : null;
+    } catch (err) {
+      info = null;
+    }
+
+    var isSuperuser = !!(info && info.hasSuperuserAuth && info.hasSuperuserAuth());
     var auth = e.auth;
 
-    if (!auth || !record) return;
+    if (!auth && !isSuperuser) return;
 
     var changes =
       action === "update" && before
         ? diff(before, snapshot(record))
         : { name: fieldValue(record, "name") };
 
-    audit.write(e.app, {
+    var payload = {
       tenant: record.get("tenant"),
-      actor: auth,
       action: action,
       collection_name: String(record.collection().name),
       record_id: record.id,
       changes: changes,
-    });
+    };
+
+    if (isSuperuser) {
+      payload.actor_role = "superuser";
+    } else {
+      payload.actor = auth;
+    }
+
+    audit.write(e.app, payload);
   } catch (err) {
     // Perubahan data master tidak boleh gagal hanya karena audit.
     console.log("Admin audit failed: " + String(err));

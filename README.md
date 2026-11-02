@@ -185,7 +185,7 @@ Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`
 | Perintah | Cakupan | Butuh |
 |---|---|---|
 | `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, scope platform, mode tenancy, validasi input konsol vendor, helper antrean dashboard, agregasi laporan | Node |
-| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, konsol vendor (tenant, seed, provisioning, isolasi), vendor sebagai resolver tiket lintas RS | Node + binary PocketBase |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, konsol vendor (tenant, seed, provisioning, isolasi), vendor sebagai resolver tiket, laporan & audit lintas RS | Node + binary PocketBase |
 | `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, profil, intake, konsol vendor (mode vendor) | Node + PocketBase + Chromium |
 | `npm run test:all` | ketiganya | — |
 
@@ -373,6 +373,7 @@ Akun vendor tidak berhenti di konsol: mereka mengerjakan tiket rumah sakit.
 | Approval | Lead vendor bisa menyetujui tahap IT Lead/CAB dan menerima delegasi |
 | Notifikasi | Penugasan, komentar, approval, dan tiket kritis ikut masuk ke akun vendor |
 | Laporan lintas RS | Compliance dan median per rumah sakit, plus tabel perbandingan antar RS |
+| Audit lintas RS | Jejak aktivitas semua RS: aktor, aksi, tiket/data master, perubahan, IP |
 
 Aturan mainnya:
 
@@ -770,6 +771,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | POST | `/api/itsm/profile/password` | Ganti password (verifikasi password lama) |
 | GET | `/api/itsm/app-meta` | Mode tenancy aktif (publik) |
 | GET | `/api/itsm/platform/tenants` | Daftar rumah sakit + hitungan; akun vendor |
+| GET | `/api/itsm/platform/audit` | Audit lintas rumah sakit; akun vendor |
 | POST | `/api/itsm/platform/tenants` | Buat rumah sakit + seed + akun IT pertama; vendor admin |
 | GET | `/api/itsm/platform/tenants/{id}` | Detail rumah sakit, pengguna, unit |
 | PATCH | `/api/itsm/platform/tenants/{id}` | Ubah nama/kode/zona waktu/status |
@@ -785,7 +787,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 44 unit test, 108 test API, dan 18
+- Suite otomatis lulus lokal (Windows): 44 unit test, 116 test API, dan 19
   skenario e2e — lihat bagian Testing.
 - Konsol Vendor diverifikasi test API: mode `standalone` menolak login akun
   vendor, mode `vendor` mengizinkan; pengguna rumah sakit ditolak dari route
@@ -803,6 +805,11 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
   ditolak 404, vendor support ditolak 403, parameter `tenant` tidak bisa dipakai
   IT Lead rumah sakit untuk memperluas cakupan, serta CSV gabungan memakai
   kolom `tenant` sementara ekspor satu RS tetap memakai header lama.
+- Audit lintas RS diverifikasi test API: jejak aksi terbaca per tenant dengan
+  nama aktor dan nomor tiket, filter aksi/cakupan/pencarian nomor tiket bekerja,
+  paginasi membatasi baris, vendor support boleh membaca, filter tidak valid
+  ditolak 400/404, dan pengguna rumah sakit ditolak 403. Perubahan data master
+  oleh superuser kini ikut tercatat (`actor_role=superuser`).
 - Konsol Vendor diverifikasi Playwright (instance `TENANCY_MODE=vendor` sendiri):
   login vendor mendarat di `/platform`, sidebar berisi menu vendor, pembuatan
   rumah sakit lewat modal, detail master data + pengguna tampil, pemilih tenant

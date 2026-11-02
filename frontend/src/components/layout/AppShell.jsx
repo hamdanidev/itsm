@@ -338,6 +338,13 @@ export default function AppShell() {
               </NavLink>
             )}
 
+            {isPlatformStaff(user) && (
+              <NavLink className={navClass} to="/audit">
+                <i className="bi bi-clipboard-data" aria-hidden="true" />
+                Audit
+              </NavLink>
+            )}
+
             {!isPlatformStaff(user) && isStaff(user) && (
               <NavLink className={navClass} to="/dashboard">
                 <i className="bi bi-grid-1x2" aria-hidden="true" />

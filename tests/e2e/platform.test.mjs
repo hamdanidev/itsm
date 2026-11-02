@@ -142,6 +142,13 @@ before(async () => {
   state.ticketNo = ticket.ticket_no;
   state.requesterName = state.org.requester.user.name;
 
+  // Jejak audit dari aktor vendor, dipakai layar Audit.
+  await state.vendor.client.json(
+    "POST",
+    `/api/itsm/tickets/${ticket.id}/comments`,
+    { body: { body: "Catatan vendor untuk audit.", visibility: "internal" } }
+  );
+
   // Rumah sakit kedua tanpa tiket, untuk menguji pemilih tenant.
   state.secondTenant = await state.vendor.client.json(
     "POST",
@@ -247,6 +254,41 @@ test("pemilih tenant mengikuti tiket yang dibuka", async () => {
   await page.waitForTimeout(800);
 
   assert.equal(await page.locator("tbody tr").count(), 0);
+
+  await page.context().close();
+});
+
+test("vendor menelusuri audit lintas rumah sakit", async () => {
+  const page = await login(state.vendor.email, "**/platform", "vendor-audit");
+
+  await page.locator(".sidebar").getByRole("link", { name: "Audit" }).click();
+  await page.waitForURL("**/audit", { timeout: 15_000 });
+  await page.waitForTimeout(1800);
+
+  await page.getByRole("heading", { name: "Audit" }).waitFor();
+  assert.ok((await page.locator("tbody tr").count()) >= 1, "audit harus berisi baris");
+
+  // Filter satu rumah sakit.
+  await page.locator("#audit-tenant").selectOption({ label: "Rumah Sakit Contoh" });
+  await page.getByRole("button", { name: "Terapkan" }).click();
+  await page.waitForTimeout(1500);
+
+  await page.locator("tbody").getByText("Rumah Sakit Contoh").first().waitFor();
+
+  // Hanya aksi vendor.
+  await page.locator("#audit-scope").selectOption("platform");
+  await page.getByRole("button", { name: "Terapkan" }).click();
+  await page.waitForTimeout(1500);
+
+  const rows = page.locator("tbody tr");
+  assert.ok((await rows.count()) >= 1, "aksi vendor harus terlihat");
+
+  // Detail perubahan.
+  await rows.first().click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByText("Perubahan").waitFor();
+  await dialog.getByText("User agent").waitFor();
+  await dialog.locator(".modal-foot").getByRole("button", { name: "Tutup" }).click();
 
   await page.context().close();
 });

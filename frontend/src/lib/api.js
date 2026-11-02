@@ -209,6 +209,28 @@ export async function fetchAppMeta() {
   return pb.send("/api/itsm/app-meta");
 }
 
+export async function fetchPlatformAudit(params = {}) {
+  const query = new URLSearchParams();
+
+  for (const key of [
+    "tenant",
+    "action",
+    "collection",
+    "actor",
+    "scope",
+    "q",
+    "from",
+    "to",
+    "page",
+    "perPage",
+  ]) {
+    if (params[key]) query.set(key, String(params[key]));
+  }
+
+  const text = query.toString();
+  return pb.send(`/api/itsm/platform/audit${text ? `?${text}` : ""}`);
+}
+
 export async function fetchPlatformTenants() {
   return pb.send("/api/itsm/platform/tenants");
 }
