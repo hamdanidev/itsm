@@ -164,7 +164,8 @@ Rules:
 
 Field sistem + `tenant`, `unit`, `name`, `role`, `phone`, `employee_no`,
 `avatar`, `is_active`, `is_platform_staff`, `must_change_password`,
-`external_id`, `external_issuer`, `external_groups`, `created`, `updated`.
+`email_opt_out`, `external_id`, `external_issuer`, `external_groups`, `created`,
+`updated`.
 
 `role`: `requester | it_support | it_lead`.
 
@@ -186,8 +187,13 @@ Akun platform hanya bisa login pada instalasi `TENANCY_MODE=vendor`
 
 `avatar` adalah file gambar (PNG/JPG/WEBP, maks 2 MB, thumbnail `96x96`) yang
 tidak diproteksi agar bisa dirender di top bar dan komentar. Pengguna hanya
-dapat mengubah `name`, `phone`, `employee_no`, `avatar`, dan password miliknya
-lewat route profil; field lain tetap superuser.
+dapat mengubah `name`, `phone`, `employee_no`, `email_opt_out` (lewat payload
+profil `email_notifications`), `avatar`, dan password miliknya lewat route
+profil; field lain tetap superuser.
+
+`email_opt_out = false` (default) berarti notifikasi tiket juga dikirim lewat
+email. Nilai `true` hanya mematikan email notifikasi; email undangan dan reset
+password tetap dikirim.
 
 Rules:
 
@@ -372,11 +378,32 @@ Rules:
 | Create/Delete | `null` (hanya hook server) |
 
 Dibuat oleh `lib/notify.js` dari route aksi tiket, komentar, approval, dan SLA
-scan. Notifikasi untuk diri sendiri tidak dibuat. Komentar/lampiran internal
-hanya dikirim ke assignee, tidak pernah ke requester. `ticket` boleh kosong
-untuk notifikasi non-tiket, tetapi saat ini semua notifikasi terkait tiket.
-Realtime subscribe memakai list rule yang sama sehingga user hanya menerima
-event miliknya.
+scan. Setiap notifikasi juga memanggil `lib/mail.js` untuk mengantrekan salinan
+email (kecuali penerima mematikan preferensi). Notifikasi untuk diri sendiri
+tidak dibuat. Komentar/lampiran internal hanya dikirim ke assignee, tidak pernah
+ke requester. `ticket` boleh kosong untuk notifikasi non-tiket, tetapi saat ini
+semua notifikasi terkait tiket. Realtime subscribe memakai list rule yang sama
+sehingga user hanya menerima event miliknya.
+
+### `email_outbox`
+
+Antrean email notifikasi: `tenant`, `user`, `ticket`, `to`, `recipient_name`,
+`subject`, `html`, `text`, `template` (`invitation/password_reset/notification`),
+`event` (tipe notifikasi asal), `status` (`queued/sent/failed`), `attempts`,
+`next_attempt_at`, `sent_at`, `last_error`, `created`, `updated`.
+
+Rules: seluruh operasi `null` — hanya hook server dan superuser (Admin UI) yang
+bisa membaca. Isinya dapat memuat tautan tiket internal.
+
+- `lib/mail.js` menulis baris `queued` di dalam transaksi aksi tiket.
+- Cron `email_dispatch` mengirim maksimal 20 email per menit, dengan retry
+  1/5/15/60/240 menit; setelah 5 percobaan status menjadi `failed`.
+- Email `sent` lebih tua dari 30 hari dibersihkan best-effort.
+- Undangan akun dan reset password **tidak** lewat antrean: dikirim langsung
+  agar password sementara tidak tersimpan di database. Mode test
+  `MAIL_TRANSPORT=capture` menyimpan salinannya sebagai `sent` untuk verifikasi.
+- Konfigurasi SMTP diambil dari environment (`SMTP_*`, `APP_URL`, `APP_NAME`)
+  saat boot dan ditulis ke settings PocketBase; env menang atas Admin UI.
 
 ### `audit_logs`
 
@@ -486,6 +513,8 @@ Jeda dan recompute:
 | POST | `/api/itsm/team` | Tambah anggota (password awal dibuat sistem); hanya IT Lead |
 | PATCH | `/api/itsm/team/{userId}` | Ubah nama/role/unit/status anggota; hanya IT Lead |
 | POST | `/api/itsm/team/{userId}/password` | Reset password anggota; hanya IT Lead |
+| GET | `/api/itsm/mail/status` | Status SMTP + hitungan antrean tenant; hanya IT Lead |
+| POST | `/api/itsm/mail/dispatch` | Kirim antrean email sekarang; hanya superuser |
 | GET | `/api/itsm/app-meta` | Mode tenancy aktif (publik, tanpa auth) |
 | GET | `/api/itsm/platform/tenants` | Daftar tenant + hitungan; akun platform |
 | POST | `/api/itsm/platform/tenants` | Buat tenant + seed + akun IT pertama; platform admin |
@@ -569,7 +598,8 @@ pengguna tidak bisa mengubah profil orang lain.
 
 - `GET /api/itsm/profile` — data sendiri + `unit_name`/`tenant_name`.
 - `PATCH /api/itsm/profile` — `name` (2–120 karakter), `phone` (angka dan
-  `+ - ( )`), `employee_no` (huruf/angka/titik/garis miring/strip). Field
+  `+ - ( )`), `employee_no` (huruf/angka/titik/garis miring/strip), dan
+  `email_notifications` (boolean, disimpan terbalik di `email_opt_out`). Field
   `role`, `tenant`, `unit`, `is_active`, dan email diabaikan walau dikirim.
 - `POST /api/itsm/profile/avatar` — multipart `avatar`; PocketBase memvalidasi
   tipe dan ukuran (maks 2 MB). `DELETE` menghapus avatar.
@@ -594,6 +624,9 @@ memakai `$app.save`, sehingga `users.createRule` tetap `null` (superuser saja).
 - Password awal dibuat server: 16 karakter dari alfabet tanpa karakter ambigu.
   Password hanya dikembalikan sekali pada respons `POST` (create) dan
   `POST .../password` (reset); `audit_logs` tidak menyimpannya.
+- Bila SMTP aktif, respons yang sama diikuti email undangan/reset berisi
+  password sementara. Kegagalan email tidak membatalkan akun; UI menampilkan
+  password dan pesan kegagalan agar bisa diserahkan manual.
 - `POST` membuat akun dengan `must_change_password = true`; reset password juga
   menaikkan flag itu dan memanggil `refreshTokenKey()` (sesi lama berakhir).
 - Lead tidak dapat menonaktifkan akun sendiri atau mengubah role sendiri.
@@ -629,8 +662,8 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 - Delegasi tidak otomatis dari kalender cuti dan belum dapat dicabut sebelum
   tahap diputuskan; penerima delegasi tetap punya akses baca tiket.
 - SLA approval per tahap memakai `sla_snapshot` tiket, bukan policy terbaru.
-- Eskalasi Level 3 terlihat in-app (badge + timeline + notifikasi); belum ada
-  email/WhatsApp.
+- Eskalasi Level 3 terlihat in-app (badge + timeline + notifikasi) dan dikirim
+  lewat email bila penerima mengaktifkan preferensi; WhatsApp belum ada.
 - Dashboard belum punya tren historis atau ekspor; agregatnya dihitung di
   client dari tiket aktif per tenant (bukan seluruh riwayat). Gunakan halaman
   Laporan untuk tren dan ekspor.
@@ -641,10 +674,14 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 - Profil belum punya 2FA/OTP dan avatar tidak dimoderasi; kebijakan password
   hanya panjang minimal 8 karakter. File avatar disajikan tanpa token (nama file
   acak), jadi jangan dipakai untuk data sensitif.
-- Provisioning akun: IT Lead rumah sakit bisa mengelola timnya sendiri lewat
-  tab **Tim** di `/admin`. Akun platform tetap hanya bisa dibuat superuser.
-  Belum ada undangan lewat email; password awal diserahkan manual oleh lead
-  (dan wajib diganti saat login pertama).
+- Provisioning akun: IT Lead rumah sakit mengelola timnya lewat tab **Tim** di
+  `/admin`; undangan berisi password sementara dikirim lewat SMTP bila aktif,
+  atau diserahkan manual bila SMTP mati. Akun platform tetap hanya bisa dibuat
+  superuser. Belum ada lupa password mandiri dan verifikasi perubahan email.
+- Email: password sementara dikirim sebagai teks biasa di isi email, jadi SMTP
+  wajib memakai TLS di produksi. Email notifikasi bisa dimatikan per pengguna;
+  undangan dan reset password tetap dikirim. `MAIL_TRANSPORT=capture` menyimpan
+  salinan email (termasuk password) hanya untuk test/development.
 - Konsol Vendor: akun vendor sudah bisa menjadi assignee, approver, dan penerima
   notifikasi tiket lintas tenant (Fase 2), serta mengelola data master rumah
   sakit dari konsol. Yang belum: membuat tiket (akun platform tidak punya
@@ -654,13 +691,8 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
   CAB, meski vendor punya beberapa lead. Vendor tetap bisa menyetujui tahap
   IT Lead dan bisa didelegasikan.
 - Pemilih tenant menyaring daftar tiket/notifikasi di UI, bukan batas keamanan:
-  akun vendor memang boleh membaca semua tenant. Belum ada tampilan gabungan
-  semua RS (dashboard/laporan lintas tenant).
-- Laporan SLA (`/reports`) belum bisa dipakai akun vendor; agregasi masih per
-  tenant dan route-nya memakai `auth.tenant`.
-- Audit aksi akun platform dicatat dengan `tenant` tiket yang bersangkutan,
-  sehingga terlihat oleh IT Lead rumah sakit itu, tetapi belum ada layar audit
-  khusus platform untuk vendor.
+  akun vendor memang boleh membaca semua tenant. Dashboard gabungan semua RS
+  belum ada; laporan dan audit lintas RS sudah tersedia.
 - Reset password oleh vendor tidak mencabut token akses yang masih berlaku;
   pengguna lama tetap aktif sampai token kedaluwarsa.
 - Mode tenancy hanya bisa diubah lewat environment; tidak ada tombol ubah mode

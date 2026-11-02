@@ -13,6 +13,7 @@ function serialize(user) {
     avatar: String(user.get("avatar") || ""),
     is_active: Boolean(user.get("is_active")),
     must_change_password: Boolean(user.get("must_change_password")),
+    email_notifications: !Boolean(user.get("email_opt_out")),
   };
 }
 

@@ -282,6 +282,10 @@ export async function resetTeamPassword(userId) {
   return pb.send(`/api/itsm/team/${userId}/password`, { method: "POST" });
 }
 
+export async function fetchMailStatus() {
+  return pb.send("/api/itsm/mail/status");
+}
+
 export async function fetchTenantMaster(tenantId) {
   return pb.send(`/api/itsm/platform/tenants/${tenantId}/master`);
 }

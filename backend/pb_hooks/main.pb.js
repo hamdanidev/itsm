@@ -7,6 +7,15 @@ onBootstrap((e) => {
     console.log("Failed to set cron timezone", err);
   }
 
+  // Konfigurasi SMTP dari environment (Mailtrap di dev, relay di produksi).
+  // Bila env kosong, setelan Admin UI yang dipakai.
+  try {
+    var mail = require(__hooks + "/lib/mail.js");
+    mail.applyEnv($app);
+  } catch (err) {
+    console.log("Failed to apply SMTP env", err);
+  }
+
   console.log("Healthcare ITSM hooks loaded");
 });
 

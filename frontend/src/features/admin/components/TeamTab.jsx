@@ -5,6 +5,7 @@ import { formatDate } from "../../../lib/format";
 import { roleLabel } from "../../../lib/permissions";
 import {
   createTeamMember,
+  fetchMailStatus,
   fetchTeam,
   getErrorMessage,
   resetTeamPassword,
@@ -49,6 +50,7 @@ export default function TeamTab({ units, currentUser }) {
   const [secret, setSecret] = useState(null);
   const [copied, setCopied] = useState(false);
   const [confirmReset, setConfirmReset] = useState(null);
+  const [mail, setMail] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,6 +70,22 @@ export default function TeamTab({ units, currentUser }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    let active = true;
+
+    fetchMailStatus()
+      .then((data) => {
+        if (active) setMail(data);
+      })
+      .catch(() => {
+        if (active) setMail(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function openCreate() {
     setForm(EMPTY_FORM);
@@ -128,6 +146,7 @@ export default function TeamTab({ units, currentUser }) {
           name: created.user.name,
           email: created.user.email,
           password: created.password,
+          delivery: created.email || null,
         });
       }
 
@@ -151,6 +170,7 @@ export default function TeamTab({ units, currentUser }) {
         name: reset.user.name,
         email: reset.user.email,
         password: reset.password,
+        delivery: reset.email || null,
       });
       await load();
     } catch (err) {
@@ -354,6 +374,24 @@ export default function TeamTab({ units, currentUser }) {
         mengganti password saat pertama kali masuk.
       </p>
 
+      <p className="admin-note">
+        <i
+          className={`bi ${
+            mail?.configured ? "bi-envelope-check" : "bi-envelope-slash"
+          }`}
+          aria-hidden="true"
+        />
+        {mail?.transport === "capture"
+          ? "Mode capture email aktif: undangan tidak benar-benar dikirim, hanya dicatat untuk pemeriksaan."
+          : mail?.configured
+            ? `Email undangan aktif melalui ${mail.host}:${mail.port}.`
+            : "SMTP belum dikonfigurasi. Undangan email tidak dikirim; serahkan password awal secara manual."}
+        {mail?.queued > 0
+          ? ` ${mail.queued} email notifikasi menunggu dikirim.`
+          : ""}
+        {mail?.failed > 0 ? ` ${mail.failed} email gagal dikirim.` : ""}
+      </p>
+
       {modal && (
         <Modal
           title={modal.record ? `Edit ${modal.record.name}` : "Tambah anggota tim"}
@@ -555,6 +593,29 @@ export default function TeamTab({ units, currentUser }) {
               pengguna wajib menggantinya saat login pertama.
             </div>
           </div>
+
+          {secret.delivery && (
+            <div
+              className={`alert ${
+                secret.delivery.sent ? "alert--success" : "alert--warning"
+              }`}
+              role="status"
+            >
+              <i
+                className={`bi ${
+                  secret.delivery.sent ? "bi-envelope-check" : "bi-envelope-slash"
+                }`}
+                aria-hidden="true"
+              />
+              <div>
+                {secret.delivery.sent
+                  ? `Email berisi password juga dikirim ke ${secret.email}.`
+                  : secret.delivery.error
+                    ? `Email gagal dikirim: ${secret.delivery.error}. Serahkan password ini secara manual.`
+                    : "Email tidak dikirim karena SMTP belum aktif. Serahkan password ini secara manual."}
+              </div>
+            </div>
+          )}
 
           <div className="secret-box">
             <code>{secret.password}</code>

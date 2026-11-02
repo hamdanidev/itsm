@@ -30,6 +30,7 @@ routerAdd(
     var guards = require(__hooks + "/lib/guards.js");
     var team = require(__hooks + "/lib/team.js");
     var audit = require(__hooks + "/lib/audit.js");
+    var mail = require(__hooks + "/lib/mail.js");
 
     var auth = guards.requireAuth(e);
     guards.assertLead(auth);
@@ -70,9 +71,34 @@ routerAdd(
       console.log("Team audit failed: " + String(err));
     }
 
+    // Undangan dikirim langsung (bukan antrean) agar password sementara tidak
+    // tersimpan di database. Kegagalan email tidak membatalkan pembuatan akun;
+    // password tetap dikembalikan untuk diserahkan manual.
+    var email = { sent: false, configured: false };
+
+    try {
+      email = mail.sendCredential(e.app, {
+        kind: "invitation",
+        tenantId: tenantId,
+        userId: record.id,
+        email: String(record.get("email") || ""),
+        name: String(record.get("name") || ""),
+        role: String(record.get("role") || ""),
+        password: created.password,
+        inviterName: String(auth.get("name") || ""),
+      });
+    } catch (err) {
+      email = {
+        sent: false,
+        configured: mail.isConfigured(e.app),
+        error: String(err),
+      };
+    }
+
     return e.json(201, {
       user: team.serialize(record, unitName),
       password: created.password,
+      email: email,
     });
   },
   $apis.requireAuth()
@@ -133,6 +159,7 @@ routerAdd(
     var guards = require(__hooks + "/lib/guards.js");
     var team = require(__hooks + "/lib/team.js");
     var audit = require(__hooks + "/lib/audit.js");
+    var mail = require(__hooks + "/lib/mail.js");
 
     var auth = guards.requireAuth(e);
     guards.assertLead(auth);
@@ -168,9 +195,31 @@ routerAdd(
       console.log("Team audit failed: " + String(err));
     }
 
+    var email = { sent: false, configured: false };
+
+    try {
+      email = mail.sendCredential(e.app, {
+        kind: "password_reset",
+        tenantId: tenantId,
+        userId: record.id,
+        email: String(record.get("email") || ""),
+        name: String(record.get("name") || ""),
+        role: String(record.get("role") || ""),
+        password: reset.password,
+        inviterName: String(auth.get("name") || ""),
+      });
+    } catch (err) {
+      email = {
+        sent: false,
+        configured: mail.isConfigured(e.app),
+        error: String(err),
+      };
+    }
+
     return e.json(200, {
       user: team.serialize(record, unitName),
       password: reset.password,
+      email: email,
     });
   },
   $apis.requireAuth()

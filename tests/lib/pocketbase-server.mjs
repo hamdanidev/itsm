@@ -106,7 +106,18 @@ export async function startPocketBase({ dataDir, port, timeoutMs = 60_000 } = {}
       // dan port web e2e dipilih acak agar tidak bentrok dengan dev server.
       "--origins=*",
     ],
-    { cwd: rootDir, stdio: ["ignore", "pipe", "pipe"] }
+    {
+      cwd: rootDir,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        // Email tidak benar-benar dikirim saat test. Mode capture tetap
+        // mencatat salinan ke `email_outbox` agar isi dan tautan bisa diperiksa.
+        MAIL_TRANSPORT: "capture",
+        SMTP_HOST: "",
+        SMTP_ENABLED: "false",
+      },
+    }
   );
 
   const logs = [];

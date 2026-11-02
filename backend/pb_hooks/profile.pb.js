@@ -48,6 +48,21 @@ routerAdd(
     record.set("name", name);
     record.set("phone", phone);
     record.set("employee_no", employeeNo);
+
+    var changes = {
+      fields: ["name", "phone", "employee_no"],
+      name: name,
+    };
+
+    if (body.email_notifications !== undefined) {
+      var emailNotifications =
+        body.email_notifications === true || body.email_notifications === "true";
+
+      record.set("email_opt_out", !emailNotifications);
+      changes.fields.push("email_notifications");
+      changes.email_notifications = emailNotifications;
+    }
+
     $app.save(record);
 
     var meta = audit.requestMeta(e);
@@ -57,10 +72,7 @@ routerAdd(
       action: "update",
       collection_name: "users",
       record_id: record.id,
-      changes: {
-        fields: ["name", "phone", "employee_no"],
-        name: name,
-      },
+      changes: changes,
       ip: meta.ip,
       user_agent: meta.user_agent,
     });

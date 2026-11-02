@@ -4,10 +4,9 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **Stage 14 — profil pengguna**. Fitur sampai profil pengguna
-(nama/kontak, avatar, ganti password) dan laporan SLA dengan ekspor CSV, di
-samping approval tiga tahap (delegasi approver, CAB, SLA per tahap) serta suite
-pengujian otomatis + CI:
+Status saat ini: **fase lanjutan — multi-tenant, tim tenant, dan email
+transaksional**. Fitur sampai konsol vendor multi-tenant, pengelolaan tim oleh
+IT Lead, serta email undangan dan notifikasi tiket:
 
 - autentikasi staff dan intake tiga jenis tiket;
 - daftar tiket dengan pagination/filter/URL state dan dashboard antrean kerja;
@@ -16,8 +15,16 @@ pengujian otomatis + CI:
   saat reopen, dan eskalasi berjenjang;
 - approval berjenjang (manajer unit → IT Lead → CAB), delegasi approver, dan
   tenggat per tahap;
-- laporan SLA server-side dengan ekspor CSV per tiket;
-- profil pengguna: nama, telepon, nomor pegawai, avatar, dan ganti password;
+- laporan SLA server-side dengan ekspor CSV per tiket, termasuk laporan
+  lintas rumah sakit untuk akun vendor;
+- profil pengguna: nama, telepon, nomor pegawai, avatar, ganti password, dan
+  preferensi notifikasi email;
+- konsol vendor: kelola rumah sakit, data master, pengguna, laporan, dan audit
+  lintas tenant;
+- pengelolaan tim oleh IT Lead: tambah anggota, ubah role/unit, aktif-nonaktif,
+  reset password, dan undangan email berisi password awal;
+- email transaksional lewat SMTP (Mailtrap saat development) dengan antrean,
+  retry, dan preferensi penerima;
 - komentar publik/internal, lampiran terproteksi, pengaturan unit/kategori/SLA/
   hari libur, notifikasi in-app, SLA awal + breach scan, dan audit log.
 
@@ -185,7 +192,7 @@ Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`
 | Perintah | Cakupan | Butuh |
 |---|---|---|
 | `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, scope platform, mode tenancy, validasi input konsol vendor, helper antrean dashboard, agregasi laporan | Node |
-| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, tim rumah sakit (provisioning + wajib ganti password), konsol vendor (tenant, seed, provisioning, isolasi), vendor sebagai resolver tiket, laporan & audit lintas RS | Node + binary PocketBase |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, tim rumah sakit (provisioning + wajib ganti password), email transaksional (undangan, reset, antrean, preferensi), konsol vendor (tenant, seed, provisioning, isolasi), vendor sebagai resolver tiket, laporan & audit lintas RS | Node + binary PocketBase |
 | `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, profil, intake, konsol vendor (mode vendor) | Node + PocketBase + Chromium |
 | `npm run test:all` | ketiganya | — |
 
@@ -548,7 +555,55 @@ daftar diperbarui realtime lewat subscribe ke collection `notifications`.
   satu notifikasi yang dibuat.
 - Collection `notifications` hanya bisa dibaca/diubah pemiliknya (`user`), dan
   hanya server yang membuat/menghapus (create/delete rule `null`).
-- Notifikasi bukan pengganti email/WhatsApp; keduanya belum ada.
+- Notifikasi in-app tetap menjadi saluran utama. Salinan email dikirim untuk
+  penerima yang mengaktifkan preferensi (lihat bagian Email).
+
+## Email (SMTP)
+
+Email transaksional dipakai untuk dua hal:
+
+1. **Undangan akun dan reset password** dari tab **Tim** — dikirim langsung,
+   berisi email, password sementara, peran, dan tautan login. Bila SMTP belum
+   aktif atau pengiriman gagal, password tetap ditampilkan di UI untuk
+   diserahkan manual.
+2. **Notifikasi tiket** — salinan dari notifikasi in-app (penugasan, approval,
+   komentar, status, SLA breach, eskalasi) masuk antrean `email_outbox` dan
+   dikirim cron setiap menit dengan retry 1/5/15/60/240 menit.
+
+Konfigurasi lewat environment (menang atas setelan Admin UI):
+
+```env
+SMTP_HOST=sandbox.smtp.mailtrap.io
+SMTP_PORT=2525
+SMTP_USERNAME=isi-dari-mailtrap
+SMTP_PASSWORD=isi-dari-mailtrap
+SMTP_TLS=false
+SMTP_AUTH_METHOD=PLAIN
+SMTP_FROM=no-reply@itsm.local
+SMTP_FROM_NAME=Healthcare ITSM
+APP_NAME=Healthcare ITSM
+APP_URL=http://localhost:5173
+```
+
+- **Mailtrap (development)**: buka inbox Sandbox → *SMTP Settings*, salin
+  host/port/username/password. Port 2525/587 memakai STARTTLS, jadi
+  `SMTP_TLS=false`; isi `true` hanya untuk TLS implisit (biasanya 465).
+- **Produksi**: gunakan relay SMTP organisasi, `APP_URL` domain publik, dan
+  pertimbangkan `PB_ENCRYPTION_KEY` agar password SMTP di database terenkripsi.
+- `SMTP_HOST` kosong berarti aplikasi memakai setelan SMTP yang diisi lewat
+  Admin UI PocketBase (`Settings → Mail settings`).
+- Tanpa SMTP, aplikasi tetap berjalan: undangan menampilkan password manual dan
+  notifikasi email menumpuk di antrean tanpa dikirim.
+- `MAIL_TRANSPORT=capture` dipakai suite test: tidak ada email keluar, tetapi
+  salinan dicatat di `email_outbox` untuk pemeriksaan. Cron tidak menguras
+  antrean pada mode ini; gunakan route dispatch superuser bila perlu.
+- Setiap pengguna dapat mematikan notifikasi email di **Profil saya**; undangan
+  akun dan email keamanan tetap dikirim.
+- Antrean hanya menyimpan email notifikasi (tanpa password). Email undangan
+  dikirim langsung agar password sementara tidak tersimpan lama di database.
+- `GET /api/itsm/mail/status` (IT Lead) menampilkan transport, host, antrean,
+  dan kegagalan terakhir; `POST /api/itsm/mail/dispatch` (superuser) memaksa
+  pengiriman untuk operasional.
 
 ## Profil pengguna
 
@@ -556,7 +611,7 @@ Setiap pengguna membuka **Profil saya** dari menu akun di kanan atas (`/profile`
 
 | Bagian | Isi |
 |---|---|
-| Informasi profil | nama, telepon, nomor pegawai |
+| Informasi profil | nama, telepon, nomor pegawai, preferensi notifikasi email |
 | Foto profil | unggah atau hapus avatar (PNG/JPG/WEBP, maks 2 MB) |
 | Keamanan | ganti password dengan verifikasi password saat ini |
 
@@ -564,6 +619,9 @@ Setiap pengguna membuka **Profil saya** dari menu akun di kanan atas (`/profile`
   hanya huruf, angka, titik, garis miring, atau strip.
 - Email, peran, unit, dan tenant tidak dapat diubah sendiri; perubahan tetap
   lewat administrator.
+- Preferensi **Kirim notifikasi tiket ke email saya** aktif secara default;
+  mematikannya tidak menghapus notifikasi in-app dan tidak menghentikan email
+  undangan/keamanan.
 - Avatar disimpan di `users.avatar`, dibuat thumbnail 96×96, dan tampil di top
   bar serta komentar tiket. File avatar tidak diproteksi (nama file acak) agar
   bisa dirender sebagai gambar biasa.
@@ -588,7 +646,7 @@ membuka URL-nya dialihkan ke daftar tiket.
 | Kategori | nama, kode, jenis tiket | filter pilihan kategori per tipe |
 | Kebijakan SLA | tipe, prioritas, respons/approval/penyelesaian, kalender | unik per `(tipe, prioritas)` |
 | Hari libur | tanggal + nama | memengaruhi SLA jam kerja |
-| Tim | anggota tim IT, role, unit, status | password awal dibuat sistem |
+| Tim | anggota tim IT, role, unit, status | password awal dibuat sistem + email undangan |
 
 Aturan tab **Tim**:
 
@@ -596,6 +654,9 @@ Aturan tab **Tim**:
 - Role yang bisa dibuat: `requester`, `it_support`, `it_lead`.
 - Password awal **dibuat sistem** (16 karakter) dan hanya ditampilkan sekali;
   anggota wajib menggantinya saat login pertama.
+- Bila SMTP aktif, undangan berisi password awal dikirim ke email anggota saat
+  akun dibuat; reset password juga mengirim password baru. Bila SMTP mati atau
+  gagal, password tetap ditampilkan di UI untuk diserahkan manual.
 - Lead tidak bisa menonaktifkan akun sendiri atau mengubah role sendiri.
 - IT Lead aktif terakhir tidak bisa dinonaktifkan atau diturunkan.
 - Email tidak bisa diubah setelah akun dibuat; tidak ada hard delete.
@@ -609,8 +670,8 @@ Aturan tab **Tim**:
   `sla_snapshot` saat dibuat.
 - Setiap create/update data master menulis audit (`collection_name`,
   `record_id`, dan diff field yang berubah) lewat `pb_hooks/admin_audit.pb.js`.
-- Provisioning akun pengguna tetap lewat Admin UI PocketBase; pengaturan ini
-  tidak mengelola user.
+- Akun rumah sakit kini dibuat lewat tab **Tim**; Admin UI PocketBase hanya
+  dipakai untuk superuser dan akun platform (vendor).
 
 ## Production
 
@@ -633,10 +694,12 @@ sudo chown -R 10001:10001 backups
 
 ```bash
 cp .env.example .env
-# edit APP_DOMAIN, ACME_EMAIL, PB_VERSION
+# edit APP_DOMAIN, ACME_EMAIL, PB_VERSION, SMTP_*, APP_URL
 ```
 
-`PB_VERSION` harus versi eksplisit. Jangan gunakan `latest`.
+`PB_VERSION` harus versi eksplisit. Jangan gunakan `latest`. Untuk produksi,
+isi `SMTP_*` dengan relay organisasi dan `APP_URL=https://$APP_DOMAIN` agar
+tautan email mengarah ke domain publik.
 
 ### 3. Build dan jalankan
 
@@ -785,6 +848,8 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | POST | `/api/itsm/team` | Tambah anggota (password awal dari sistem); hanya IT Lead |
 | PATCH | `/api/itsm/team/{userId}` | Ubah nama/role/unit/status anggota; hanya IT Lead |
 | POST | `/api/itsm/team/{userId}/password` | Reset password anggota; hanya IT Lead |
+| GET | `/api/itsm/mail/status` | Status SMTP dan antrean email; hanya IT Lead |
+| POST | `/api/itsm/mail/dispatch` | Kirim antrean email sekarang; hanya superuser |
 | GET | `/api/itsm/app-meta` | Mode tenancy aktif (publik) |
 | GET | `/api/itsm/platform/tenants` | Daftar rumah sakit + hitungan; akun vendor |
 | GET | `/api/itsm/platform/audit` | Audit lintas rumah sakit; akun vendor |
@@ -806,7 +871,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 44 unit test, 145 test API, dan 22
+- Suite otomatis lulus lokal (Windows): 44 unit test, 152 test API, dan 22
   skenario e2e — lihat bagian Testing.
 - Konsol Vendor diverifikasi test API: mode `standalone` menolak login akun
   vendor, mode `vendor` mengizinkan; pengguna rumah sakit ditolak dari route
@@ -843,6 +908,13 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
   terhalang dari route ITSM sampai password diganti, dan setiap aksi tercatat
   di audit. Skenario UI-nya (buat anggota → login password awal → wajib ganti →
   login ulang) diuji Playwright.
+- Email transaksional diverifikasi test API + SMTP lokal: undangan berisi
+  password awal, reset password berisi password baru, notifikasi tiket masuk
+  antrean lalu ditandai terkirim setelah dispatch, preferensi email yang
+  dimatikan menghentikan antrean, dan support/requester tidak bisa membaca
+  status atau koleksi email. Jalur SMTP nyata (bukan capture) juga diuji dengan
+  server SMTP lokal: konfigurasi dari environment diterapkan, pesan terkirim
+  dengan sender dan tautan yang benar, dan password awal ada di isi email.
 - Konsol Vendor diverifikasi Playwright (instance `TENANCY_MODE=vendor` sendiri):
   login vendor mendarat di `/platform`, sidebar berisi menu vendor, pembuatan
   rumah sakit lewat modal, detail master data + pengguna tampil, pemilih tenant
@@ -923,9 +995,11 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Scope berikutnya
 
-- Notifikasi email (SMTP) untuk approval, breach, dan tiket kritis; WhatsApp
-  menyusul bila dibutuhkan.
+- Lupa password mandiri di halaman login (saat ini reset dilakukan IT Lead),
+  plus verifikasi email saat pemilik akun ingin mengganti alamat email.
+- WhatsApp untuk notifikasi kritis; email sudah tersedia lewat SMTP.
 - SSO SIMRS dan provisioning akun tanpa Admin UI.
 - Hardening produksi: backup off-host terenkripsi + uji restore, alerting,
   pembatasan percobaan login, dan 2FA.
-- Laporan lanjutan: jadwal kirim otomatis, filter per unit, dan PDF ringkas.
+- Laporan lanjutan: jadwal kirim otomatis lewat email, filter per unit, dan PDF
+  ringkas.

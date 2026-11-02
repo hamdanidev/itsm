@@ -26,6 +26,7 @@ export default function ProfilePage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [employeeNo, setEmployeeNo] = useState("");
+  const [emailNotifications, setEmailNotifications] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveNotice, setSaveNotice] = useState("");
@@ -51,6 +52,7 @@ export default function ProfilePage() {
         setName(data.name || "");
         setPhone(data.phone || "");
         setEmployeeNo(data.employee_no || "");
+        setEmailNotifications(data.email_notifications !== false);
       })
       .catch((err) => {
         if (active) setLoadError(getErrorMessage(err));
@@ -85,9 +87,11 @@ export default function ProfilePage() {
         name: name.trim(),
         phone: phone.trim(),
         employee_no: employeeNo.trim(),
+        email_notifications: emailNotifications,
       });
 
       setProfile(updated);
+      setEmailNotifications(updated.email_notifications !== false);
       setSaveNotice("Profil berhasil diperbarui.");
       await refreshSession();
     } catch (err) {
@@ -331,6 +335,23 @@ export default function ProfilePage() {
                     Telepon dan nomor pegawai hanya terlihat oleh Anda dan IT
                     Lead. Email, peran, dan unit hanya dapat diubah oleh
                     administrator.
+                  </div>
+
+                  <label className="checkline" htmlFor="profile-email-notifications">
+                    <input
+                      id="profile-email-notifications"
+                      type="checkbox"
+                      checked={emailNotifications}
+                      onChange={(event) =>
+                        setEmailNotifications(event.target.checked)
+                      }
+                    />
+                    Kirim notifikasi tiket ke email saya
+                  </label>
+
+                  <div className="hint">
+                    Notifikasi in-app tetap muncul. Undangan akun dan email
+                    keamanan tetap dikirim meski pilihan ini dimatikan.
                   </div>
 
                   <div className="profile-actions">

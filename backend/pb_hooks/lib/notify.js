@@ -17,6 +17,25 @@ function create(app, opts) {
   record.set("is_read", false);
 
   app.save(record);
+
+  // Salinan email untuk penerima yang tidak mematikan preferensi. Email masuk
+  // antrean yang sama dengan transaksi ini, jadi tidak ada notifikasi in-app
+  // tanpa email bila commit berhasil. Kegagalan enqueue tidak boleh
+  // menggagalkan aksi tiket.
+  try {
+    var mail = require(__hooks + "/lib/mail.js");
+    mail.enqueueNotification(app, {
+      tenant: String(opts.tenant),
+      user: String(opts.user),
+      ticket: opts.ticket ? String(opts.ticket) : "",
+      type: opts.type || "status",
+      title: opts.title || "",
+      body: opts.body || "",
+    });
+  } catch (err) {
+    console.log("Email notification failed: " + String(err));
+  }
+
   return record;
 }
 
