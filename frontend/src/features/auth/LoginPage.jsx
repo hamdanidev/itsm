@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const from = location.state?.from?.pathname || "/";
+  const changed = new URLSearchParams(location.search).get("changed") === "1";
 
   useEffect(() => {
     document.title = "Masuk · Healthcare ITSM";
@@ -49,26 +50,21 @@ export default function LoginPage() {
     <div className="login-page">
       <main className="login-main">
         <div className="login-brand">
-          <BrandMark size={28} />
+          <BrandMark size={30} />
           <span>Healthcare ITSM</span>
         </div>
 
         <section className="login-card" aria-labelledby="login-title">
           <h1 className="login-title" id="login-title">
-            Masuk ke Healthcare ITSM
+            Masuk
           </h1>
-          <p className="login-sub">
-            Gunakan akun staf rumah sakit atau akun vendor yang diberikan
-            administrator.
-          </p>
 
-          {new URLSearchParams(location.search).get("changed") === "1" &&
-            !error && (
-              <div className="login-notice" role="status">
-                <i className="bi bi-check2-circle" aria-hidden="true" />
-                <div>Password berhasil diubah. Silakan masuk dengan password baru.</div>
-              </div>
-            )}
+          {changed && !error && (
+            <div className="login-notice" role="status">
+              <i className="bi bi-check2-circle" aria-hidden="true" />
+              <div>Password berhasil diubah. Silakan masuk kembali.</div>
+            </div>
+          )}
 
           {error && (
             <div className="login-error" role="alert">
@@ -88,6 +84,7 @@ export default function LoginPage() {
                 className="input"
                 placeholder="nama@rs.example.com"
                 autoComplete="username"
+                autoFocus
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 required
@@ -140,24 +137,11 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          <p className="login-help">
-            Lupa password atau belum punya akun? <strong>Hubungi IT Support</strong>{" "}
-            melalui kanal resmi rumah sakit.
-          </p>
         </section>
       </main>
 
       <footer className="login-footer">
         <span>© 2026 Healthcare ITSM</span>
-        <span className="sep" aria-hidden="true">
-          ·
-        </span>
-        <span>Hanya untuk staf berwenang</span>
-        <span className="sep" aria-hidden="true">
-          ·
-        </span>
-        <span>Aktivitas login diaudit</span>
       </footer>
     </div>
   );

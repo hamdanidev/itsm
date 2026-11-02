@@ -2892,57 +2892,67 @@ button {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: var(--n20);
+  background:
+    radial-gradient(1000px 560px at 8% -10%, rgba(0, 82, 204, 0.13), transparent 62%),
+    radial-gradient(860px 540px at 94% 110%, rgba(76, 154, 255, 0.22), transparent 60%),
+    linear-gradient(162deg, #f8fafd 0%, #eef3fa 52%, #e7effb 100%);
+}
+
+/* Titik halus agar latar tidak terasa datar. */
+.login-page::before {
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(rgba(9, 30, 66, 0.055) 1px, transparent 1px);
+  background-size: 22px 22px;
+  content: "";
+  pointer-events: none;
 }
 
 .login-main {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex: 1;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 48px 16px 24px;
+  padding: 56px 16px 24px;
 }
 
 .login-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 20px;
+  gap: 10px;
+  margin-bottom: 22px;
   color: var(--ink);
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.012em;
 }
 
 .login-card {
   width: 100%;
-  max-width: 400px;
+  max-width: 404px;
   padding: 32px;
   background: #fff;
-  border: 1px solid var(--n40);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-card);
+  border: 1px solid rgba(9, 30, 66, 0.08);
+  border-radius: 10px;
+  box-shadow:
+    0 20px 44px -22px rgba(9, 30, 66, 0.34),
+    0 2px 6px rgba(9, 30, 66, 0.05);
 }
 
 .login-title {
-  color: var(--ink);
-  font-size: 24px;
+  color: var(--ink-strong);
+  font-size: 22px;
   font-weight: 600;
-  line-height: 32px;
-}
-
-.login-sub {
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
+  letter-spacing: -0.02em;
 }
 
 .login-form {
   display: grid;
   gap: 16px;
-  margin-top: 24px;
+  margin-top: 22px;
 }
 
 .login-field {
@@ -2954,8 +2964,9 @@ button {
 }
 
 .input-wrap .input {
-  height: 40px;
-  padding-right: 40px;
+  height: 42px;
+  padding-right: 42px;
+  border-radius: 6px;
 }
 
 .password-toggle {
@@ -2965,10 +2976,10 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   border: 0;
-  border-radius: 0 var(--radius) var(--radius) 0;
+  border-radius: 0 6px 6px 0;
   background: transparent;
   color: var(--muted);
 }
@@ -2979,8 +2990,10 @@ button {
 }
 
 .login-submit {
-  height: 40px;
+  height: 42px;
   margin-top: 4px;
+  border-radius: 6px;
+  font-weight: 600;
 }
 
 .login-error {
@@ -2988,41 +3001,21 @@ button {
   gap: 8px;
   margin-top: 20px;
   padding: 10px 12px;
+  border-radius: 6px;
   background: var(--red-bg);
-  border-radius: var(--radius);
   color: var(--red-text);
   font-size: 13px;
   line-height: 1.5;
 }
 
-.login-help {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--n30);
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.login-help strong {
-  color: var(--text);
-  font-weight: 600;
-}
-
 .login-footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px 16px;
-  padding: 24px 16px;
-  color: var(--muted);
+  position: relative;
+  z-index: 1;
+  padding: 20px 16px 28px;
+  color: var(--subtle);
   font-size: 12px;
+  text-align: center;
 }
-
-.login-footer .sep {
-  color: var(--n60);
-}
-
 .sidebar-badge.is-count {
   background: var(--blue);
   color: #fff;

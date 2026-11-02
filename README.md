@@ -740,7 +740,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 - Tabel issue yang padat, sticky-free, dengan skeleton loading.
 - Panel aktivitas tiket memakai tab **Komentar / Riwayat** dan indikator `Live`
   saat koneksi realtime PocketBase aktif.
-- Login bergaya Atlassian: kartu putih di atas latar netral, tanpa gradient/hero.
+- Login: satu kartu di tengah dengan latar gradien biru lembut dan pola titik halus; teks pendamping dihilangkan agar fokus ke form.
 - Token dan seluruh komponen ada di `frontend/src/styles/app.css`; tidak ada
   dependency UI framework.
 
