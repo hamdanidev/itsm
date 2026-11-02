@@ -295,7 +295,7 @@ button {
   padding: 0 8px;
   border: 1px solid var(--n40);
   border-radius: var(--radius);
-  background: var(--n10);
+  background: #fff;
   color: var(--ink);
   font-size: 14px;
   transition:
@@ -2644,6 +2644,12 @@ button {
   margin-top: 16px;
 }
 
+/* Di dalam grid, jarak antar kolom sudah diatur gap; margin vertikal tambahan
+   membuat kolom kedua turun dan tidak sejajar. */
+.form-grid > .field-row + .field-row {
+  margin-top: 0;
+}
+
 .char-count {
   display: flex;
   justify-content: space-between;
@@ -3916,6 +3922,13 @@ button {
 
 .profile-forms .panel {
   margin: 0;
+}
+
+.profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 @media (max-width: 900px) {

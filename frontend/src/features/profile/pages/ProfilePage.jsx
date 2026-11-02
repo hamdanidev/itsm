@@ -333,7 +333,7 @@ export default function ProfilePage() {
                     administrator.
                   </div>
 
-                  <div className="form-actions">
+                  <div className="profile-actions">
                     <button
                       className="btn btn-primary"
                       type="submit"
@@ -418,7 +418,7 @@ export default function ProfilePage() {
                     keluar dan Anda perlu masuk kembali.
                   </div>
 
-                  <div className="form-actions">
+                  <div className="profile-actions">
                     <button
                       className="btn btn-primary"
                       type="submit"
