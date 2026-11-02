@@ -185,7 +185,8 @@ routerAdd(
 
       if (priority === "critical") {
         var notify = require(__hooks + "/lib/notify.js");
-        var leads = notify.activeLeads(txApp, tenantId);
+        // Lead rumah sakit + lead vendor, karena vendor menangani semua RS.
+        var leads = notify.approvalAlerts(txApp, tenantId);
 
         for (var i = 0; i < leads.length; i++) {
           notify.create(txApp, {

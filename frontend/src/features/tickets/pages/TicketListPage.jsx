@@ -6,6 +6,7 @@ import { pb } from "../../../lib/pocketbase";
 import { escapeFilterValue, getErrorMessage } from "../../../lib/api";
 import { formatRelative, initials, isOpen } from "../../../lib/format";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import { useTenant } from "../../../app/providers/TenantProvider";
 import { isStaff } from "../../../lib/permissions";
 import { ACTIVE_FILTER } from "../lib/queues";
 import {
@@ -130,6 +131,7 @@ function FilterChip({ label, onRemove }) {
 
 export default function TicketListPage() {
   const { user } = useAuth();
+  const { isPlatformScope, activeTenantId, tenant } = useTenant();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
 
@@ -212,6 +214,12 @@ export default function TicketListPage() {
 
     const filters = [];
 
+    // Vendor melihat semua tenant; daftar dibatasi ke rumah sakit yang sedang
+    // aktif di pemilih tenant.
+    if (isPlatformScope && activeTenantId) {
+      filters.push(`tenant = "${escapeFilterValue(activeTenantId)}"`);
+    }
+
     if (scope === "active") filters.push(ACTIVE_FILTER);
     if (status) filters.push(`status = "${status}"`);
     if (priority) filters.push(`priority = "${priority}"`);
@@ -264,6 +272,8 @@ export default function TicketListPage() {
     sortKey,
     status,
     user?.id,
+    isPlatformScope,
+    activeTenantId,
   ]);
 
   useEffect(() => {
@@ -299,6 +309,10 @@ export default function TicketListPage() {
     status || priority || assignee || sla || approval || scope || q
   );
 
+  // Vendor tanpa rumah sakit aktif tidak punya konteks data. Early return ini
+  // harus berada SETELAH semua hook (useMemo di bawah) agar urutan hook stabil.
+  const noActiveTenant = isPlatformScope && !activeTenantId;
+
   const from = total === 0 ? 0 : (page - 1) * perPage + 1;
   const to = Math.min(page * perPage, total);
 
@@ -319,6 +333,30 @@ export default function TicketListPage() {
 
     return items;
   }, [scope, assignee, sla, approval]);
+
+  if (noActiveTenant) {
+    return (
+      <>
+        <PageHeader
+          breadcrumb={[{ label: "Vendor" }, { label: "Tiket" }]}
+          title="Tiket"
+          description="Pilih rumah sakit dulu untuk melihat antrean tiketnya."
+        />
+        <div className="list-panel">
+          <EmptyState
+            icon="bi-buildings"
+            title="Belum ada rumah sakit aktif"
+            description="Buat atau aktifkan rumah sakit di Konsol Vendor, lalu pilih salah satu lewat pemilih di kanan atas."
+            action={
+              <Link className="btn btn-primary" to="/platform">
+                Buka Konsol Vendor
+              </Link>
+            }
+          />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

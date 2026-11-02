@@ -66,8 +66,14 @@ routerAdd(
           throw new BadRequestError("Assignee tidak ditemukan");
         }
 
+        // Assignee boleh staf rumah sakit pemilik tiket, atau staf vendor
+        // (scope platform) yang melayani semua rumah sakit.
+        var ticketTenant = String(current.get("tenant") || "");
+        var assigneePlatform = Boolean(assignee.get("is_platform_staff"));
+
         if (
-          String(assignee.get("tenant")) !== String(auth.get("tenant") || "")
+          !assigneePlatform &&
+          String(assignee.get("tenant") || "") !== ticketTenant
         ) {
           throw new BadRequestError("Assignee berada di tenant yang berbeda");
         }
@@ -684,7 +690,11 @@ routerAdd(
           throw new BadRequestError("Approver pengganti tidak ditemukan");
         }
 
-        if (String(target.get("tenant")) !== tenantId) {
+        // Penerima delegasi: staf rumah sakit pemilik tiket, atau staf vendor.
+        if (
+          !target.get("is_platform_staff") &&
+          String(target.get("tenant") || "") !== tenantId
+        ) {
           throw new BadRequestError(
             "Approver pengganti berada di tenant yang berbeda"
           );

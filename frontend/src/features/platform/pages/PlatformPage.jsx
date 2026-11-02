@@ -4,6 +4,7 @@ import EmptyState from "../../../components/ui/EmptyState";
 import Modal from "../../../components/ui/Modal";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMeta } from "../../../app/providers/MetaProvider";
+import { useTenant } from "../../../app/providers/TenantProvider";
 import { formatDate } from "../../../lib/format";
 import { isPlatformAdmin, tenantRoleLabel } from "../../../lib/permissions";
 import {
@@ -77,6 +78,7 @@ function CountField({ label, value }) {
 export default function PlatformPage() {
   const { user } = useAuth();
   const { isVendor } = useMeta();
+  const { reloadTenants } = useTenant();
   const canManage = isPlatformAdmin(user);
 
   const [items, setItems] = useState([]);
@@ -226,6 +228,7 @@ export default function PlatformPage() {
       );
 
       await load();
+      reloadTenants();
     } catch (err) {
       setCreateError(getErrorMessage(err));
     } finally {
@@ -264,6 +267,7 @@ export default function PlatformPage() {
       setEditTarget(null);
       setNotice(`${name} diperbarui.`);
       await load();
+      reloadTenants();
     } catch (err) {
       setEditError(getErrorMessage(err));
     } finally {
@@ -282,6 +286,7 @@ export default function PlatformPage() {
         `${tenant.name} ${tenant.is_active ? "dinonaktifkan" : "diaktifkan"}.`
       );
       await load();
+      reloadTenants();
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -961,7 +966,7 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
           : "Memuat data rumah sakit..."
       }
       onClose={onClose}
-      wide
+      xl
       footer={
         <button className="btn btn-subtle" type="button" onClick={onClose}>
           Tutup
@@ -1294,11 +1299,10 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
               </div>
             ) : (
               <div className="issue-table-wrap" style={{ marginTop: 12 }}>
-                <table className="issue-table admin-table">
+                <table className="issue-table admin-table is-compact">
                   <thead>
                     <tr>
-                      <th>Nama</th>
-                      <th>Email</th>
+                      <th>Pengguna</th>
                       <th>Role</th>
                       <th>Unit</th>
                       <th className="col-status">Status</th>
@@ -1313,8 +1317,8 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                       >
                         <td>
                           <span className="admin-name">{person.name}</span>
+                          <div className="admin-sub">{person.email}</div>
                         </td>
-                        <td className="muted">{person.email}</td>
                         <td>{tenantRoleLabel(person.role)}</td>
                         <td>
                           {person.unit_name || (

@@ -3936,3 +3936,34 @@ button {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Konsol Vendor
+   --------------------------------------------------------------------------- */
+
+/* Detail tenant memuat tabel pengguna; butuh ruang lebih dari modal biasa. */
+.modal--xl {
+  max-width: 900px;
+}
+
+/* Tabel di dalam modal: lepas lebar minimum dan kolom aksi sticky supaya semua
+   kolom terbaca tanpa scroll horizontal. */
+.admin-table.is-compact {
+  min-width: 0;
+}
+
+.admin-table.is-compact .col-actions {
+  position: static;
+  box-shadow: none;
+}
+/* Pemilih rumah sakit aktif untuk akun vendor. */
+.tenant-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.tenant-switcher .select {
+  max-width: 220px;
+}

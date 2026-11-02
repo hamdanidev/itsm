@@ -59,6 +59,14 @@ onRecordValidate((e) => {
     if (tenant) {
       throw new BadRequestError("Akun vendor tidak boleh terikat satu rumah sakit");
     }
+    // Cabang rule `is_platform_staff` membuka data semua tenant, jadi role
+    // akun platform dibatasi ke peran staf.
+    var platformRole = String(record.get("role") || "");
+    if (platformRole !== "it_support" && platformRole !== "it_lead") {
+      throw new BadRequestError(
+        "Akun vendor harus memiliki role it_support atau it_lead"
+      );
+    }
     return;
   }
 

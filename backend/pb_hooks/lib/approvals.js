@@ -187,7 +187,9 @@ function notifyStep(app, ticket, step, excludeUserId) {
   var recipients = [];
 
   if (kind === "it_lead" || kind === "cab") {
-    recipients = activeLeads(app, tenant);
+    // Lead rumah sakit + lead vendor; gate CAB tetap memakai activeLeads
+    // (tenant saja) di plan().
+    recipients = notify.approvalAlerts(app, tenant);
   } else {
     var approverId = String(step.get("approver") || "");
     if (approverId) recipients = [{ id: approverId }];

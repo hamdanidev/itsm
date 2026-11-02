@@ -185,7 +185,7 @@ Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`
 | Perintah | Cakupan | Butuh |
 |---|---|---|
 | `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, scope platform, mode tenancy, validasi input konsol vendor, helper antrean dashboard, agregasi laporan | Node |
-| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, konsol vendor (tenant, seed, provisioning, isolasi) | Node + binary PocketBase |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, konsol vendor (tenant, seed, provisioning, isolasi), vendor sebagai resolver tiket lintas RS | Node + binary PocketBase |
 | `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, profil, intake, konsol vendor (mode vendor) | Node + PocketBase + Chromium |
 | `npm run test:all` | ketiganya | — |
 
@@ -357,9 +357,38 @@ Hanya untuk akun `is_platform_staff`. `role` tetap menentukan kewenangan:
 | Audit | Setiap aksi menulis `audit_logs` dengan `actor_role` berawalan `platform_` |
 
 Semua pembacaan lintas tenant dilakukan di server dengan filter eksplisit. Akun
-platform **tidak** otomatis bisa membaca koleksi lewat REST: `users.tenant`
-kosong sehingga rule `tenant = @request.auth.tenant` tidak cocok. Akses tiket
-lintas tenant (vendor sebagai resolver) belum dibuka — itu Fase 2.
+platform tidak membaca koleksi lewat rule tenant biasa; cabang
+`is_platform_staff` dibahas di bagian berikut.
+
+### Vendor sebagai resolver tiket
+
+Akun vendor tidak berhenti di konsol: mereka mengerjakan tiket rumah sakit.
+
+| Kemampuan | Keterangan |
+|---|---|
+| Pemilih rumah sakit | Dropdown di top bar; pilihan tersimpan dan menjadi konteks kerja |
+| Antrean tiket | `Tiket` di sidebar menampilkan tiket rumah sakit aktif, termasuk "Tiket saya" |
+| Assignee | Staf vendor muncul bersama staf rumah sakit di dropdown assignee |
+| Kerja tiket | Komentar (publik/internal), mulai, menunggu, selesaikan, tutup, buka kembali |
+| Approval | Lead vendor bisa menyetujui tahap IT Lead/CAB dan menerima delegasi |
+| Notifikasi | Penugasan, komentar, approval, dan tiket kritis ikut masuk ke akun vendor |
+
+Aturan mainnya:
+
+- Vendor **membaca** data semua rumah sakit lewat cabang rule
+  `is_platform_staff = true`; penulisan tetap lewat route `/api/itsm/*`.
+- Vendor **tidak bisa membuat tiket** (akun platform tidak punya tenant/unit)
+  dan tidak bisa mengubah data master rumah sakit dari UI tiket.
+- Gate CAB tetap menghitung IT Lead rumah sakit saja, agar jumlah akun vendor
+  tidak mengubah alur approval tenant.
+- Setiap aksi tercatat di `audit_logs` milik rumah sakit terkait dengan
+  `actor_role` `platform_*`, jadi IT Lead rumah sakit bisa melihatnya.
+- Pemilih tenant adalah filter UI, bukan batas keamanan: vendor memang boleh
+  melihat semua RS.
+- Pemilih mengikuti tiket yang dibuka. Membuka tiket RS lain lewat tautan atau
+  notifikasi akan memindahkan pemilih ke RS pemilik tiket, dan mengganti RS
+  saat halaman detail terbuka akan kembali ke daftar tiket RS yang baru
+  (tidak pernah menampilkan tiket RS lain di bawah pemilih yang berbeda).
 
 ## Tenant
 
@@ -743,18 +772,24 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 43 unit test, 87 test API, dan 15
+- Suite otomatis lulus lokal (Windows): 43 unit test, 99 test API, dan 16
   skenario e2e — lihat bagian Testing.
 - Konsol Vendor diverifikasi test API: mode `standalone` menolak login akun
   vendor, mode `vendor` mengizinkan; pengguna rumah sakit ditolak dari route
   platform; `it_support` hanya baca; pembuatan tenant (seed 10 unit, 9 kategori,
   12 kebijakan, 3 hari libur + akun IT pertama) atomik; seed idempoten; kode
-  unik; email duplikat ditolak; menonaktifkan tenant memblokir login; akun
-  vendor tidak bisa membaca tiket lewat REST.
+  unik; email duplikat ditolak; menonaktifkan tenant memblokir login.
+- Vendor sebagai resolver diverifikasi test API: membaca tiket dan master data
+  rumah sakit lain, ditugaskan lalu menyelesaikan siklus tiket rumah sakit,
+  menerima notifikasi penugasan, menyetujui semua tahap service request,
+  `audit_logs` mencatat `actor_role=platform_it_lead`, vendor tidak bisa
+  membuat tiket atau menulis lewat REST, dan isolasi antar rumah sakit untuk
+  pengguna biasa tetap utuh.
 - Konsol Vendor diverifikasi Playwright (instance `TENANCY_MODE=vendor` sendiri):
-  login vendor mendarat di `/platform`, sidebar berisi menu vendor (tanpa menu
-  rumah sakit), pembuatan rumah sakit lewat modal, dan detail master data +
-  pengguna tampil tanpa console error.
+  login vendor mendarat di `/platform`, sidebar berisi menu vendor, pembuatan
+  rumah sakit lewat modal, detail master data + pengguna tampil, pemilih tenant
+  bekerja, dan tiket rumah sakit bisa dibuka dengan staf vendor sebagai
+  calon assignee — tanpa console error.
 - Laporan SLA diverifikasi test API: ringkasan, compliance, median, agregat
   unit/prioritas/jenis, filter rentang, bucket mingguan, validasi 366 hari,
   ekspor CSV (BOM, header, isi baris), dan akses khusus IT Lead.

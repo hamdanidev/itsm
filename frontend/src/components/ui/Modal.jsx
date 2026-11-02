@@ -8,6 +8,7 @@ export default function Modal({
   footer,
   onClose,
   wide = false,
+  xl = false,
 }) {
   const titleId = useId();
 
@@ -34,7 +35,7 @@ export default function Modal({
       }}
     >
       <div
-        className={`modal${wide ? " modal--wide" : ""}`}
+        className={`modal${wide ? " modal--wide" : ""}${xl ? " modal--xl" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

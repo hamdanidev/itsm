@@ -29,6 +29,9 @@ function ticketLabel(ticket) {
   );
 }
 
+// IT Lead milik satu rumah sakit. Dipakai sebagai gate CAB: komite perubahan
+// tetap milik rumah sakit, sehingga jumlah lead vendor tidak mengubah alur
+// approval tenant mana pun.
 function activeLeads(app, tenantId) {
   if (!tenantId) return [];
 
@@ -40,6 +43,37 @@ function activeLeads(app, tenantId) {
     0,
     { tenant: tenantId }
   );
+}
+
+// IT Lead vendor (scope platform) yang menangani semua rumah sakit.
+function platformLeads(app) {
+  return app.findRecordsByFilter(
+    "users",
+    "role = 'it_lead' && is_active = true && is_platform_staff = true",
+    "name",
+    50,
+    0
+  );
+}
+
+// Penerima notifikasi approval: lead rumah sakit + lead vendor, tanpa duplikat.
+function approvalAlerts(app, tenantId) {
+  var recipients = [];
+  var seen = {};
+
+  function push(list) {
+    for (var i = 0; i < list.length; i++) {
+      var id = String(list[i].id || "");
+      if (!id || seen[id]) continue;
+      seen[id] = true;
+      recipients.push(list[i]);
+    }
+  }
+
+  push(activeLeads(app, tenantId));
+  push(platformLeads(app));
+
+  return recipients;
 }
 
 function notifyTicketRecipients(app, ticket, opts) {
@@ -83,5 +117,7 @@ module.exports = {
   create: create,
   ticketLabel: ticketLabel,
   activeLeads: activeLeads,
+  platformLeads: platformLeads,
+  approvalAlerts: approvalAlerts,
   notifyTicketRecipients: notifyTicketRecipients,
 };

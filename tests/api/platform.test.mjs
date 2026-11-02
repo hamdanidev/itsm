@@ -224,15 +224,34 @@ test("menambah pengguna tenant dan menolak email duplikat", async () => {
   assert.equal(deactivated.user.is_active, false);
 });
 
-test("akun vendor tidak dapat membaca tiket rumah sakit lewat REST (fase 1)", async () => {
+// Fase 2 membuka akses baca tiket lintas tenant untuk vendor; detailnya diuji
+// di platform-tickets.test.mjs. Di sini cukup memastikan konsol masih utuh.
+test("akun vendor tetap tidak punya tenant sendiri", async () => {
   const admin = await adminClient();
   const { client } = await createPlatformUser(admin, { role: "it_lead" });
 
-  const tickets = await client.list("tickets");
-  assert.equal(tickets.items.length, 0);
+  const profile = await client.json("GET", "/api/itsm/profile");
+  assert.equal(profile.tenant, "");
+});
 
-  const tenants = await client.list("tenants");
-  assert.equal(tenants.items.length, 0);
+test("akun vendor wajib ber-role staf", async () => {
+  const admin = await adminClient();
+  const res = await admin.request("POST", "/api/collections/users/records", {
+    body: {
+      email: `vendor.requester.${Date.now()}@uji.local`,
+      password: PASSWORD,
+      passwordConfirm: PASSWORD,
+      emailVisibility: true,
+      verified: true,
+      name: "Vendor Requester",
+      role: "requester",
+      is_active: true,
+      is_platform_staff: true,
+    },
+  });
+
+  assert.equal(res.status, 400);
+  assert.match(res.data.message, /it_support atau it_lead/);
 });
 
 test("mode standalone menolak login akun vendor", async () => {

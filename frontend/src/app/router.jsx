@@ -146,22 +146,10 @@ export default function AppRoutes() {
             </RequireTenantUser>
           }
         />
-        <Route
-          path="/tickets"
-          element={
-            <RequireTenantUser>
-              <TicketListPage />
-            </RequireTenantUser>
-          }
-        />
-        <Route
-          path="/notifications"
-          element={
-            <RequireTenantUser>
-              <NotificationsPage />
-            </RequireTenantUser>
-          }
-        />
+        {/* Vendor boleh membuka tiket & notifikasi; halaman lain tetap khusus
+            akun rumah sakit. */}
+        <Route path="/tickets" element={<TicketListPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route
           path="/tickets/new"
@@ -171,14 +159,7 @@ export default function AppRoutes() {
             </RequireTenantUser>
           }
         />
-        <Route
-          path="/tickets/:id"
-          element={
-            <RequireTenantUser>
-              <TicketDetailPage />
-            </RequireTenantUser>
-          }
-        />
+        <Route path="/tickets/:id" element={<TicketDetailPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

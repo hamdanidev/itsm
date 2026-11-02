@@ -8,6 +8,7 @@ import { isLead, isPlatformStaff, isStaff, roleLabel } from "../../lib/permissio
 import { notificationIcon } from "../../features/notifications/notificationMeta";
 import BrandMark from "../ui/BrandMark";
 import Avatar from "../ui/Avatar";
+import TenantSwitcher from "./TenantSwitcher";
 
 function navClass({ isActive }) {
   return `sidebar-link${isActive ? " is-active" : ""}`;
@@ -95,10 +96,12 @@ export default function AppShell() {
   }
 
   const tenantName = isPlatformStaff(user)
-    ? "Konsol Vendor"
+    ? tenant?.name || "Pilih rumah sakit"
     : tenant?.name || "Service Desk";
   const tenantMeta = isPlatformStaff(user)
-    ? "Kelola banyak rumah sakit"
+    ? tenant?.code
+      ? `Kode ${tenant.code} · Vendor`
+      : "Pilih rumah sakit untuk mulai bekerja"
     : tenant?.code
       ? `Kode ${tenant.code} · Layanan TI`
       : "Layanan TI rumah sakit";
@@ -126,6 +129,8 @@ export default function AppShell() {
         <div className="topbar-spacer" />
 
         <div className="topbar-actions">
+          <TenantSwitcher />
+
           {!isPlatformStaff(user) && (
             <Link
               className="btn btn-primary topbar-create"
@@ -300,6 +305,29 @@ export default function AppShell() {
               <NavLink className={navClass} to="/platform">
                 <i className="bi bi-buildings" aria-hidden="true" />
                 Konsol Vendor
+              </NavLink>
+            )}
+
+            {isPlatformStaff(user) && (
+              <NavLink
+                className={({ isActive }) =>
+                  `sidebar-link${isActive || ticketDetailActive ? " is-active" : ""}`
+                }
+                to="/tickets"
+                end
+              >
+                <i className="bi bi-ticket-detailed" aria-hidden="true" />
+                Tiket
+              </NavLink>
+            )}
+
+            {isPlatformStaff(user) && (
+              <NavLink className={navClass} to="/notifications">
+                <i className="bi bi-bell" aria-hidden="true" />
+                Notifikasi
+                {unread > 0 && (
+                  <span className="sidebar-badge is-count">{unread}</span>
+                )}
               </NavLink>
             )}
 

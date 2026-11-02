@@ -11,7 +11,13 @@ import { after, before, test } from "node:test";
 import { chromium } from "playwright-core";
 
 import { freePort, startPocketBase } from "../lib/pocketbase-server.mjs";
-import { adminClient, createPlatformUser, uniqueLabel } from "../lib/fixtures.mjs";
+import {
+  adminClient,
+  createPlatformUser,
+  createTicket,
+  seedOrg,
+  uniqueLabel,
+} from "../lib/fixtures.mjs";
 import { findChromium } from "../lib/chromium.mjs";
 
 process.env.TENANCY_MODE = "vendor";
@@ -125,6 +131,30 @@ before(async () => {
   const admin = await adminClient();
   state.vendor = await createPlatformUser(admin, { role: "it_lead", label: "vendor" });
 
+  // Satu tiket di RS01 agar vendor punya pekerjaan nyata untuk dibuka.
+  state.org = await seedOrg({ label: "e2e", isolatedTenant: false });
+  const ticket = await createTicket(state.org.requester.client, {
+    type: "incident",
+    title: "Tiket rumah sakit untuk vendor",
+    description: "Tiket ini dipakai memverifikasi akses vendor lintas tenant.",
+  });
+  state.ticketId = ticket.id;
+  state.ticketNo = ticket.ticket_no;
+  state.requesterName = state.org.requester.user.name;
+
+  // Rumah sakit kedua tanpa tiket, untuk menguji pemilih tenant.
+  state.secondTenant = await state.vendor.client.json(
+    "POST",
+    "/api/itsm/platform/tenants",
+    {
+      body: {
+        name: `RS Kedua ${uniqueLabel("e2e")}`,
+        code: `D${Date.now().toString(36)}`.toUpperCase().slice(0, 12),
+        seed_master: false,
+      },
+    }
+  );
+
   state.web = await startVite(state.pb.url);
   state.browser = await chromium.launch({
     executablePath: await findChromium(),
@@ -142,18 +172,81 @@ test("akun vendor masuk ke Konsol Vendor dan melihat daftar rumah sakit", async 
   const page = await login(state.vendor.email, "**/platform", "vendor");
 
   await page.getByRole("heading", { name: "Konsol Vendor" }).waitFor();
-  await page.getByText("Rumah Sakit Contoh").first().waitFor();
-  await page.getByText("RS01").first().waitFor();
+  await page.locator("tbody").getByText("Rumah Sakit Contoh").first().waitFor();
+  await page.locator("tbody").getByText("RS01").first().waitFor();
 
-  // Sidebar vendor berisi tautan konsol, bukan menu ruang kerja rumah sakit.
+  // Sidebar vendor berisi konsol + antrean tiket, tanpa menu khusus rumah sakit.
   await page
     .locator(".sidebar")
     .getByRole("link", { name: "Konsol Vendor" })
     .waitFor();
+  await page.locator(".sidebar").getByRole("link", { name: "Tiket" }).waitFor();
   assert.equal(
-    await page.locator(".sidebar").getByText("Tiket", { exact: true }).count(),
+    await page.locator(".sidebar").getByText("Ringkasan", { exact: true }).count(),
     0
   );
+
+  await page.context().close();
+});
+
+test("vendor memilih rumah sakit dan mengerjakan tiketnya", async () => {
+  const page = await login(state.vendor.email, "**/platform", "vendor-tiket");
+
+  // Pemilih tenant hanya muncul untuk akun vendor.
+  const switcher = page.locator(".tenant-switcher select");
+  await switcher.waitFor();
+  await switcher.selectOption({ label: "Rumah Sakit Contoh" });
+
+  await page.locator(".sidebar").getByRole("link", { name: "Tiket" }).click();
+  await page.waitForURL("**/tickets", { timeout: 15_000 });
+  await page.waitForTimeout(1200);
+
+  const row = page.locator("tr", { hasText: state.ticketNo });
+  await row.waitFor();
+  await row.click();
+  await page.waitForURL(/\/tickets\/[^/]+$/, { timeout: 15_000 });
+  await page.waitForTimeout(1500);
+
+  // Vendor bisa membaca tiket rumah sakit: requester ter-expand.
+  await page.getByText(state.requesterName).first().waitFor();
+
+  // Assignee mencakup staf vendor sendiri.
+  const assignee = page.locator('select[aria-label="Pilih assignee"]');
+  await assignee.waitFor();
+  const options = await assignee.locator("option").allTextContents();
+  assert.ok(
+    options.some((text) => text.includes("Vendor")),
+    "staf vendor harus muncul sebagai calon assignee"
+  );
+
+  await page.context().close();
+});
+
+test("pemilih tenant mengikuti tiket yang dibuka", async () => {
+  const page = await login(state.vendor.email, "**/platform", "vendor-sinkron");
+
+  const switcher = page.locator(".tenant-switcher select");
+  await switcher.waitFor();
+
+  // Pindah ke rumah sakit kedua (tanpa tiket), lalu buka tiket RS01 lewat URL.
+  await switcher.selectOption({ label: state.secondTenant.tenant.name });
+  await page.waitForTimeout(600);
+
+  await page.goto(`${state.web.url}/tickets/${state.ticketId}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await page.waitForTimeout(1600);
+
+  // Pemilih harus pindah sendiri ke rumah sakit pemilik tiket.
+  const selectedLabel = await switcher.locator("option:checked").innerText();
+  assert.equal(selectedLabel, "Rumah Sakit Contoh");
+
+  // Mengganti rumah sakit dari halaman detail tidak boleh tetap di tiket itu.
+  await switcher.selectOption({ label: state.secondTenant.tenant.name });
+  await page.waitForURL(/\/tickets$/, { timeout: 15_000 });
+  await page.waitForTimeout(800);
+
+  assert.equal(await page.locator("tbody tr").count(), 0);
 
   await page.context().close();
 });

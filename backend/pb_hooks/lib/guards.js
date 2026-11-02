@@ -56,6 +56,11 @@ function assertPlatformAdmin(auth) {
 
 function assertSameTenant(auth, record) {
   if (!auth || !record) throw new NotFoundError("Record not found");
+
+  // Vendor melayani semua rumah sakit. Batas tenant tidak berlaku untuk scope
+  // platform; kewenangan tulis tetap diperiksa per route.
+  if (isPlatformStaff(auth)) return;
+
   if (String(auth.get("tenant")) !== String(record.get("tenant"))) {
     throw new NotFoundError("Record not found");
   }
@@ -84,13 +89,18 @@ function assertTicketAccess(e, ticket) {
 function canAccessTicket(e, ticket) {
   var auth = e.auth;
   if (!auth || !ticket) return false;
-  if (String(auth.get("tenant") || "") !== String(ticket.get("tenant") || "")) {
-    return false;
-  }
 
   var userId = String(auth.id || "");
   if (!userId) return false;
   if (!auth.get("is_active")) return false;
+
+  // Scope platform: vendor dapat membuka tiket tenant mana pun.
+  if (isPlatformStaff(auth)) return true;
+
+  if (String(auth.get("tenant") || "") !== String(ticket.get("tenant") || "")) {
+    return false;
+  }
+
   if (STAFF_ROLES.indexOf(String(auth.get("role") || "")) >= 0) return true;
   if (String(ticket.get("requester") || "") === userId) return true;
   if (String(ticket.get("assignee") || "") === userId) return true;

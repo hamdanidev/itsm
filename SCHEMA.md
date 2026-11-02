@@ -12,11 +12,16 @@ Alias:
 
 ```text
 AUTH     = @request.auth.id != "" && @request.auth.is_active = true
+PLATFORM = @request.auth.is_platform_staff = true
 TENANT   = tenant = @request.auth.tenant
 STAFF    = (@request.auth.role = "it_support" || @request.auth.role = "it_lead")
 LEAD     = @request.auth.role = "it_lead"
 TICKET_R = (requester = @request.auth.id || assignee = @request.auth.id || unit.manager = @request.auth.id || delegates.id ?= @request.auth.id || STAFF)
 ```
+
+Setiap rule baca ber-`TENANT` pada koleksi bisnis berbentuk
+`AUTH && (PLATFORM || (<rule tenant>))`; lihat *Akses vendor ke data rumah
+sakit* di bawah.
 
 Semua koleksi bisnis memiliki `tenant`. Server mengambil tenant dari `e.auth`,
 bukan dari body request. Frontend guard bukan otorisasi.
@@ -41,9 +46,49 @@ Karena API rule statis, mode ditegakkan di luar rule:
 2. Semua route `/api/itsm/platform/*` memanggil `tenancy.assertVendor()`.
 3. `GET /api/itsm/app-meta` memberi tahu frontend mode aktif.
 
-Akun platform (`is_platform_staff = true`) **belum** mendapat akses baca tiket
-lintas tenant; semua pembacaan lintas tenant pada fase ini lewat route server
-dengan filter eksplisit.
+Akun platform (`is_platform_staff = true`) bertindak sebagai resolver: mereka
+boleh **membaca** tiket semua rumah sakit, tetapi penulisan tetap lewat route
+`/api/itsm/*` yang memeriksa role dan kepemilikan tiket per record.
+
+### Akses vendor ke data rumah sakit
+
+Rule baca yang diberi cabang `@request.auth.is_platform_staff = true`:
+`tickets`, `ticket_comments`, `ticket_attachments`, `ticket_approvals`,
+`notifications`, `users`, `units`, `ticket_categories`, `sla_policies`,
+`holidays`, `tenants`. Cabang tenant lama tidak diubah, sehingga akun rumah
+sakit tetap terisolasi.
+
+`users` juga membuka `is_platform_staff = true` untuk pembaca tenant, supaya nama
+assignee/approver vendor bisa di-expand di tiket rumah sakit. Field sensitif
+tetap disembunyikan `onRecordEnrich` (hanya diri sendiri / IT Lead /
+superuser).
+
+Konsekuensi lain yang disengaja:
+
+- `guards.findTicket` menerima akun platform untuk tiket tenant mana pun;
+  `assertSameTenant` dan `canAccessTicket` punya cabang platform.
+- Assignee boleh staf rumah sakit pemilik tiket **atau** staf vendor aktif.
+  Staf vendor bisa menugaskan tiket ke dirinya sendiri; staf rumah sakit yang
+  bisa melihat akun vendor juga bisa mengescalate ke vendor.
+- Delegasi approval boleh ditujukan ke staf vendor.
+- Notifikasi approval dikirim ke lead rumah sakit + lead vendor
+  (`notify.approvalAlerts`), termasuk notifikasi tiket kritis.
+- **Gate CAB tetap menghitung lead rumah sakit saja** (`notify.activeLeads`),
+  agar jumlah akun vendor tidak mengubah alur approval tenant mana pun.
+- Audit mencatat aktor vendor dengan `actor_role` berawalan `platform_`
+  (mis. `platform_it_lead`), pada tenant tiket yang bersangkutan.
+- Vendor tidak bisa membuat tiket: route create membutuhkan `tenant` dan `unit`
+  milik akun, yang tidak dimiliki akun platform.
+
+Di UI, vendor memilih satu rumah sakit aktif lewat pemilih tenant di top bar.
+Pilihan disimpan di `localStorage` dan menjadi filter daftar tiket; ia **bukan**
+batas keamanan (vendor memang boleh melihat semua), melainkan konteks kerja.
+
+Halaman detail tiket menyelaraskan pemilih ke tenant tiket saat dibuka (sekali
+per tiket), sehingga membuka tautan/notifikasi tiket RS lain tidak
+meninggalkan pemilih di RS yang salah. Mengganti rumah sakit dari halaman
+detail mengalihkan ke daftar tiket rumah sakit yang baru, bukan menampilkan
+tiket RS lain di bawah pemilih tersebut.
 
 ## Koleksi
 
@@ -66,7 +111,7 @@ Rules:
 
 | Aksi | Rule |
 |---|---|
-| List/View | `AUTH && id = @request.auth.tenant` |
+| List/View | `AUTH && (PLATFORM \|\| id = @request.auth.tenant)` |
 | Create/Update/Delete | `null` (superuser lewat Admin UI, atau route Konsol Vendor) |
 
 ### `users` (auth)
@@ -98,15 +143,16 @@ Rules:
 
 | Aksi | Rule |
 |---|---|
-| List/View | `AUTH && TENANT` |
+| List/View | `AUTH && (PLATFORM \|\| TENANT \|\| is_platform_staff = true)` |
 | Create/Update/Delete | `null` |
 | Manage | `null` |
 | Auth | `is_active = true && (is_platform_staff = true \|\| tenant.is_active = true)` |
 
 Provisioning akun hanya superuser (Admin UI) atau route Konsol Vendor.
 `onRecordEnrich` menyembunyikan `phone`, `employee_no`, dan field SSO dari user
-selain diri sendiri/IT Lead. Akun platform tidak cocok dengan rule List/View
-(`tenant` kosong), sehingga tidak bisa membaca data rumah sakit lewat REST.
+selain diri sendiri/IT Lead. Cabang `is_platform_staff = true` membuat staf
+vendor dapat di-expand sebagai assignee/approver di tiket rumah sakit; tanpa
+cabang itu nama mereka tampil kosong bagi pengguna tenant.
 
 ### `units`
 
@@ -121,7 +167,7 @@ Rules:
 
 | Aksi | Rule |
 |---|---|
-| List/View | `AUTH && TENANT` |
+| List/View | `AUTH && (PLATFORM \|\| TENANT)` |
 | Create | `LEAD && @request.body.tenant = @request.auth.tenant` |
 | Update | `LEAD && TENANT` |
 | Delete | `null` (nonaktifkan dengan `is_active=false`) |
@@ -193,7 +239,7 @@ Rules:
 
 | Aksi | Rule |
 |---|---|
-| List/View | `AUTH && TENANT && TICKET_R` |
+| List/View | `AUTH && (PLATFORM \|\| (TENANT && TICKET_R))` |
 | Create/Update/Delete | `null` |
 
 Semua penulisan lewat custom route `/api/itsm/*`. Route memeriksa role, tenant,
@@ -207,7 +253,7 @@ Rules:
 
 | Aksi | Rule |
 |---|---|
-| List/View | `AUTH && ticket.tenant = @request.auth.tenant && TICKET_R && (visibility = "public" || STAFF)` |
+| List/View | `AUTH && (PLATFORM \|\| (ticket.tenant = @request.auth.tenant && TICKET_R && (visibility = "public" \|\| STAFF)))` |
 | Create/Update/Delete | `null` |
 
 Append-only. Komentar internal tidak terlihat requester. First response diisi
@@ -222,7 +268,7 @@ Rules:
 
 | Aksi | Rule |
 |---|---|
-| List/View | `AUTH && ticket.tenant = @request.auth.tenant && TICKET_R && (visibility = "public" || STAFF)` |
+| List/View | `AUTH && (PLATFORM \|\| (ticket.tenant = @request.auth.tenant && TICKET_R && (visibility = "public" \|\| STAFF)))` |
 | Create/Update/Delete | `null` |
 
 Maksimal 3 lampiran per tiket. File diakses dengan file token.
@@ -239,7 +285,7 @@ Rules:
 
 | Aksi | Rule |
 |---|---|
-| List/View | `AUTH && TENANT && TICKET_R` |
+| List/View | `AUTH && (PLATFORM \|\| (TENANT && TICKET_R))` |
 | Create/Update/Delete | `null` (hanya route approval) |
 
 Dibuat otomatis saat Service/Change Request dibuat:
@@ -271,7 +317,7 @@ Rules:
 
 | Aksi | Rule |
 |---|---|
-| List/View | `AUTH && user = @request.auth.id && tenant = @request.auth.tenant` |
+| List/View | `AUTH && user = @request.auth.id && (PLATFORM \|\| tenant = @request.auth.tenant)` |
 | Update | rule yang sama (menandai `is_read`) |
 | Create/Delete | `null` (hanya hook server) |
 
@@ -471,8 +517,9 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 
 ## Known limitations
 
-- CAB memakai IT Lead kedua (belum ada peran/komite CAB terpisah). Bila tenant
-  hanya punya satu IT Lead aktif, tahap CAB dilewati saat tiket dibuat.
+- CAB memakai IT Lead kedua (belum ada peran/komite CAB terpisah). Yang dihitung
+  hanya IT Lead **rumah sakit**; lead vendor tidak menambah kursi CAB, sehingga
+  jumlah akun vendor tidak mengubah alur approval tenant.
 - Delegasi tidak otomatis dari kalender cuti dan belum dapat dicabut sebelum
   tahap diputuskan; penerima delegasi tetap punya akses baca tiket.
 - SLA approval per tahap memakai `sla_snapshot` tiket, bukan policy terbaru.
@@ -491,14 +538,22 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 - Pengaturan tidak mengelola user tenant. Provisioning akun rumah sakit lewat
   Admin UI (superuser) atau Konsol Vendor; akun platform sendiri tetap hanya
   bisa dibuat superuser.
-- Konsol Vendor masih Fase 1: akun vendor belum bisa menjadi assignee,
-  approver, atau menerima notifikasi tiket lintas tenant. Semua route tiket
-  menolak `tenant` kosong (`assertSameTenant`), jadi vendor belum bisa menangani
-  tiket rumah sakit.
-- Belum ada pemilih tenant di UI tiket; data tiket tetap dikunci ke satu tenant
-  per akun.
-- Audit aksi akun platform tidak punya `tenant`, jadi hanya terlihat lewat
-  Admin UI/superuser, belum ada layar audit platform.
+- Konsol Vendor: akun vendor sudah bisa menjadi assignee, approver, dan penerima
+  notifikasi tiket lintas tenant (Fase 2), tetapi **belum** bisa membuat tiket
+  atau mengubah data master rumah sakit lewat UI tiket — keduanya lewat Konsol
+  Vendor/tenant sendiri.
+- Gate CAB hanya menghitung IT Lead rumah sakit. Rumah sakit yang sepenuhnya
+  dioperasikan vendor (tanpa lead sendiri) tidak akan pernah membentuk tahap
+  CAB, meski vendor punya beberapa lead. Vendor tetap bisa menyetujui tahap
+  IT Lead dan bisa didelegasikan.
+- Pemilih tenant menyaring daftar tiket/notifikasi di UI, bukan batas keamanan:
+  akun vendor memang boleh membaca semua tenant. Belum ada tampilan gabungan
+  semua RS (dashboard/laporan lintas tenant).
+- Laporan SLA (`/reports`) belum bisa dipakai akun vendor; agregasi masih per
+  tenant dan route-nya memakai `auth.tenant`.
+- Audit aksi akun platform dicatat dengan `tenant` tiket yang bersangkutan,
+  sehingga terlihat oleh IT Lead rumah sakit itu, tetapi belum ada layar audit
+  khusus platform untuk vendor.
 - Reset password oleh vendor tidak mencabut token akses yang masih berlaku;
   pengguna lama tetap aktif sampai token kedaluwarsa.
 - Mode tenancy hanya bisa diubah lewat environment; tidak ada tombol ubah mode

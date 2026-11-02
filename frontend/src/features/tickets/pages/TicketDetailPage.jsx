@@ -6,6 +6,7 @@ import {
   createComment,
   decideTicketApproval,
   delegateTicketApproval,
+  escapeFilterValue,
   fetchTimeline,
   getAttachmentUrl,
   getErrorMessage,
@@ -22,6 +23,7 @@ import {
 } from "../../../lib/format";
 import { isLead, isStaff } from "../../../lib/permissions";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import { useTenant } from "../../../app/providers/TenantProvider";
 import Modal from "../../../components/ui/Modal";
 import Avatar from "../../../components/ui/Avatar";
 import useTicketRealtime from "../lib/useTicketRealtime";
@@ -278,6 +280,7 @@ function AttachmentItem({ attachment, onDownload, downloading }) {
 export default function TicketDetailPage() {
   const { id } = useParams();
   const { user } = useAuth();
+  const { isPlatformScope, activeTenantId, setActiveTenant, tenants } = useTenant();
   const staff = isStaff(user);
   const fileInputRef = useRef(null);
   const realtimeTimer = useRef(null);
@@ -290,6 +293,30 @@ export default function TicketDetailPage() {
   const [activityTab, setActivityTab] = useState("comments");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Vendor bisa membuka tiket dari notifikasi/tautan yang tenant-nya berbeda
+  // dengan pilihan terakhir. Pemilih tenant harus mengikuti tiket yang sedang
+  // dibuka supaya sidebar dan konteks kerja tidak menunjuk rumah sakit lain.
+  //
+  // Sinkronisasi hanya sekali per tiket: kalau vendor sengaja mengganti rumah
+  // sakit saat halaman ini terbuka, pemilih tidak boleh "ditarik balik" ke
+  // tenant tiket sebelum halaman berpindah ke daftar.
+  const syncedTicketRef = useRef("");
+
+  useEffect(() => {
+    if (!isPlatformScope || !ticket) return;
+    if (!tenants.length) return;
+
+    const ticketTenant = String(ticket.tenant || "");
+    if (!ticketTenant) return;
+    if (syncedTicketRef.current === ticket.id) return;
+
+    syncedTicketRef.current = ticket.id;
+
+    if (ticketTenant !== activeTenantId) {
+      setActiveTenant(ticketTenant);
+    }
+  }, [isPlatformScope, ticket, tenants, activeTenantId, setActiveTenant]);
 
   const [commentBody, setCommentBody] = useState("");
   const [commentVisibility, setCommentVisibility] = useState("public");
@@ -396,15 +423,20 @@ export default function TicketDetailPage() {
     []
   );
 
+  // Daftar calon assignee: staf rumah sakit pemilik tiket plus staf vendor
+  // (scope platform) yang melayani semua rumah sakit.
+  const ticketTenant = ticket?.tenant || "";
+
   useEffect(() => {
-    if (!staff) return undefined;
+    if (!staff || !ticketTenant) return undefined;
 
     let active = true;
 
     pb.collection("users")
       .getFullList({
         filter:
-          'is_active = true && (role = "it_support" || role = "it_lead")',
+          'is_active = true && (role = "it_support" || role = "it_lead") && ' +
+          `(is_platform_staff = true || tenant = "${escapeFilterValue(ticketTenant)}")`,
         sort: "name",
       })
       .then((list) => {
@@ -417,7 +449,7 @@ export default function TicketDetailPage() {
     return () => {
       active = false;
     };
-  }, [staff]);
+  }, [staff, ticketTenant]);
 
   useEffect(() => {
     if (ticket) setAssignTarget(ticket.assignee || "");
@@ -643,10 +675,14 @@ export default function TicketDetailPage() {
 
     try {
       const kind = currentApproval?.kind;
-      const filter =
+      const roleFilter =
         kind === "it_lead" || kind === "cab"
           ? 'is_active = true && role = "it_lead"'
           : "is_active = true";
+      const tenantFilter = ticket?.tenant
+        ? ` && (is_platform_staff = true || tenant = "${escapeFilterValue(ticket.tenant)}")`
+        : " && is_platform_staff = true";
+      const filter = roleFilter + tenantFilter;
 
       const list = await pb.collection("users").getFullList({
         filter,
