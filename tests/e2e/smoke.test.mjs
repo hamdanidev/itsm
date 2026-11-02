@@ -13,6 +13,7 @@ import { chromium } from "playwright-core";
 import { freePort, startPocketBase } from "../lib/pocketbase-server.mjs";
 import {
   addMember,
+  adminClient,
   assignTicket,
   createTicket,
   postComment,
@@ -199,6 +200,14 @@ before(async () => {
     role: "requester",
     label: "profil",
     name: "Pengguna Profil",
+  });
+
+  state.resetUser = await addMember(state.org.admin, {
+    tenantId: state.org.tenant.id,
+    unitId: state.org.unit.id,
+    role: "requester",
+    label: "reset",
+    name: "Pengguna Reset",
   });
 
   state.srDelegate = await createTicket(requester.client, {
@@ -633,6 +642,118 @@ test("IT Lead menambah anggota tim dan anggota wajib ganti password", async () =
   await memberPage.waitForURL("**/dashboard", { timeout: 20_000 });
 
   await memberContext.close();
+});
+
+test("IT Lead mengunggah logo rumah sakit dan logo tampil di sidebar", async () => {
+  const page = await login(state.org.lead.email, "**/dashboard", "lead-logo");
+
+  try {
+    await page.goto(`${state.web.url}/admin`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("tab", { name: /Identitas/ }).click();
+    await page.waitForSelector("#tenant-logo", { state: "attached" });
+
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64"
+    );
+
+    await page.locator("#tenant-logo").setInputFiles({
+      name: "logo-rs.png",
+      mimeType: "image/png",
+      buffer: png,
+    });
+
+    await page.waitForSelector(".identity-preview img", { timeout: 20_000 });
+    await waitFor(
+      async () => (await page.locator(".project-avatar img").count()) === 1,
+      { label: "logo tampil di sidebar" }
+    );
+
+    const publicLogo = await fetch(`${state.pb.url}/api/itsm/branding/logo`);
+    assert.equal(publicLogo.status, 200);
+    assert.match(publicLogo.headers.get("content-type") || "", /image\/png/);
+
+    // Halaman login belum punya sesi; pastikan logo benar-benar termuat lewat
+    // route publik, bukan hanya muncul sebagai elemen kosong.
+    const anonContext = await state.browser.newContext();
+    const anonPage = await anonContext.newPage();
+
+    try {
+      await anonPage.goto(`${state.web.url}/login`, {
+        waitUntil: "domcontentloaded",
+      });
+      await anonPage.waitForSelector(".login-brand-logo", { timeout: 15_000 });
+
+      const width = await anonPage
+        .locator(".login-brand-logo")
+        .evaluate((img) => img.naturalWidth);
+
+      assert.ok(width > 0, "logo rumah sakit harus termuat di halaman login");
+    } finally {
+      await anonContext.close().catch(() => {});
+    }
+  } finally {
+    await closePage(page);
+  }
+});
+
+test("pengguna mereset password lewat tautan email", async () => {
+  const page = await state.browser.newPage();
+
+  try {
+    await page.goto(`${state.web.url}/login`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("link", { name: "Lupa password?" }).click();
+    await page.waitForURL("**/forgot-password", { timeout: 15_000 });
+
+    await page.fill("#forgot-email", state.resetUser.email);
+    await page.getByRole("button", { name: "Kirim tautan reset" }).click();
+    await page.waitForSelector(".login-notice", { timeout: 15_000 });
+
+    const admin = await adminClient();
+    const rows = await admin.list("email_outbox", {
+      filter: `event = "link" && to = "${state.resetUser.email}"`,
+      sort: "-created",
+      perPage: 5,
+    });
+
+    assert.equal(rows.totalItems, 1, "email tautan reset harus terkirim");
+    const match = String(rows.items[0].html).match(
+      /reset-password\?token=([A-Za-z0-9._-]+)/
+    );
+    assert.ok(match, "tautan reset harus memuat token");
+
+    await page.goto(
+      `${state.web.url}/reset-password?token=${encodeURIComponent(match[1])}`,
+      { waitUntil: "domcontentloaded" }
+    );
+
+    await page.fill("#reset-password", "PasswordResetE2E!");
+    await page.fill("#reset-confirm", "PasswordResetE2E!");
+    await page.getByRole("button", { name: "Simpan password baru" }).click();
+    await page.waitForURL(/\/login\?reset=1/, { timeout: 20_000 });
+    await page.waitForSelector(".login-notice");
+
+    await page.fill("#email", state.resetUser.email);
+    await page.fill("#password", "PasswordResetE2E!");
+    await page.click('button[type="submit"]');
+    await page.waitForURL("**/tickets", { timeout: 20_000 });
+
+    const oldLogin = await fetch(
+      `${state.pb.url}/api/collections/users/auth-with-password`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identity: state.resetUser.email,
+          password: PASSWORD,
+        }),
+      }
+    );
+
+    assert.equal(oldLogin.status, 400, "password lama harus ditolak");
+  } finally {
+    await page.context().close().catch(() => {});
+  }
 });
 
 test("tidak ada console error selama alur diuji", () => {

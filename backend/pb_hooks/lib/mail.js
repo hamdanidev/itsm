@@ -349,8 +349,97 @@ function sendCredential(app, opts) {
   return result;
 }
 
-function notificationContent(app, opts) {
-  var ticketNo = "";
+// Tautan reset password. Token hanya ada di URL, bukan password sementara,
+// sehingga email ini aman untuk langsung dikirim (capture mencatat salinannya
+// agar tautan bisa diuji).
+function sendPasswordResetLink(app, opts) {
+  var result = {
+    configured: isConfigured(app),
+    sent: false,
+    transport: transport(),
+  };
+
+  if (!canSend(app)) return result;
+
+  var url =
+    appUrl(app) +
+    "/reset-password?token=" +
+    encodeURIComponent(String(opts.token || ""));
+
+  var html = layout(app, {
+    title: "Buat password baru",
+    intro:
+      "Kami menerima permintaan reset password untuk akun " +
+      escapeHtml(opts.email) +
+      ".",
+    body:
+      paragraph(
+        "Klik tombol di bawah untuk membuat password baru. Tautan ini hanya " +
+          "dapat dipakai sekali dan akan kedaluwarsa."
+      ) +
+      paragraph(
+        "Jika Anda tidak meminta reset password, abaikan email ini; password " +
+          "Anda tidak berubah."
+      ),
+    ctaUrl: url,
+    ctaLabel: "Buat password baru",
+    footer:
+      "Jangan teruskan tautan ini ke siapa pun. Bila tombol tidak berfungsi, " +
+      "salin tautan berikut ke browser: " +
+      escapeHtml(url),
+  });
+
+  var text =
+    "Reset password " +
+    appName(app) +
+    "\n\nKami menerima permintaan reset password untuk akun " +
+    opts.email +
+    ".\n\nBuat password baru: " +
+    url +
+    "\n\nTautan hanya dapat dipakai sekali dan akan kedaluwarsa.";
+
+  if (transport() === "capture") {
+    saveOutbox(
+      app,
+      {
+        tenantId: opts.tenantId,
+        userId: opts.userId,
+        to: opts.email,
+        recipientName: opts.name,
+        subject: "Reset password " + appName(app),
+        html: html,
+        text: text,
+        template: "password_reset",
+        event: "link",
+      },
+      "sent"
+    );
+
+    result.sent = true;
+    return result;
+  }
+
+  try {
+    var from = sender(app);
+    var message = new MailerMessage({
+      from: { address: from.address, name: from.name },
+      to: [{ address: String(opts.email), name: String(opts.name || "") }],
+      subject: "Reset password " + appName(app),
+      html: html,
+      text: text,
+    });
+
+    app.newMailClient().send(message);
+    result.sent = true;
+  } catch (err) {
+    result.error = maskError(err);
+    console.log("Gagal mengirim tautan reset password: " + result.error);
+  }
+
+  return result;
+}
+
+function notificationContent(app, opts) {  var ticketNo = "";
   var ticketTitle = "";
   var tenantName = "";
 
@@ -623,6 +712,7 @@ module.exports = {
   isConfigured: isConfigured,
   canSend: canSend,
   sendCredential: sendCredential,
+  sendPasswordResetLink: sendPasswordResetLink,
   enqueueNotification: enqueueNotification,
   dispatch: dispatch,
   status: status,

@@ -258,7 +258,14 @@ export async function spawnPocketBase(extraArgs = []) {
     stdio: "inherit",
     // `.env` diteruskan juga ke PocketBase supaya `TENANCY_MODE` (dan setelan
     // lain) berlaku sama seperti instalasi Docker. Environment shell menang.
-    env: { ...dotEnv, ...process.env, TZ: process.env.TZ || "Asia/Jakarta" },
+    env: {
+      ...dotEnv,
+      ...process.env,
+      TZ: process.env.TZ || "Asia/Jakarta",
+      // Tautan email di dev harus mengarah ke Vite, bukan port PocketBase.
+      APP_URL:
+        process.env.APP_URL || dotEnv.APP_URL || "http://localhost:5173",
+    },
   });
 }
 

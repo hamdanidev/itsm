@@ -183,6 +183,13 @@ export async function changePassword(payload) {
   return pb.send("/api/itsm/profile/password", { method: "POST", body: payload });
 }
 
+export async function requestPasswordReset(email) {
+  return pb.send("/api/itsm/auth/forgot-password", {
+    method: "POST",
+    body: { email },
+  });
+}
+
 export async function uploadAvatar(file) {
   const formData = new FormData();
   formData.append("avatar", file);
@@ -280,6 +287,23 @@ export async function updateTeamMember(userId, payload) {
 
 export async function resetTeamPassword(userId) {
   return pb.send(`/api/itsm/team/${userId}/password`, { method: "POST" });
+}
+
+export async function uploadTenantLogo(file) {
+  const formData = new FormData();
+  formData.append("logo", file);
+
+  const response = await fetch(`${pb.baseURL}/api/itsm/tenant/logo`, {
+    method: "POST",
+    headers: { Authorization: pb.authStore.token },
+    body: formData,
+  });
+
+  return parseResponse(response);
+}
+
+export async function removeTenantLogo() {
+  return pb.send("/api/itsm/tenant/logo", { method: "DELETE" });
 }
 
 export async function fetchMailStatus() {

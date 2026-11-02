@@ -18,12 +18,41 @@
 
 routerAdd("GET", "/api/itsm/app-meta", (e) => {
   var tenancy = require(__hooks + "/lib/tenancy.js");
-
-  return e.json(200, {
-    app: "Healthcare ITSM",
+  var payload = {
+    app: String(e.app.settings().meta.appName || "Healthcare ITSM"),
     mode: tenancy.current(),
     vendor_console: tenancy.isVendor(),
-  });
+    tenant: null,
+  };
+
+  // Halaman login pada instalasi standalone menampilkan identitas rumah sakit.
+  // Mode vendor tidak memilih satu tenant, jadi tetap memakai brand aplikasi.
+  if (!tenancy.isVendor()) {
+    var rows = e.app.findRecordsByFilter(
+      "tenants",
+      "is_active = true",
+      "",
+      1,
+      0
+    );
+
+    if (rows.length) {
+      var tenant = rows[0];
+      var logo = String(tenant.get("logo") || "");
+
+      payload.tenant = {
+        id: tenant.id,
+        name: String(tenant.get("name") || ""),
+        code: String(tenant.get("code") || ""),
+        logo: logo,
+        logo_url: logo
+          ? "/api/itsm/branding/logo?v=" + encodeURIComponent(logo)
+          : "",
+      };
+    }
+  }
+
+  return e.json(200, payload);
 });
 
 // ---------------------------------------------------------------------------

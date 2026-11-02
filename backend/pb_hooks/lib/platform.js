@@ -137,6 +137,7 @@ function serializeTenant(record, counts) {
     id: record.id,
     name: String(record.get("name") || ""),
     code: String(record.get("code") || ""),
+    logo: String(record.get("logo") || ""),
     timezone: String(record.get("timezone") || "") || DEFAULT_TIMEZONE,
     is_active: Boolean(record.get("is_active")),
     created: String(record.get("created") || ""),

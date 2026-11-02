@@ -4,9 +4,10 @@ Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, da
 Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
 trail.
 
-Status saat ini: **fase lanjutan — multi-tenant, tim tenant, dan email
-transaksional**. Fitur sampai konsol vendor multi-tenant, pengelolaan tim oleh
-IT Lead, serta email undangan dan notifikasi tiket:
+Status saat ini: **fase lanjutan — multi-tenant, tim tenant, email
+transaksional, dan identitas rumah sakit**. Fitur sampai konsol vendor
+multi-tenant, pengelolaan tim oleh IT Lead, logo rumah sakit, serta lupa
+password mandiri:
 
 - autentikasi staff dan intake tiga jenis tiket;
 - daftar tiket dengan pagination/filter/URL state dan dashboard antrean kerja;
@@ -19,6 +20,9 @@ IT Lead, serta email undangan dan notifikasi tiket:
   lintas rumah sakit untuk akun vendor;
 - profil pengguna: nama, telepon, nomor pegawai, avatar, ganti password, dan
   preferensi notifikasi email;
+- lupa password mandiri: tautan email bertoken, sekali pakai, dan sesi lama
+  otomatis berakhir;
+- logo rumah sakit: unggah oleh IT Lead, tampil di sidebar dan halaman masuk;
 - konsol vendor: kelola rumah sakit, data master, pengguna, laporan, dan audit
   lintas tenant;
 - pengelolaan tim oleh IT Lead: tambah anggota, ubah role/unit, aktif-nonaktif,
@@ -192,8 +196,8 @@ Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`
 | Perintah | Cakupan | Butuh |
 |---|---|---|
 | `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, scope platform, mode tenancy, validasi input konsol vendor, helper antrean dashboard, agregasi laporan | Node |
-| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, tim rumah sakit (provisioning + wajib ganti password), email transaksional (undangan, reset, antrean, preferensi), konsol vendor (tenant, seed, provisioning, isolasi), vendor sebagai resolver tiket, laporan & audit lintas RS | Node + binary PocketBase |
-| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, profil, intake, konsol vendor (mode vendor) | Node + PocketBase + Chromium |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, lupa password mandiri (token, sekali pakai, audit), tim rumah sakit (provisioning + wajib ganti password), email transaksional (undangan, reset, antrean, preferensi), logo rumah sakit, konsol vendor (tenant, seed, provisioning, isolasi), vendor sebagai resolver tiket, laporan & audit lintas RS | Node + binary PocketBase |
+| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, profil, intake, lupa password, logo rumah sakit, konsol vendor (mode vendor) | Node + PocketBase + Chromium |
 | `npm run test:all` | ketiganya | — |
 
 Cara kerjanya:
@@ -605,6 +609,42 @@ APP_URL=http://localhost:5173
   dan kegagalan terakhir; `POST /api/itsm/mail/dispatch` (superuser) memaksa
   pengiriman untuk operasional.
 
+## Lupa password mandiri
+
+Halaman masuk punya tautan **Lupa password?** yang membuka `/forgot-password`:
+
+1. Pengguna memasukkan email. Server selalu membalas pesan generik, baik email
+   terdaftar maupun tidak, agar tidak bisa dipakai menebak akun.
+2. Bila akun aktif, server membuat token reset bertanda tangan (masa berlaku
+   mengikuti setelan collection `users`, sekali pakai) dan mengirim tautan
+   `/reset-password?token=...` lewat email.
+3. Pengguna membuat password baru. Server memutar `tokenKey`, sehingga tautan
+   yang sama tidak berlaku lagi dan semua sesi lama keluar.
+4. `must_change_password` diturunkan, lalu aksi dicatat di audit sebagai
+   `password_reset_request` dan `password_reset`.
+
+- Permintaan dibatasi satu kali per menit per pengguna (ditandai lewat audit).
+- Akun nonaktif dan rumah sakit nonaktif tidak menerima tautan.
+- Tanpa SMTP aktif, tautan tidak terkirim; IT Lead tetap bisa reset dari tab
+  **Tim**.
+- Token tidak disimpan di database; hanya hash/tanda tangan PocketBase yang
+  divalidasi saat konfirmasi.
+
+## Logo rumah sakit
+
+IT Lead mengunggah logo di **Pengaturan → Identitas**. Logo (PNG/JPG/WEBP, maks
+2 MB) tampil di sidebar, halaman masuk, dan pratinjau tab Identitas.
+
+- File disimpan di `tenants.logo`; pengguna login membacanya lewat file API
+  dengan sesi.
+- Halaman login belum punya sesi, jadi pada mode standalone logo disajikan lewat
+  route publik `/api/itsm/branding/logo` yang hanya mengembalikan logo rumah
+  sakit aktif. Route ini dinonaktifkan pada mode vendor agar tidak membocorkan
+  identitas tenant.
+- Hanya IT Lead rumah sakit yang bisa mengunggah/menghapus; setiap perubahan
+  menulis audit `update` pada collection `tenants`.
+- Logo bisa dihapus; UI kembali memakai brand aplikasi.
+
 ## Profil pengguna
 
 Setiap pengguna membuka **Profil saya** dari menu akun di kanan atas (`/profile`):
@@ -642,6 +682,7 @@ membuka URL-nya dialihkan ke daftar tiket.
 
 | Tab | Isi | Catatan |
 |---|---|---|
+| Identitas | nama, kode, logo rumah sakit | logo dipakai sidebar dan halaman masuk |
 | Unit | nama, kode, jenis (klinis/penunjang/manajemen), manajer | dipakai pada form intake; manajer menjadi approver tahap 1 |
 | Kategori | nama, kode, jenis tiket | filter pilihan kategori per tipe |
 | Kebijakan SLA | tipe, prioritas, respons/approval/penyelesaian, kalender | unik per `(tipe, prioritas)` |
@@ -844,6 +885,9 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri |
 | POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus foto profil |
 | POST | `/api/itsm/profile/password` | Ganti password (verifikasi password lama) |
+| POST | `/api/itsm/auth/forgot-password` | Minta tautan reset password (guest, respons generik) |
+| POST/DELETE | `/api/itsm/tenant/logo` | Unggah/hapus logo rumah sakit; hanya IT Lead |
+| GET | `/api/itsm/branding/logo` | Logo publik rumah sakit aktif (standalone) |
 | GET | `/api/itsm/team` | Daftar anggota tim; hanya IT Lead |
 | POST | `/api/itsm/team` | Tambah anggota (password awal dari sistem); hanya IT Lead |
 | PATCH | `/api/itsm/team/{userId}` | Ubah nama/role/unit/status anggota; hanya IT Lead |
@@ -871,7 +915,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 44 unit test, 152 test API, dan 22
+- Suite otomatis lulus lokal (Windows): 44 unit test, 163 test API, dan 24
   skenario e2e — lihat bagian Testing.
 - Konsol Vendor diverifikasi test API: mode `standalone` menolak login akun
   vendor, mode `vendor` mengizinkan; pengguna rumah sakit ditolak dari route
@@ -915,6 +959,16 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
   status atau koleksi email. Jalur SMTP nyata (bukan capture) juga diuji dengan
   server SMTP lokal: konfigurasi dari environment diterapkan, pesan terkirim
   dengan sender dan tautan yang benar, dan password awal ada di isi email.
+- Lupa password diverifikasi test API + Playwright: email tak dikenal tetap
+  mendapat respons generik, tautan bertoken terkirim, konfirmasi mengganti
+  password dan menurunkan `must_change_password`, token yang sama ditolak,
+  sesi/password lama tidak berlaku, permintaan kedua dalam satu menit tidak
+  mengirim email lagi, akun nonaktif tidak dikirimi tautan, dan audit
+  `password_reset_request`/`password_reset` tercatat.
+- Logo rumah sakit diverifikasi test API + Playwright: IT Lead mengunggah dan
+  menghapus logo, support/requester ditolak, file bisa dibaca pengguna login,
+  route logo publik hanya aktif di standalone (404 pada mode vendor), logo
+  tampil di sidebar, dan logo termuat di halaman login tanpa sesi.
 - Konsol Vendor diverifikasi Playwright (instance `TENANCY_MODE=vendor` sendiri):
   login vendor mendarat di `/platform`, sidebar berisi menu vendor, pembuatan
   rumah sakit lewat modal, detail master data + pengguna tampil, pemilih tenant
@@ -995,8 +1049,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Scope berikutnya
 
-- Lupa password mandiri di halaman login (saat ini reset dilakukan IT Lead),
-  plus verifikasi email saat pemilik akun ingin mengganti alamat email.
+- Verifikasi email saat pemilik akun ingin mengganti alamat email.
 - WhatsApp untuk notifikasi kritis; email sudah tersedia lewat SMTP.
 - SSO SIMRS dan provisioning akun tanpa Admin UI.
 - Hardening produksi: backup off-host terenkripsi + uji restore, alerting,

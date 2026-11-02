@@ -3,6 +3,8 @@ import { useAuth } from "./providers/AuthProvider";
 import AppShell from "../components/layout/AppShell";
 import EmptyState from "../components/ui/EmptyState";
 import LoginPage from "../features/auth/LoginPage";
+import ForgotPasswordPage from "../features/auth/ForgotPasswordPage";
+import ResetPasswordPage from "../features/auth/ResetPasswordPage";
 import ChangePasswordPage from "../features/auth/ChangePasswordPage";
 import DashboardPage from "../features/dashboard/pages/DashboardPage";
 import AdminPage from "../features/admin/pages/AdminPage";
@@ -112,6 +114,8 @@ export default function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route
         path="/change-password"
         element={

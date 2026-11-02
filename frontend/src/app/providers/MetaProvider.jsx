@@ -4,6 +4,8 @@ import { pb } from "../../lib/pocketbase";
 const MetaContext = createContext({
   mode: "standalone",
   isVendor: false,
+  appName: "Healthcare ITSM",
+  tenant: null,
   ready: false,
 });
 
@@ -13,6 +15,8 @@ export function MetaProvider({ children }) {
   const [meta, setMeta] = useState({
     mode: "standalone",
     isVendor: false,
+    appName: "Healthcare ITSM",
+    tenant: null,
     ready: false,
   });
 
@@ -25,11 +29,21 @@ export function MetaProvider({ children }) {
         setMeta({
           mode: payload?.mode === "vendor" ? "vendor" : "standalone",
           isVendor: payload?.mode === "vendor",
+          appName: payload?.app || "Healthcare ITSM",
+          tenant: payload?.tenant || null,
           ready: true,
         });
       })
       .catch(() => {
-        if (active) setMeta({ mode: "standalone", isVendor: false, ready: true });
+        if (active) {
+          setMeta({
+            mode: "standalone",
+            isVendor: false,
+            appName: "Healthcare ITSM",
+            tenant: null,
+            ready: true,
+          });
+        }
       });
 
     return () => {

@@ -5,6 +5,7 @@ import { useNotifications } from "../../app/providers/NotificationsProvider";
 import { useTenant } from "../../app/providers/TenantProvider";
 import { formatRelative, initials } from "../../lib/format";
 import { isLead, isPlatformStaff, isStaff, roleLabel } from "../../lib/permissions";
+import { tenantLogoUrl } from "../../lib/branding";
 import { notificationIcon } from "../../features/notifications/notificationMeta";
 import BrandMark from "../ui/BrandMark";
 import Avatar from "../ui/Avatar";
@@ -283,8 +284,15 @@ export default function AppShell() {
           className={`sidebar${navOpen ? " is-open" : ""}`}
         >
           <div className="project-summary">
-            <span className="project-avatar" aria-hidden="true">
-              {initials(tenantName)}
+            <span
+              className={`project-avatar${tenant?.logo ? " has-logo" : ""}`}
+              aria-hidden="true"
+            >
+              {tenant?.logo ? (
+                <img src={tenantLogoUrl(tenant, "96x96")} alt="" />
+              ) : (
+                initials(tenantName)
+              )}
             </span>
             <div className="project-copy">
               <div className="project-name" title={tenantName}>

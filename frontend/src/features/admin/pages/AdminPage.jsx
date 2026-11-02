@@ -7,8 +7,10 @@ import { getErrorMessage } from "../../../lib/api";
 import { priorityLabel, typeLabel } from "../../../lib/format";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import TeamTab from "../components/TeamTab";
+import IdentityTab from "../components/IdentityTab";
 
 const TABS = [
+  { key: "identity", label: "Identitas" },
   { key: "units", label: "Unit" },
   { key: "categories", label: "Kategori" },
   { key: "policies", label: "Kebijakan SLA" },
@@ -226,7 +228,8 @@ export default function AdminPage() {
   }, [load]);
 
   const isTeamTab = tab === "tim";
-  const items = isTeamTab ? [] : data[tab];
+  const isIdentityTab = tab === "identity";
+  const items = isTeamTab || isIdentityTab ? [] : data[tab];
 
   const missingPolicyCombos = useMemo(() => {
     const taken = new Set(
@@ -380,9 +383,9 @@ export default function AdminPage() {
       <PageHeader
         breadcrumb={[{ label: "Service desk" }, { label: "Pengaturan" }]}
         title="Pengaturan"
-        description="Kelola unit, kategori, kebijakan SLA, hari libur, dan tim IT rumah sakit. Perubahan data master berlaku untuk tiket baru; tiket lama memakai snapshot SLA saat dibuat."
+        description="Kelola identitas rumah sakit, unit, kategori, kebijakan SLA, hari libur, dan tim IT. Perubahan data master berlaku untuk tiket baru; tiket lama memakai snapshot SLA saat dibuat."
         actions={
-          isTeamTab ? undefined : (
+          isTeamTab || isIdentityTab ? undefined : (
             <button
               className="btn btn-primary"
               type="button"
@@ -429,7 +432,7 @@ export default function AdminPage() {
             }}
           >
             {item.label}
-            {item.key !== "tim" && (
+            {item.key !== "tim" && item.key !== "identity" && (
               <span className="tab-count">{(data[item.key] || []).length}</span>
             )}
           </button>
@@ -448,6 +451,8 @@ export default function AdminPage() {
 
       {isTeamTab ? (
         <TeamTab units={data.units} currentUser={user} />
+      ) : isIdentityTab ? (
+        <IdentityTab />
       ) : (
         <>
           <div className="list-panel admin-panel">

@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { useMeta } from "../../app/providers/MetaProvider";
 import { getErrorMessage } from "../../lib/api";
-import BrandMark from "../../components/ui/BrandMark";
+import AuthBrand from "./AuthBrand";
 
 export default function LoginPage() {
   const { ready, isAuthenticated, login } = useAuth();
-  const { isVendor } = useMeta();
+  const { isVendor, tenant, appName } = useMeta();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -21,11 +21,13 @@ export default function LoginPage() {
   // halaman itu hanya untuk sesi yang masih membawa password awal.
   const rawFrom = location.state?.from?.pathname || "/";
   const from = rawFrom === "/change-password" ? "/" : rawFrom;
-  const changed = new URLSearchParams(location.search).get("changed") === "1";
+  const params = new URLSearchParams(location.search);
+  const changed = params.get("changed") === "1";
+  const reset = params.get("reset") === "1";
 
   useEffect(() => {
-    document.title = "Masuk · Healthcare ITSM";
-  }, []);
+    document.title = `Masuk · ${tenant?.name || appName}`;
+  }, [tenant, appName]);
 
   if (ready && isAuthenticated) {
     return <Navigate to={from} replace />;
@@ -54,10 +56,7 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <main className="login-main">
-        <div className="login-brand">
-          <BrandMark size={30} />
-          <span>Healthcare ITSM</span>
-        </div>
+        <AuthBrand />
 
         <section className="login-card" aria-labelledby="login-title">
           <h1 className="login-title" id="login-title">
@@ -68,6 +67,13 @@ export default function LoginPage() {
             <div className="login-notice" role="status">
               <i className="bi bi-check2-circle" aria-hidden="true" />
               <div>Password berhasil diubah. Silakan masuk kembali.</div>
+            </div>
+          )}
+
+          {reset && !error && (
+            <div className="login-notice" role="status">
+              <i className="bi bi-check2-circle" aria-hidden="true" />
+              <div>Password berhasil direset. Silakan masuk kembali.</div>
             </div>
           )}
 
@@ -125,6 +131,10 @@ export default function LoginPage() {
                   />
                 </button>
               </div>
+            </div>
+
+            <div className="login-assist">
+              <Link to="/forgot-password">Lupa password?</Link>
             </div>
 
             <button

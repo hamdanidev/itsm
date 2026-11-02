@@ -612,6 +612,18 @@ button {
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
+  overflow: hidden;
+}
+
+.project-avatar.has-logo {
+  background: #fff;
+  border: 1px solid var(--n30);
+}
+
+.project-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .project-copy {
@@ -2930,6 +2942,37 @@ button {
   letter-spacing: -0.012em;
 }
 
+.login-brand-logo {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.login-assist {
+  margin-top: -6px;
+  text-align: right;
+  font-size: 13px;
+}
+
+.login-assist a {
+  color: var(--blue);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.login-assist a:hover {
+  text-decoration: underline;
+}
+
+.login-intro {
+  margin: 12px 0 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
 .login-card {
   width: 100%;
   max-width: 404px;
@@ -4015,4 +4058,70 @@ button {
   font-size: 15px;
   letter-spacing: 0.06em;
   word-break: break-all;
+}
+/* Identitas rumah sakit (logo) */
+.identity-panel {
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+  padding: 28px;
+}
+
+.identity-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 132px;
+  width: 132px;
+  height: 132px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--n30);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.identity-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.identity-copy {
+  min-width: 0;
+  max-width: 560px;
+}
+
+.identity-name {
+  margin: 0;
+  color: var(--ink-strong);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.identity-meta {
+  margin: 2px 0 12px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.identity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+@media (max-width: 640px) {
+  .identity-panel {
+    flex-direction: column;
+    gap: 18px;
+    padding: 20px;
+  }
+
+  .identity-preview {
+    flex-basis: 104px;
+    width: 104px;
+    height: 104px;
+  }
 }

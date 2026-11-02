@@ -140,14 +140,20 @@ tiket RS lain di bawah pemilih tersebut.
 
 ### `tenants`
 
-`name`, `code`, `timezone`, `is_active`, `created`, `updated`.
+`name`, `code`, `timezone`, `is_active`, `logo`, `created`, `updated`.
 
 Satu baris = satu organisasi/rumah sakit; menjadi batas isolasi seluruh data
 bisnis. Setiap akun rumah sakit memiliki tepat satu `tenant`, akun platform tidak
 punya tenant, dan backend mengambil tenant dari `e.auth` (bukan body request).
 `is_active = false` membuat pengguna tenant tersebut tidak bisa login baru (rule
 auth user memakai `tenant.is_active`); sesi berjalan tetap hidup sampai token
-akses kedaluwarsa. Sidebar menampilkan `name` dan `code` dari record ini.
+akses kedaluwarsa. Sidebar menampilkan `name`, `code`, dan `logo` dari record
+ini.
+
+`logo` adalah file gambar (PNG/JPG/WEBP, maks 2 MB) dengan thumbnail `96x96`,
+diunggah IT Lead lewat `POST /api/itsm/tenant/logo`. File diakses pengguna login
+lewat file API; halaman login standalone memakai route publik
+`/api/itsm/branding/logo` yang dinonaktifkan pada mode vendor.
 
 `timezone` dipakai saat membuat kebijakan SLA default tenant baru, tetapi
 perhitungan SLA tetap memakai `sla_policies.timezone` atau default `Asia/Jakarta`
@@ -509,6 +515,9 @@ Jeda dan recompute:
 | GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri (nama, telepon, nomor pegawai) |
 | POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus avatar |
 | POST | `/api/itsm/profile/password` | Ganti password dengan verifikasi password lama |
+| POST | `/api/itsm/auth/forgot-password` | Minta tautan reset password (guest; respons generik) |
+| POST/DELETE | `/api/itsm/tenant/logo` | Unggah/hapus logo rumah sakit; hanya IT Lead |
+| GET | `/api/itsm/branding/logo` | Logo publik rumah sakit aktif (standalone) |
 | GET | `/api/itsm/team` | Daftar anggota tim rumah sakit; hanya IT Lead |
 | POST | `/api/itsm/team` | Tambah anggota (password awal dibuat sistem); hanya IT Lead |
 | PATCH | `/api/itsm/team/{userId}` | Ubah nama/role/unit/status anggota; hanya IT Lead |
@@ -612,6 +621,42 @@ Setiap perubahan menulis `audit_logs` dengan `action=update`,
 `collection_name=users`, `record_id` pengguna, dan `changes` tanpa nilai
 password. Notifikasi tidak dibuat untuk perubahan profil.
 
+## Lupa password mandiri
+
+`POST /api/itsm/auth/forgot-password` adalah endpoint guest (`requireGuestOnly`)
+dengan body `{email}` dan selalu membalas `200 {ok:true}` agar tidak bisa
+dipakai menebak akun.
+
+1. Cari user aktif dengan email tersebut. Bila tidak ada, akun nonaktif, atau
+   tenant nonaktif, tidak ada email yang dikirim.
+2. Batasi satu permintaan per menit per pengguna. Penanda dibaca dari
+   `audit_logs` (`action=password_reset_request`, `actor=user`) agar tidak perlu
+   field/tabel tambahan.
+3. Buat token dengan `record.newPasswordResetToken()` (JWT bertanda tangan,
+   memakai `tokenKey` + secret collection; tidak disimpan di database).
+4. Kirim tautan `${APP_URL}/reset-password?token=...` lewat `lib/mail.js`.
+   Mode capture menyimpan salinannya di `email_outbox` (`template=password_reset`,
+   `event=link`) untuk test.
+5. Halaman `/reset-password` memanggil endpoint bawaan PocketBase
+   `POST /api/collections/users/confirm-password-reset`.
+
+Hook `onRecordConfirmPasswordResetRequest` setelah konfirmasi berhasil:
+menurunkan `must_change_password`, memanggil `refreshTokenKey()` (token reset
+tidak bisa dipakai ulang dan sesi lama keluar), lalu menulis audit
+`password_reset` dengan `changes.sessions_revoked=true`.
+
+## Logo rumah sakit
+
+- `POST /api/itsm/tenant/logo` — multipart `logo`, hanya IT Lead; field
+  `tenants.logo` memvalidasi tipe (PNG/JPG/WEBP) dan ukuran (maks 2 MB).
+- `DELETE /api/itsm/tenant/logo` — menghapus logo.
+- `GET /api/itsm/branding/logo` — publik, hanya mode standalone, menyajikan file
+  logo rumah sakit aktif lewat `e.fileFS($os.dirFS(...))`. Mode vendor selalu
+  404.
+- Setiap unggah/hapus menulis audit `update` pada `collection_name=tenants`.
+- Frontend memakai `tenantLogoUrl()` (`/api/files/tenants/{id}/{logo}`) untuk
+  pengguna login, dan route publik di atas untuk halaman login.
+
 ## Tim rumah sakit
 
 IT Lead mengelola staf di tenant-nya sendiri lewat `/api/itsm/team`. Penulisan
@@ -677,11 +722,19 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 - Provisioning akun: IT Lead rumah sakit mengelola timnya lewat tab **Tim** di
   `/admin`; undangan berisi password sementara dikirim lewat SMTP bila aktif,
   atau diserahkan manual bila SMTP mati. Akun platform tetap hanya bisa dibuat
-  superuser. Belum ada lupa password mandiri dan verifikasi perubahan email.
+  superuser. Belum ada verifikasi email saat pemilik akun ingin mengganti
+  alamat email.
+- Lupa password: tautan memakai token bertanda tangan dengan masa berlaku dari
+  setelan collection `users`; pembatasan satu permintaan per menit per pengguna.
+  Bila SMTP belum aktif, pengguna tidak menerima tautan dan harus meminta IT
+  Lead mereset dari tab Tim.
 - Email: password sementara dikirim sebagai teks biasa di isi email, jadi SMTP
   wajib memakai TLS di produksi. Email notifikasi bisa dimatikan per pengguna;
   undangan dan reset password tetap dikirim. `MAIL_TRANSPORT=capture` menyimpan
   salinan email (termasuk password) hanya untuk test/development.
+- Logo: route `/api/itsm/branding/logo` bersifat publik pada mode standalone
+  (hanya mengembalikan logo rumah sakit aktif), jadi jangan unggah gambar yang
+  memuat data sensitif. Pada mode vendor route ini 404.
 - Konsol Vendor: akun vendor sudah bisa menjadi assignee, approver, dan penerima
   notifikasi tiket lintas tenant (Fase 2), serta mengelola data master rumah
   sakit dari konsol. Yang belum: membuat tiket (akun platform tidak punya
