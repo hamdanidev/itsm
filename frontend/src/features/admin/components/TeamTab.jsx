@@ -48,6 +48,7 @@ export default function TeamTab({ units, currentUser }) {
 
   const [secret, setSecret] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,6 +158,15 @@ export default function TeamTab({ units, currentUser }) {
     } finally {
       setBusyId("");
     }
+  }
+
+  // Reset password hanya berjalan setelah lead mengonfirmasi di dialog, agar
+  // tidak terpicu karena salah klik kolom aksi.
+  async function handleConfirmReset() {
+    if (!confirmReset) return;
+
+    await handleReset(confirmReset);
+    setConfirmReset(null);
   }
 
   async function toggleActive(record) {
@@ -288,7 +298,7 @@ export default function TeamTab({ units, currentUser }) {
                             className="btn btn-subtle btn-sm"
                             type="button"
                             disabled={busyId === record.id}
-                            onClick={() => handleReset(record)}
+                            onClick={() => setConfirmReset(record)}
                           >
                             <i className="bi bi-key" aria-hidden="true" />
                             Reset password
@@ -470,6 +480,56 @@ export default function TeamTab({ units, currentUser }) {
               </div>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {confirmReset && (
+        <Modal
+          title="Reset password anggota?"
+          description={`${confirmReset.name} · ${confirmReset.email}`}
+          onClose={() => (busyId ? null : setConfirmReset(null))}
+          footer={
+            <>
+              <button
+                className="btn btn-subtle"
+                type="button"
+                onClick={() => setConfirmReset(null)}
+                disabled={Boolean(busyId)}
+              >
+                Batal
+              </button>
+              <button
+                className="btn btn-danger"
+                type="button"
+                onClick={handleConfirmReset}
+                disabled={Boolean(busyId)}
+              >
+                {busyId === confirmReset.id ? (
+                  <>
+                    <span className="spinner" aria-hidden="true" />
+                    Mereset...
+                  </>
+                ) : (
+                  <>
+                    <i className="bi bi-key" aria-hidden="true" />
+                    Ya, reset password
+                  </>
+                )}
+              </button>
+            </>
+          }
+        >
+          <div className="alert alert--warning" role="alert">
+            <i className="bi bi-exclamation-triangle" aria-hidden="true" />
+            <div>
+              Password lama akan langsung tidak berlaku dan sesi anggota ini
+              berakhir. Password baru hanya ditampilkan sekali setelah reset.
+            </div>
+          </div>
+
+          <p className="hint" style={{ marginTop: 4 }}>
+            Anggota wajib mengganti password baru saat login berikutnya.
+          </p>
         </Modal>
       )}
 

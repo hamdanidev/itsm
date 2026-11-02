@@ -590,6 +590,22 @@ test("IT Lead menambah anggota tim dan anggota wajib ganti password", async () =
 
   await page.getByRole("dialog").getByRole("button", { name: "Selesai" }).click();
   await page.locator("tbody").getByText("Anggota Baru E2E").waitFor();
+
+  // Reset password harus lewat konfirmasi, bukan sekali klik di kolom aksi.
+  const memberRow = page.locator("tr", { hasText: "Anggota Baru E2E" });
+  await memberRow.getByRole("button", { name: "Reset password" }).click();
+
+  const confirmDialog = page.getByRole("dialog");
+  await confirmDialog.getByText("Reset password anggota?").waitFor();
+  await confirmDialog.getByRole("button", { name: "Batal" }).click();
+  await page.waitForTimeout(400);
+
+  assert.equal(
+    await page.locator(".secret-box").count(),
+    0,
+    "membatalkan konfirmasi tidak boleh mereset password"
+  );
+
   await page.context().close();
 
   // Anggota baru masuk dengan password awal -> wajib ganti password.
