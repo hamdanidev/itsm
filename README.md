@@ -103,6 +103,7 @@ healthcare-itsm/
 ├── scripts/
 │   ├── dev.mjs                # jalankan PocketBase + Vite tanpa Docker
 │   ├── pocketbase.mjs         # CLI download/serve/superuser/migrate
+│   ├── seed.mjs               # seed data manual untuk testing
 │   └── lib/pocketbase.mjs     # resolver binary, checksum, args serve
 ├── docker/
 │   ├── Caddyfile
@@ -222,7 +223,73 @@ Di PowerShell: `$env:PB_DEBUG=1; npm run dev`.
 `PB_VERSION`, `PB_HTTP`, dan `DEV_ORIGINS` dapat diatur lewat environment atau
 `.env` (opsional; default sudah cocok untuk dev).
 
-### 6. Cek cepat
+### 6. Seed data manual (testing)
+
+`npm run seed` mengisi satu instalasi yang sedang berjalan dengan data demo
+yang saling terhubung: tiket di semua status, komentar, approval berjenjang
+(termasuk CAB dan delegasi), breach/escalation, CSAT, problem, artikel
+pengetahuan, insiden mayor, aset, dan titik QR. Waktu record ikut dimundurkan
+dan disebar sehingga laporan 90 hari, tren, dan antrean dashboard terlihat
+seperti sistem yang sudah dipakai berbulan-bulan.
+
+Semua tulisan dibuat lewat route aplikasi biasa (bukan insert langsung), jadi
+SLA, audit log, notifikasi, dan aturan RBAC tetap berjalan. Backdate memakai
+route development khusus superuser (`/api/itsm/dev/seed/*`, lihat SCHEMA.md);
+route itu tidak dipanggil frontend dan tidak menambah hak akses karena hanya
+menerima superuser PocketBase.
+
+```bash
+npm run dev                      # PocketBase + Vite harus jalan lebih dulu
+npm run pb:superuser -- admin@itsm.local "PasswordKuat123!"   # sekali saja
+npm run seed                     # profil small
+npm run seed:busy                # ±150 tiket dalam 3 bulan
+npm run seed -- --profile tiny --reset --yes
+```
+
+| Profil | Isi |
+|---|---|
+| `tiny` | 10 tiket, satu per status penting; cukup untuk smoke test UI |
+| `small` | ±24 tiket dalam 14 hari (default) |
+| `medium` | ±60 tiket dalam 30 hari |
+| `busy` | ±150 tiket dalam 90 hari, terasa seperti ITSM aktif |
+
+Opsi penting:
+
+```bash
+npm run seed -- --tickets 40 --days 21   # volume/rentang khusus
+npm run seed -- --reset --yes            # hapus data demo lalu seed ulang
+npm run seed -- --no-age                 # semua record bertanggal "sekarang"
+npm run seed -- --seed 42                # RNG deterministik
+npm run seed -- --hospitals 2            # mode vendor: 2 rumah sakit demo
+npm run seed -- --help
+```
+
+- **Mode standalone** — data masuk ke rumah sakit yang sudah ada (satu-satunya
+  tenant). `--reset` menghapus data transaksional rumah sakit itu, jadi
+  konfirmasi akan muncul kecuali `--yes`.
+- **Mode vendor** — seed membuat/memakai rumah sakit demo `DEMO01` (dan
+  `DEMO02`, `DEMO03` bila `--hospitals` lebih dari 1) sehingga data rumah sakit
+  lain tidak tersentuh. Rumah sakit demo muncul di Konsol Vendor.
+- Akun demo memakai domain `demo.local` (rumah sakit pertama), `demo2.local`,
+  dan seterusnya, password default `SeedDemo123!`. Akun utama:
+  `lead.it@demo.local` (Kepala IT), `support@demo.local` (Staff IT),
+  `resolver.app@demo.local` (Teknisi), `manajer.igd@demo.local` (approver unit),
+  `perawat.igd@demo.local` (pemohon), `viewer@demo.local` (pengamat). Pada mode
+  vendor, `vendor.seed@demo.local` adalah admin konsol.
+- Seeding **idempoten untuk data referensi**: akun, aset, titik QR, problem,
+  artikel, dan insiden dicocokkan lewat email/nomor/judul. Menjalankan seed
+  lagi akan menambah tiket baru tanpa membuat aset/akun ganda. Gunakan `--reset`
+  bila ingin dataset bersih.
+- Email notifikasi demo dimatikan (`email_opt_out`) agar antrean SMTP Mailtrap
+  tidak dibanjiri. Notifikasi in-app tetap dibuat.
+- Superuser default mengikuti `PB_ADMIN_EMAIL`/`PB_ADMIN_PASSWORD` atau
+  `admin@itsm.local` / `PasswordKuat123!`. Bila belum ada, seed berhenti dengan
+  perintah `npm run pb:superuser` yang perlu dijalankan.
+- Bila baru menarik perubahan yang menambah file di `backend/pb_hooks/`,
+  hentikan `npm run dev` dan jalankan ulang agar route seed dimuat. Seed akan
+  memberi tahu bila route-nya belum tersedia.
+
+### 7. Cek cepat
 
 - Login sebagai requester.
 - Buat tiket Incident / Service Request / Change Request.

@@ -265,6 +265,14 @@ routerAdd(
       var assignee = String(current.get("assignee") || "");
       var requester = String(current.get("requester") || "");
       var now = new Date().toISOString();
+      // Service/Change Request hanya butuh approval bila memang punya alur
+      // approval. Item katalog dengan mode `none` disimpan sebagai
+      // `approval_status = not_required`, sehingga tidak boleh diblokir.
+      var approvalSatisfied =
+        String(current.get("type")) === "incident" ||
+        String(current.get("approval_mode")) === "none" ||
+        String(current.get("approval_status")) === "approved" ||
+        String(current.get("approval_status")) === "not_required";
 
       if (target === "in_progress") {
         if (["open", "assigned", "reopened", "waiting"].indexOf(from) < 0) {
@@ -272,10 +280,7 @@ routerAdd(
             "Tiket tidak dapat dimulai dari status " + from
           );
         }
-        if (
-          String(current.get("type")) !== "incident" &&
-          String(current.get("approval_status")) !== "approved"
-        ) {
+        if (!approvalSatisfied) {
           throw new BadRequestError(
             String(current.get("approval_status")) === "rejected"
               ? "Approval permintaan ditolak; Kepala IT harus menyetujui ulang sebelum pekerjaan dimulai"
@@ -360,10 +365,7 @@ routerAdd(
             "Hanya tiket assigned atau in_progress yang dapat menunggu requester"
           );
         }
-        if (
-          String(current.get("type")) !== "incident" &&
-          String(current.get("approval_status")) !== "approved"
-        ) {
+        if (!approvalSatisfied) {
           throw new BadRequestError(
             "Permintaan harus disetujui Kepala IT sebelum menunggu requester"
           );
@@ -389,10 +391,7 @@ routerAdd(
             "Tiket harus dalam status assigned atau in_progress sebelum diselesaikan"
           );
         }
-        if (
-          String(current.get("type")) !== "incident" &&
-          String(current.get("approval_status")) !== "approved"
-        ) {
+        if (!approvalSatisfied) {
           throw new BadRequestError(
             "Permintaan harus disetujui Kepala IT sebelum diselesaikan"
           );

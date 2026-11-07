@@ -156,7 +156,10 @@ export default function TicketBoard({
     function check(ticket, columnKey) {
       const status = String(ticket.status || "");
       const approvalReady =
-        ticket.type === "incident" || ticket.approval_status === "approved";
+        ticket.type === "incident" ||
+        ticket.approval_mode === "none" ||
+        ticket.approval_status === "approved" ||
+        ticket.approval_status === "not_required";
       const assignee = String(ticket.assignee || "");
       const mine = assignee === user?.id;
 
@@ -184,7 +187,10 @@ export default function TicketBoard({
   function dropMessage(ticket, columnKey) {
     const status = String(ticket.status || "");
     const approvalReady =
-      ticket.type === "incident" || ticket.approval_status === "approved";
+      ticket.type === "incident" ||
+      ticket.approval_mode === "none" ||
+      ticket.approval_status === "approved" ||
+      ticket.approval_status === "not_required";
 
     if (status === "resolved") {
       return "Tiket sudah selesai. Buka kembali dari detail tiket bila perlu dikerjakan lagi.";

@@ -1256,8 +1256,12 @@ export default function TicketDetailPage() {
 
   const lead = isLead(user);
   const status = ticket.status;
-  const approvalRequired = ticket.type !== "incident";
-  const approvalApproved = ticket.approval_status === "approved";
+  const approvalRequired =
+    ticket.type !== "incident" && ticket.approval_mode !== "none";
+  const approvalApproved =
+    !approvalRequired ||
+    ticket.approval_status === "approved" ||
+    ticket.approval_status === "not_required";
   const approvalRejected = ticket.approval_status === "rejected";
   const assignedToMe = Boolean(ticket.assignee) && ticket.assignee === user?.id;
   const isRequester = ticket.requester === user?.id;

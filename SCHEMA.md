@@ -837,14 +837,30 @@ Jeda dan recompute:
 | PATCH | `/api/itsm/platform/tenants/{id}/master/{kind}/{recordId}` | Ubah/nonaktifkan data master; vendor admin |
 | GET | `/api/itsm/audit` | Audit tenant; Kepala IT atau Pengamat (filter aktor, aksi, cakupan, tanggal, nomor tiket) |
 | GET | `/api/itsm/platform/audit` | Audit lintas tenant (filter RS, aktor, aksi, cakupan, tanggal, nomor tiket) |
+| POST | `/api/itsm/dev/seed/age` | **Development**: mundurkan/sebar waktu record untuk seed manual; superuser |
+| POST | `/api/itsm/dev/seed/reset` | **Development**: hapus data transaksional satu tenant untuk seed manual; superuser |
 
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side, kecuali
 route publik `/api/itsm/public/intake/*` yang memvalidasi token titik, tenant
-aktif, rate limit, honeypot, dan attestation data pasien, serta route
+aktif, rate limit, honeypot, dan attestation data pasien, route
 `/api/itsm/setup/*` yang hanya hidup selama instalasi belum punya akun dan
-mewajibkan kode setup.
+mewajibkan kode setup, serta route `/api/itsm/dev/seed/*` yang memakai
+`$apis.requireSuperuserAuth()`.
 Service/Change Request harus berstatus approval `approved` sebelum pekerjaan bisa
-dimulai, dijeda, atau diselesaikan. Setiap aksi menulis audit log.
+dimulai, dijeda, atau diselesaikan; item katalog dengan `approval_mode = none`
+memakai `approval_status = not_required` dan boleh langsung dikerjakan. Setiap
+aksi menulis audit log.
+
+Route `/api/itsm/dev/seed/*` adalah alat bantu `scripts/seed.mjs`, bukan API
+bisnis. Keduanya hanya menerima superuser PocketBase karena sengaja memakai
+akses database langsung untuk menulis `created`/`updated` dan untuk menghapus
+data demo beserta berkas lampirannya. Frontend tidak pernah memanggil route ini
+dan tidak ada menu untuk membukanya; pada instalasi produksi route tetap
+tersedia tetapi selalu 403 tanpa sesi superuser. Seed memakainya untuk
+memundurkan tiket beserta komentar, approval, notifikasi, dan audit log agar
+laporan riwayat terlihat wajar, serta untuk mereset data demo sebelum seeding
+ulang.
+
 
 Route approval menerima `decision` `approved` / `rejected` / `delegated`. Untuk
 delegasi, sertakan `delegate` (id user) dan `note` sebagai alasan (wajib ≥ 5

@@ -437,7 +437,10 @@ export default function TicketListPage() {
     }
 
     const approvalReady =
-      ticket.type === "incident" || ticket.approval_status === "approved";
+      ticket.type === "incident" ||
+      ticket.approval_mode === "none" ||
+      ticket.approval_status === "approved" ||
+      ticket.approval_status === "not_required";
     const ownershipOk = staff
       ? lead || !assignee || assignee === user?.id
       : assignee === user?.id || (!assignee && teamMatch);

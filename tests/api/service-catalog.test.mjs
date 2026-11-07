@@ -5,6 +5,7 @@ import { before, describe, it } from "node:test";
 
 import {
   approvalSteps,
+  assignTicket,
   createTicket,
   decide,
   seedOrg,
@@ -152,6 +153,26 @@ describe("intake berbasis layanan", () => {
 
     const steps = await approvalSteps(org.support.client, ticket.id);
     assert.equal(steps.length, 0);
+  });
+
+  it("item tanpa approval boleh langsung dikerjakan", async () => {
+    const ticket = await createTicket(org.requester.client, {
+      type: "service_request",
+      service: service.id,
+      service_item: itemNone.id,
+      impact: "operational",
+      title: "Reset password akun SIMRS (tanpa approval)",
+      description: "Permintaan rutin yang tidak memerlukan approval.",
+    });
+
+    await assignTicket(org.support.client, ticket.id, org.support.user.id);
+    const started = await transition(
+      org.support.client,
+      ticket.id,
+      "in_progress"
+    );
+
+    assert.equal(started.status, "in_progress");
   });
 
   it("item manager membuat tahap manajer unit", async () => {
