@@ -7,20 +7,25 @@ import BrandMark from "../../components/ui/BrandMark";
 export default function AuthBrand() {
   const { tenant, appName } = useMeta();
   const [failed, setFailed] = useState(false);
+  const hasLogo = Boolean(tenant?.logo_url) && !failed;
 
   return (
     <div className="login-brand">
-      {tenant?.logo_url && !failed ? (
-        <img
-          className="login-brand-logo"
-          src={publicBrandingLogoUrl(tenant.logo_url)}
-          alt=""
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <BrandMark size={30} />
-      )}
-      <span>{tenant?.name || appName}</span>
+      {/* Logo rumah sakit diberi alas putih; brand aplikasi sudah berbentuk ikon
+          sendiri sehingga ditampilkan polos agar tidak berbingkai ganda. */}
+      <span className={`login-brand-mark${hasLogo ? "" : " is-plain"}`}>
+        {hasLogo ? (
+          <img
+            className="login-brand-logo"
+            src={publicBrandingLogoUrl(tenant.logo_url)}
+            alt=""
+            onError={() => setFailed(true)}
+          />
+        ) : (
+          <BrandMark size={32} />
+        )}
+      </span>
+      <span className="login-brand-name">{tenant?.name || appName}</span>
     </div>
   );
 }

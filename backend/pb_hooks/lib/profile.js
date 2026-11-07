@@ -8,6 +8,8 @@ function serialize(user) {
     phone: String(user.get("phone") || ""),
     employee_no: String(user.get("employee_no") || ""),
     role: String(user.get("role") || ""),
+    job_title: String(user.get("job_title") || ""),
+    team: String(user.get("team") || ""),
     unit: String(user.get("unit") || ""),
     tenant: String(user.get("tenant") || ""),
     avatar: String(user.get("avatar") || ""),

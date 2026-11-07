@@ -37,7 +37,7 @@ export async function adminClient() {
 
 export async function createUser(
   admin,
-  { email, name, role, unitId, tenantId, isActive = true }
+  { email, name, role, unitId, tenantId, team, isActive = true }
 ) {
   return admin.create("users", {
     email,
@@ -47,6 +47,7 @@ export async function createUser(
     verified: true,
     name,
     role,
+    team: team || undefined,
     tenant: tenantId,
     unit: unitId,
     is_active: isActive,
@@ -89,7 +90,7 @@ async function loggedIn(url, email) {
 // di-seed, lengkap dengan sesi login-nya.
 export async function addMember(
   admin,
-  { tenantId, unitId, role, label, name, isActive = true }
+  { tenantId, unitId, role, label, name, team, isActive = true }
 ) {
   const { url } = readEnv();
   const suffix = uniqueLabel(label);
@@ -101,6 +102,7 @@ export async function addMember(
     role,
     unitId,
     tenantId,
+    team,
     isActive,
   });
 

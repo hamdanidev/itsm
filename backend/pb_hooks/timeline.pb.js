@@ -13,7 +13,7 @@ routerAdd(
     var ticket = guards.findTicket(e, e.request.pathValue("id"));
     guards.assertTicketAccess(e, ticket);
 
-    var staff = guards.isStaff(auth);
+    var canInternal = guards.canWorkAsStaff(auth, ticket);
     var userNames = {};
 
     function userName(id) {
@@ -86,7 +86,7 @@ routerAdd(
         (action === "comment" || action === "attachment") &&
         String(changes.visibility || "") === "internal";
 
-      if (internal && !staff) continue;
+      if (internal && !canInternal) continue;
 
       var actorId = String(log.get("actor") || "");
       var actor = actorId

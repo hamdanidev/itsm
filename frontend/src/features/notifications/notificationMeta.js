@@ -5,6 +5,7 @@ export const NOTIF_ICONS = {
   approval: "bi-patch-check",
   sla: "bi-exclamation-triangle",
   escalation: "bi-arrow-up-circle",
+  incident: "bi-exclamation-octagon",
 };
 
 export function notificationIcon(type) {

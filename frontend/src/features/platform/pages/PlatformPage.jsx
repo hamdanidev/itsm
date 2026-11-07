@@ -3,11 +3,16 @@ import { useNavigate } from "react-router-dom";
 import PageHeader from "../../../components/ui/PageHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import Modal from "../../../components/ui/Modal";
+import Pagination from "../../../components/ui/Pagination";
+import { TableSkeleton } from "../../../components/ui/Skeleton";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMeta } from "../../../app/providers/MetaProvider";
 import { useTenant } from "../../../app/providers/TenantProvider";
 import { formatDate } from "../../../lib/format";
 import { isPlatformAdmin, tenantRoleLabel } from "../../../lib/permissions";
+import { TEAM_OPTIONS, teamLabel } from "../../../lib/teams";
+import { formErrorText, useAppForm } from "../../../lib/formik";
+import { usePagedEndpoint, useDebouncedValue } from "../../../lib/pagedList";
 import {
   createPlatformTenant,
   createPlatformTenantUser,
@@ -26,9 +31,11 @@ const TIMEZONES = [
 ];
 
 const ROLES = [
-  ["requester", "Requester"],
-  ["it_support", "IT Support"],
-  ["it_lead", "IT Lead"],
+  ["requester", "Pemohon"],
+  ["it_support", "Staff IT"],
+  ["resolver", "Teknisi"],
+  ["it_lead", "Kepala IT"],
+  ["viewer", "Pengamat"],
 ];
 
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9._-]{1,19}$/;
@@ -48,9 +55,23 @@ const EMPTY_USER = {
   name: "",
   email: "",
   role: "it_lead",
+  job_title: "",
+  team: "",
   unit: "",
   password: "",
 };
+
+const JOB_TITLE_OPTIONS = [
+  "Programmer",
+  "Teknisi Jaringan",
+  "Teknisi Hardware",
+  "Admin SIMRS",
+  "DBA",
+  "Teknisi Alat Kesehatan",
+  "Operator SIMRS",
+  "Helpdesk",
+  "Staf Akreditasi",
+];
 
 function timezoneLabel(value) {
   const found = TIMEZONES.find(([zone]) => zone === value);
@@ -82,198 +103,193 @@ export default function PlatformPage() {
   const { reloadTenants } = useTenant();
   const canManage = isPlatformAdmin(user);
 
-  const [items, setItems] = useState([]);
   const [summary, setSummary] = useState({
     tenants: 0,
     active: 0,
     users: 0,
     open_tickets: 0,
   });
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [busyId, setBusyId] = useState("");
 
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState(EMPTY_CREATE);
-  const [createError, setCreateError] = useState("");
-  const [creating, setCreating] = useState(false);
+  const debouncedQuery = useDebouncedValue(query, 350);
+  const fetchPage = useCallback((params) => fetchPlatformTenants(params), []);
+  const list = usePagedEndpoint(fetchPage, debouncedQuery);
 
+  // Pencarian berubah -> kembali ke halaman pertama.
+  useEffect(() => {
+    list.setPage(1);
+  }, [debouncedQuery, list.setPage]);
+
+  // Ringkasan tetap dari server (mencakup seluruh instalasi, bukan satu halaman).
+  useEffect(() => {
+    if (list.raw?.summary) setSummary(list.raw.summary);
+  }, [list.raw]);
+
+  const loading = list.loading;
+  const items = list.items;
+  const filtered = list.items;
+
+  const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
-  const [editForm, setEditForm] = useState({
-    name: "",
-    code: "",
-    timezone: "Asia/Jakarta",
-    is_active: true,
+
+  const createFormik = useAppForm({
+    initialValues: { ...EMPTY_CREATE },
+    validate: (values) => {
+      const errors = {};
+      const name = values.name.trim();
+      const code = values.code.trim().toUpperCase();
+      const adminEmail = values.admin_email.trim();
+      const adminPassword = values.admin_password;
+      const hasAdmin = Boolean(
+        adminEmail || adminPassword || values.admin_name.trim()
+      );
+
+      if (name.length < 2) {
+        errors.name = "Nama rumah sakit minimal 2 karakter.";
+      }
+      if (!CODE_PATTERN.test(code)) {
+        errors.code =
+          "Kode 2–20 karakter: huruf, angka, titik, garis bawah, atau strip.";
+      }
+      if (hasAdmin && (!adminEmail || !adminPassword)) {
+        errors.admin_email =
+          "Email dan password akun pertama harus diisi bersamaan.";
+      }
+      if (hasAdmin && adminPassword.length < 8) {
+        errors.admin_password = "Password akun pertama minimal 8 karakter.";
+      }
+      if (hasAdmin && !EMAIL_PATTERN.test(adminEmail)) {
+        errors.admin_email = "Email akun pertama tidak valid.";
+      }
+
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+      const name = values.name.trim();
+      const code = values.code.trim().toUpperCase();
+      const adminEmail = values.admin_email.trim();
+      const adminPassword = values.admin_password;
+      const hasAdmin = Boolean(
+        adminEmail || adminPassword || values.admin_name.trim()
+      );
+
+      try {
+        const payload = {
+          name,
+          code,
+          timezone: values.timezone,
+          seed_master: values.seed_master,
+        };
+
+        if (hasAdmin) {
+          payload.admin = {
+            name: values.admin_name.trim() || undefined,
+            email: adminEmail,
+            password: adminPassword,
+          };
+        }
+
+        const result = await createPlatformTenant(payload);
+
+        setCreateOpen(false);
+        createFormik.resetForm();
+        setNotice(
+          `${result.tenant.name} (${result.tenant.code}) dibuat${
+            result.seed
+              ? ` dengan ${result.seed.units} unit dan ${result.seed.policies} kebijakan SLA`
+              : ""
+          }.`
+        );
+
+        await load();
+        reloadTenants();
+      } catch (err) {
+        helpers.setStatus(getErrorMessage(err));
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
   });
-  const [editError, setEditError] = useState("");
-  const [editSaving, setEditSaving] = useState(false);
+
+  const editFormik = useAppForm({
+    initialValues: {
+      name: "",
+      code: "",
+      timezone: "Asia/Jakarta",
+      is_active: true,
+    },
+    validate: (values) => {
+      const errors = {};
+      if (values.name.trim().length < 2) {
+        errors.name = "Nama rumah sakit minimal 2 karakter.";
+      }
+      if (!CODE_PATTERN.test(values.code.trim().toUpperCase())) {
+        errors.code =
+          "Kode 2–20 karakter: huruf, angka, titik, garis bawah, atau strip.";
+      }
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+      const name = values.name.trim();
+      const code = values.code.trim().toUpperCase();
+
+      try {
+        await updatePlatformTenant(editTarget.id, {
+          name,
+          code,
+          timezone: values.timezone,
+          is_active: values.is_active,
+        });
+
+        setEditTarget(null);
+        setNotice(`${name} diperbarui.`);
+        editFormik.resetForm();
+        await load();
+        reloadTenants();
+      } catch (err) {
+        helpers.setStatus(getErrorMessage(err));
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const createError = formErrorText(createFormik);
+  const editError = formErrorText(editFormik);
 
   const [detailId, setDetailId] = useState("");
 
   const load = useCallback(async () => {
-    setLoading(true);
     setError("");
-
-    try {
-      const payload = await fetchPlatformTenants();
-      setItems(payload.items || []);
-      setSummary(payload.summary || {});
-    } catch (err) {
-      setError(getErrorMessage(err));
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    list.reload();
+  }, [list.reload]);
 
   useEffect(() => {
     document.title = "Konsol Vendor · Healthcare ITSM";
-    load();
-  }, [load]);
-
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return items;
-
-    return items.filter(
-      (tenant) =>
-        tenant.name.toLowerCase().includes(needle) ||
-        tenant.code.toLowerCase().includes(needle)
-    );
-  }, [items, query]);
-
-  function setCreateField(key, value) {
-    setCreateForm((current) => ({ ...current, [key]: value }));
-  }
+  }, []);
 
   function openCreate() {
-    setCreateForm(EMPTY_CREATE);
-    setCreateError("");
+    createFormik.setStatus("");
+    createFormik.resetForm();
     setNotice("");
     setCreateOpen(true);
   }
 
   function openEdit(tenant) {
-    setEditForm({
+    editFormik.setStatus("");
+    editFormik.setValues({
       name: tenant.name,
       code: tenant.code,
       timezone: tenant.timezone || "Asia/Jakarta",
       is_active: Boolean(tenant.is_active),
     });
-    setEditError("");
     setNotice("");
     setEditTarget(tenant);
-  }
-
-  async function submitCreate(event) {
-    event.preventDefault();
-    setCreateError("");
-
-    const name = createForm.name.trim();
-    const code = createForm.code.trim().toUpperCase();
-    const adminEmail = createForm.admin_email.trim();
-    const adminPassword = createForm.admin_password;
-    const hasAdmin = Boolean(adminEmail || adminPassword || createForm.admin_name.trim());
-
-    if (name.length < 2) {
-      setCreateError("Nama rumah sakit minimal 2 karakter.");
-      return;
-    }
-    if (!CODE_PATTERN.test(code)) {
-      setCreateError(
-        "Kode 2–20 karakter: huruf, angka, titik, garis bawah, atau strip."
-      );
-      return;
-    }
-    if (hasAdmin && (!adminEmail || !adminPassword)) {
-      setCreateError("Email dan password akun pertama harus diisi bersamaan.");
-      return;
-    }
-    if (hasAdmin && adminPassword.length < 8) {
-      setCreateError("Password akun pertama minimal 8 karakter.");
-      return;
-    }
-    if (hasAdmin && !EMAIL_PATTERN.test(adminEmail)) {
-      setCreateError("Email akun pertama tidak valid.");
-      return;
-    }
-
-    setCreating(true);
-
-    try {
-      const payload = {
-        name,
-        code,
-        timezone: createForm.timezone,
-        seed_master: createForm.seed_master,
-      };
-
-      if (hasAdmin) {
-        payload.admin = {
-          name: createForm.admin_name.trim() || undefined,
-          email: adminEmail,
-          password: adminPassword,
-        };
-      }
-
-      const result = await createPlatformTenant(payload);
-
-      setCreateOpen(false);
-      setCreateForm(EMPTY_CREATE);
-      setNotice(
-        `${result.tenant.name} (${result.tenant.code}) dibuat${
-          result.seed ? ` dengan ${result.seed.units} unit dan ${result.seed.policies} kebijakan SLA` : ""
-        }.`
-      );
-
-      await load();
-      reloadTenants();
-    } catch (err) {
-      setCreateError(getErrorMessage(err));
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function submitEdit(event) {
-    event.preventDefault();
-    setEditError("");
-
-    const name = editForm.name.trim();
-    const code = editForm.code.trim().toUpperCase();
-
-    if (name.length < 2) {
-      setEditError("Nama rumah sakit minimal 2 karakter.");
-      return;
-    }
-    if (!CODE_PATTERN.test(code)) {
-      setEditError(
-        "Kode 2–20 karakter: huruf, angka, titik, garis bawah, atau strip."
-      );
-      return;
-    }
-
-    setEditSaving(true);
-
-    try {
-      await updatePlatformTenant(editTarget.id, {
-        name,
-        code,
-        timezone: editForm.timezone,
-        is_active: editForm.is_active,
-      });
-
-      setEditTarget(null);
-      setNotice(`${name} diperbarui.`);
-      await load();
-      reloadTenants();
-    } catch (err) {
-      setEditError(getErrorMessage(err));
-    } finally {
-      setEditSaving(false);
-    }
   }
 
   async function toggleActive(tenant) {
@@ -323,10 +339,10 @@ export default function PlatformPage() {
         </div>
       )}
 
-      {error && (
+      {(error || list.error) && (
         <div className="alert alert--error" role="alert">
           <i className="bi bi-exclamation-triangle" aria-hidden="true" />
-          <div>{error}</div>
+          <div>{error || list.error}</div>
         </div>
       )}
 
@@ -372,7 +388,7 @@ export default function PlatformPage() {
         </div>
       </div>
 
-      <div className="list-toolbar">
+      <div className="filter-bar">
         <div className="search-box">
           <i className="bi bi-search" aria-hidden="true" />
           <input
@@ -385,27 +401,26 @@ export default function PlatformPage() {
           />
         </div>
         <span className="list-count">
-          {loading ? "Memuat..." : `${filtered.length} rumah sakit`}
+          {loading ? "Memuat..." : `${list.totalItems} rumah sakit`}
         </span>
       </div>
 
       <div className="list-panel">
         {loading ? (
-          <div className="admin-loading">
-            <span className="spinner spinner--dark" role="status" />
-            Memuat rumah sakit...
-          </div>
+          <TableSkeleton rows={5} />
         ) : filtered.length === 0 ? (
           <EmptyState
             icon="bi-buildings"
-            title={items.length === 0 ? "Belum ada rumah sakit" : "Tidak ada hasil"}
+            title={
+              list.totalItems === 0 ? "Belum ada rumah sakit" : "Tidak ada hasil"
+            }
             description={
-              items.length === 0
+              list.totalItems === 0
                 ? "Tambahkan rumah sakit pertama untuk mulai mengelola tenant."
                 : "Ubah kata kunci pencarian untuk menemukan rumah sakit lain."
             }
             action={
-              items.length === 0 && canManage && isVendor ? (
+              list.totalItems === 0 && canManage && isVendor ? (
                 <button className="btn btn-primary" type="button" onClick={openCreate}>
                   <i className="bi bi-plus-lg" aria-hidden="true" />
                   Tambah rumah sakit
@@ -414,38 +429,43 @@ export default function PlatformPage() {
             }
           />
         ) : (
-          <div className="issue-table-wrap">
-            <table className="issue-table admin-table">
-              <thead>
-                <tr>
-                  <th>Rumah sakit</th>
-                  <th className="col-code">Zona waktu</th>
-                  <th className="col-num">Pengguna</th>
-                  <th className="col-num">Tiket aktif</th>
-                  <th className="col-status">Status</th>
-                  <th className="col-actions">Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((tenant) => (
-                  <tr
-                    key={tenant.id}
-                    className={tenant.is_active ? "" : "is-inactive"}
-                  >
-                    <td>
-                      <span className="admin-name">{tenant.name}</span>
-                      <div className="admin-sub">
-                        <code>{tenant.code}</code>
-                      </div>
-                    </td>
-                    <td className="col-code">{timezoneLabel(tenant.timezone)}</td>
-                    <td className="col-num">{tenant.counts?.users ?? 0}</td>
-                    <td className="col-num">{tenant.counts?.open_tickets ?? 0}</td>
-                    <td className="col-status">
-                      <StatusLozenge active={tenant.is_active} />
-                    </td>
-                    <td className="col-actions">
-                      <div className="admin-actions">
+          <>
+            <div className="issue-table-wrap">
+              <table className="issue-table admin-table">
+                <thead>
+                  <tr>
+                    <th>Rumah sakit</th>
+                    <th className="col-code">Zona waktu</th>
+                    <th className="col-num">Pengguna</th>
+                    <th className="col-num">Tiket aktif</th>
+                    <th className="col-status">Status</th>
+                    <th className="col-actions">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((tenant) => (
+                    <tr
+                      key={tenant.id}
+                      className={tenant.is_active ? "" : "is-inactive"}
+                    >
+                      <td>
+                        <span className="admin-name">{tenant.name}</span>
+                        <div className="admin-sub">
+                          <code>{tenant.code}</code>
+                        </div>
+                      </td>
+                      <td className="col-code">
+                        {timezoneLabel(tenant.timezone)}
+                      </td>
+                      <td className="col-num">{tenant.counts?.users ?? 0}</td>
+                      <td className="col-num">
+                        {tenant.counts?.open_tickets ?? 0}
+                      </td>
+                      <td className="col-status">
+                        <StatusLozenge active={tenant.is_active} />
+                      </td>
+                      <td className="col-actions">
+                        <div className="admin-actions">
                         <button
                           className="btn btn-subtle btn-sm"
                           type="button"
@@ -495,7 +515,18 @@ export default function PlatformPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+
+            <Pagination
+              page={list.page}
+              perPage={list.perPage}
+              totalItems={list.totalItems}
+              totalPages={list.totalPages}
+              onPageChange={list.setPage}
+              onPerPageChange={list.setPerPage}
+              label="rumah sakit"
+            />
+          </>
         )}
       </div>
 
@@ -509,7 +540,7 @@ export default function PlatformPage() {
         <Modal
           title="Tambah rumah sakit"
           description="Tenant baru langsung dilengkapi unit, kategori, kebijakan SLA, dan hari libur default."
-          onClose={() => (creating ? null : setCreateOpen(false))}
+          onClose={() => (createFormik.isSubmitting ? null : setCreateOpen(false))}
           wide
           footer={
             <>
@@ -517,7 +548,7 @@ export default function PlatformPage() {
                 className="btn btn-subtle"
                 type="button"
                 onClick={() => setCreateOpen(false)}
-                disabled={creating}
+                disabled={createFormik.isSubmitting}
               >
                 Batal
               </button>
@@ -525,9 +556,9 @@ export default function PlatformPage() {
                 className="btn btn-primary"
                 type="submit"
                 form="platform-create-form"
-                disabled={creating}
+                disabled={createFormik.isSubmitting}
               >
-                {creating ? (
+                {createFormik.isSubmitting ? (
                   <>
                     <span className="spinner" aria-hidden="true" />
                     Menyimpan...
@@ -539,7 +570,11 @@ export default function PlatformPage() {
             </>
           }
         >
-          <form id="platform-create-form" className="admin-form" onSubmit={submitCreate}>
+          <form
+            id="platform-create-form"
+            className="admin-form"
+            onSubmit={createFormik.handleSubmit}
+          >
             {createError && (
               <div className="alert alert--error" role="alert">
                 <i className="bi bi-exclamation-triangle" aria-hidden="true" />
@@ -554,10 +589,9 @@ export default function PlatformPage() {
               <input
                 id="tenant-name"
                 className="input"
-                value={createForm.name}
-                onChange={(event) => setCreateField("name", event.target.value)}
                 maxLength={120}
                 placeholder="Contoh: RSUD Kota Bandung"
+                {...createFormik.getFieldProps("name")}
                 required
               />
             </div>
@@ -570,10 +604,9 @@ export default function PlatformPage() {
                 <input
                   id="tenant-code"
                   className="input"
-                  value={createForm.code}
-                  onChange={(event) => setCreateField("code", event.target.value)}
                   maxLength={20}
                   placeholder="Contoh: RSUD-BDG"
+                  {...createFormik.getFieldProps("code")}
                   required
                 />
                 <div className="hint">
@@ -588,10 +621,7 @@ export default function PlatformPage() {
                 <select
                   id="tenant-timezone"
                   className="select"
-                  value={createForm.timezone}
-                  onChange={(event) =>
-                    setCreateField("timezone", event.target.value)
-                  }
+                  {...createFormik.getFieldProps("timezone")}
                 >
                   {TIMEZONES.map(([value, label]) => (
                     <option key={value} value={value}>
@@ -605,10 +635,10 @@ export default function PlatformPage() {
             <label className="checkline" style={{ marginTop: 16 }}>
               <input
                 type="checkbox"
-                checked={createForm.seed_master}
-                onChange={(event) =>
-                  setCreateField("seed_master", event.target.checked)
-                }
+                {...createFormik.getFieldProps({
+                  name: "seed_master",
+                  type: "checkbox",
+                })}
               />
               <span>
                 Lengkapi data master default (10 unit, 9 kategori, 12 kebijakan
@@ -619,7 +649,7 @@ export default function PlatformPage() {
             <section className="form-section" style={{ marginTop: 24 }}>
               <h2 className="form-section-title">Akun IT pertama (opsional)</h2>
               <p className="form-section-hint">
-                Buat akun IT Lead agar rumah sakit ini bisa langsung dipakai.
+                Buat akun Kepala IT agar rumah sakit ini bisa langsung dipakai.
                 Kosongkan bila akun akan dibuat belakangan.
               </p>
 
@@ -630,11 +660,8 @@ export default function PlatformPage() {
                 <input
                   id="tenant-admin-name"
                   className="input"
-                  value={createForm.admin_name}
-                  onChange={(event) =>
-                    setCreateField("admin_name", event.target.value)
-                  }
                   maxLength={120}
+                  {...createFormik.getFieldProps("admin_name")}
                   placeholder="Contoh: Budi Santoso"
                 />
               </div>
@@ -648,10 +675,7 @@ export default function PlatformPage() {
                     id="tenant-admin-email"
                     className="input"
                     type="email"
-                    value={createForm.admin_email}
-                    onChange={(event) =>
-                      setCreateField("admin_email", event.target.value)
-                    }
+                    {...createFormik.getFieldProps("admin_email")}
                     placeholder="it@rsud.example.com"
                   />
                 </div>
@@ -665,10 +689,7 @@ export default function PlatformPage() {
                     className="input"
                     type="password"
                     autoComplete="new-password"
-                    value={createForm.admin_password}
-                    onChange={(event) =>
-                      setCreateField("admin_password", event.target.value)
-                    }
+                    {...createFormik.getFieldProps("admin_password")}
                     minLength={8}
                   />
                   <div className="hint">Minimal 8 karakter.</div>
@@ -683,14 +704,14 @@ export default function PlatformPage() {
         <Modal
           title={`Edit ${editTarget.name}`}
           description="Perubahan berlaku langsung untuk tenant ini."
-          onClose={() => (editSaving ? null : setEditTarget(null))}
+          onClose={() => (editFormik.isSubmitting ? null : setEditTarget(null))}
           footer={
             <>
               <button
                 className="btn btn-subtle"
                 type="button"
                 onClick={() => setEditTarget(null)}
-                disabled={editSaving}
+                disabled={editFormik.isSubmitting}
               >
                 Batal
               </button>
@@ -698,9 +719,9 @@ export default function PlatformPage() {
                 className="btn btn-primary"
                 type="submit"
                 form="platform-edit-form"
-                disabled={editSaving}
+                disabled={editFormik.isSubmitting}
               >
-                {editSaving ? (
+                {editFormik.isSubmitting ? (
                   <>
                     <span className="spinner" aria-hidden="true" />
                     Menyimpan...
@@ -712,7 +733,11 @@ export default function PlatformPage() {
             </>
           }
         >
-          <form id="platform-edit-form" className="admin-form" onSubmit={submitEdit}>
+          <form
+            id="platform-edit-form"
+            className="admin-form"
+            onSubmit={editFormik.handleSubmit}
+          >
             {editError && (
               <div className="alert alert--error" role="alert">
                 <i className="bi bi-exclamation-triangle" aria-hidden="true" />
@@ -727,14 +752,8 @@ export default function PlatformPage() {
               <input
                 id="edit-tenant-name"
                 className="input"
-                value={editForm.name}
-                onChange={(event) =>
-                  setEditForm((current) => ({
-                    ...current,
-                    name: event.target.value,
-                  }))
-                }
                 maxLength={120}
+                {...editFormik.getFieldProps("name")}
                 required
               />
             </div>
@@ -747,14 +766,8 @@ export default function PlatformPage() {
                 <input
                   id="edit-tenant-code"
                   className="input"
-                  value={editForm.code}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      code: event.target.value,
-                    }))
-                  }
                   maxLength={20}
+                  {...editFormik.getFieldProps("code")}
                   required
                 />
               </div>
@@ -766,13 +779,7 @@ export default function PlatformPage() {
                 <select
                   id="edit-tenant-timezone"
                   className="select"
-                  value={editForm.timezone}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      timezone: event.target.value,
-                    }))
-                  }
+                  {...editFormik.getFieldProps("timezone")}
                 >
                   {TIMEZONES.map(([value, label]) => (
                     <option key={value} value={value}>
@@ -786,13 +793,10 @@ export default function PlatformPage() {
             <label className="checkline" style={{ marginTop: 16 }}>
               <input
                 type="checkbox"
-                checked={editForm.is_active}
-                onChange={(event) =>
-                  setEditForm((current) => ({
-                    ...current,
-                    is_active: event.target.checked,
-                  }))
-                }
+                {...editFormik.getFieldProps({
+                  name: "is_active",
+                  type: "checkbox",
+                })}
               />
               <span>Aktif — pengguna rumah sakit ini dapat login</span>
             </label>
@@ -821,14 +825,79 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
   const [busy, setBusy] = useState("");
 
   const [showUserForm, setShowUserForm] = useState(false);
-  const [userForm, setUserForm] = useState(EMPTY_USER);
-  const [userError, setUserError] = useState("");
-  const [savingUser, setSavingUser] = useState(false);
-
   const [pwdTarget, setPwdTarget] = useState(null);
-  const [pwdValue, setPwdValue] = useState("");
-  const [pwdError, setPwdError] = useState("");
-  const [pwdSaving, setPwdSaving] = useState(false);
+
+  const userFormik = useAppForm({
+    initialValues: { ...EMPTY_USER },
+    validate: (values) => {
+      const errors = {};
+      if (values.name.trim().length < 2) {
+        errors.name = "Nama minimal 2 karakter.";
+      }
+      if (!EMAIL_PATTERN.test(values.email.trim())) {
+        errors.email = "Email tidak valid.";
+      }
+      if (values.password.length < 8) {
+        errors.password = "Password minimal 8 karakter.";
+      }
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+
+      try {
+        await createPlatformTenantUser(tenantId, {
+          name: values.name.trim(),
+          email: values.email.trim(),
+          role: values.role,
+          job_title: values.job_title.trim() || undefined,
+          team: values.team || undefined,
+          unit: values.unit || undefined,
+          password: values.password,
+        });
+
+        userFormik.resetForm();
+        setShowUserForm(false);
+        setNotice("Pengguna baru dibuat.");
+        await load();
+        onChanged?.();
+      } catch (err) {
+        helpers.setStatus(getErrorMessage(err));
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const pwdFormik = useAppForm({
+    initialValues: { password: "" },
+    validate: (values) => {
+      const errors = {};
+      if (values.password.length < 8) {
+        errors.password = "Password baru minimal 8 karakter.";
+      }
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+
+      try {
+        await updatePlatformTenantUser(tenantId, pwdTarget.id, {
+          password: values.password,
+        });
+        setPwdTarget(null);
+        pwdFormik.resetForm();
+        setNotice(`Password ${pwdTarget.name} direset.`);
+      } catch (err) {
+        helpers.setStatus(getErrorMessage(err));
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const userError = formErrorText(userFormik);
+  const pwdError = formErrorText(pwdFormik);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -874,48 +943,7 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
     }
   }
 
-  async function submitUser(event) {
-    event.preventDefault();
-    setUserError("");
 
-    const name = userForm.name.trim();
-    const email = userForm.email.trim();
-
-    if (name.length < 2) {
-      setUserError("Nama minimal 2 karakter.");
-      return;
-    }
-    if (!EMAIL_PATTERN.test(email)) {
-      setUserError("Email tidak valid.");
-      return;
-    }
-    if (userForm.password.length < 8) {
-      setUserError("Password minimal 8 karakter.");
-      return;
-    }
-
-    setSavingUser(true);
-
-    try {
-      await createPlatformTenantUser(tenantId, {
-        name,
-        email,
-        role: userForm.role,
-        unit: userForm.unit || undefined,
-        password: userForm.password,
-      });
-
-      setUserForm(EMPTY_USER);
-      setShowUserForm(false);
-      setNotice("Pengguna baru dibuat.");
-      await load();
-      onChanged?.();
-    } catch (err) {
-      setUserError(getErrorMessage(err));
-    } finally {
-      setSavingUser(false);
-    }
-  }
 
   async function toggleUser(person) {
     setBusy(person.id);
@@ -934,30 +962,7 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
     }
   }
 
-  async function submitPassword(event) {
-    event.preventDefault();
-    setPwdError("");
 
-    if (pwdValue.length < 8) {
-      setPwdError("Password baru minimal 8 karakter.");
-      return;
-    }
-
-    setPwdSaving(true);
-
-    try {
-      await updatePlatformTenantUser(tenantId, pwdTarget.id, {
-        password: pwdValue,
-      });
-      setPwdTarget(null);
-      setPwdValue("");
-      setNotice(`Password ${pwdTarget.name} direset.`);
-    } catch (err) {
-      setPwdError(getErrorMessage(err));
-    } finally {
-      setPwdSaving(false);
-    }
-  }
 
   return (
     <Modal
@@ -1002,7 +1007,7 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
       )}
 
       {loading || !data ? (
-        <div className="admin-loading">
+        <div className="loading-state">
           <span className="spinner spinner--dark" role="status" />
           Memuat data...
         </div>
@@ -1073,7 +1078,8 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                   type="button"
                   onClick={() => {
                     setShowUserForm((value) => !value);
-                    setUserError("");
+                    userFormik.setStatus("");
+                    userFormik.resetForm();
                   }}
                 >
                   <i className="bi bi-person-plus" aria-hidden="true" />
@@ -1086,7 +1092,7 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
               <form
                 className="admin-form"
                 style={{ marginTop: 12 }}
-                onSubmit={submitUser}
+                onSubmit={userFormik.handleSubmit}
               >
                 {userError && (
                   <div className="alert alert--error" role="alert">
@@ -1103,14 +1109,8 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                     <input
                       id="new-user-name"
                       className="input"
-                      value={userForm.name}
-                      onChange={(event) =>
-                        setUserForm((current) => ({
-                          ...current,
-                          name: event.target.value,
-                        }))
-                      }
                       maxLength={120}
+                      {...userFormik.getFieldProps("name")}
                       required
                     />
                   </div>
@@ -1123,13 +1123,7 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                       id="new-user-email"
                       className="input"
                       type="email"
-                      value={userForm.email}
-                      onChange={(event) =>
-                        setUserForm((current) => ({
-                          ...current,
-                          email: event.target.value,
-                        }))
-                      }
+                      {...userFormik.getFieldProps("email")}
                       required
                     />
                   </div>
@@ -1143,13 +1137,7 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                     <select
                       id="new-user-role"
                       className="select"
-                      value={userForm.role}
-                      onChange={(event) =>
-                        setUserForm((current) => ({
-                          ...current,
-                          role: event.target.value,
-                        }))
-                      }
+                      {...userFormik.getFieldProps("role")}
                     >
                       {ROLES.map(([value, label]) => (
                         <option key={value} value={value}>
@@ -1166,13 +1154,7 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                     <select
                       id="new-user-unit"
                       className="select"
-                      value={userForm.unit}
-                      onChange={(event) =>
-                        setUserForm((current) => ({
-                          ...current,
-                          unit: event.target.value,
-                        }))
-                      }
+                      {...userFormik.getFieldProps("unit")}
                     >
                       <option value="">Tanpa unit</option>
                       {data.units.map((unit) => (
@@ -1185,6 +1167,49 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                 </div>
 
                 <div className="field-row" style={{ marginTop: 12 }}>
+                  <label className="form-label" htmlFor="new-user-job-title">
+                    Jabatan
+                  </label>
+                  <input
+                    id="new-user-job-title"
+                    className="input"
+                    list="platform-job-title-options"
+                    maxLength={80}
+                    placeholder="Programmer, Teknisi Jaringan, DBA, Admin SIMRS..."
+                    {...userFormik.getFieldProps("job_title")}
+                  />
+                  <datalist id="platform-job-title-options">
+                    {JOB_TITLE_OPTIONS.map((title) => (
+                      <option key={title} value={title} />
+                    ))}
+                  </datalist>
+                  <div className="hint">
+                    Jabatan tidak mengubah hak akses; role tetap menentukan kewenangan.
+                  </div>
+                </div>
+
+                <div className="field-row" style={{ marginTop: 12 }}>
+                  <label className="form-label" htmlFor="new-user-team">
+                    Tim
+                  </label>
+                  <select
+                    id="new-user-team"
+                    className="select"
+                    {...userFormik.getFieldProps("team")}
+                  >
+                    <option value="">Tanpa tim</option>
+                    {TEAM_OPTIONS.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="hint">
+                    Teknisi melihat antrean tiket dari tim yang sama.
+                  </div>
+                </div>
+
+                <div className="field-row" style={{ marginTop: 12 }}>
                   <label className="form-label" htmlFor="new-user-password">
                     Password awal <span className="req">*</span>
                   </label>
@@ -1193,13 +1218,7 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                     className="input"
                     type="password"
                     autoComplete="new-password"
-                    value={userForm.password}
-                    onChange={(event) =>
-                      setUserForm((current) => ({
-                        ...current,
-                        password: event.target.value,
-                      }))
-                    }
+                    {...userFormik.getFieldProps("password")}
                     minLength={8}
                     required
                   />
@@ -1213,16 +1232,16 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                     className="btn btn-subtle"
                     type="button"
                     onClick={() => setShowUserForm(false)}
-                    disabled={savingUser}
+                    disabled={userFormik.isSubmitting}
                   >
                     Batal
                   </button>
                   <button
                     className="btn btn-primary"
                     type="submit"
-                    disabled={savingUser}
+                    disabled={userFormik.isSubmitting}
                   >
-                    {savingUser ? (
+                    {userFormik.isSubmitting ? (
                       <>
                         <span className="spinner" aria-hidden="true" />
                         Menyimpan...
@@ -1239,7 +1258,7 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
               <form
                 className="admin-form"
                 style={{ marginTop: 12 }}
-                onSubmit={submitPassword}
+                onSubmit={pwdFormik.handleSubmit}
               >
                 <div className="form-section-head">
                   <div>
@@ -1269,8 +1288,7 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                     className="input"
                     type="password"
                     autoComplete="new-password"
-                    value={pwdValue}
-                    onChange={(event) => setPwdValue(event.target.value)}
+                    {...pwdFormik.getFieldProps("password")}
                     minLength={8}
                     required
                   />
@@ -1282,19 +1300,18 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                     type="button"
                     onClick={() => {
                       setPwdTarget(null);
-                      setPwdValue("");
-                      setPwdError("");
+                      pwdFormik.resetForm();
                     }}
-                    disabled={pwdSaving}
+                    disabled={pwdFormik.isSubmitting}
                   >
                     Batal
                   </button>
                   <button
                     className="btn btn-primary"
                     type="submit"
-                    disabled={pwdSaving}
+                    disabled={pwdFormik.isSubmitting}
                   >
-                    {pwdSaving ? (
+                    {pwdFormik.isSubmitting ? (
                       <>
                         <span className="spinner" aria-hidden="true" />
                         Menyimpan...
@@ -1318,6 +1335,8 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                     <tr>
                       <th>Pengguna</th>
                       <th>Role</th>
+                      <th>Jabatan</th>
+                      <th>Tim</th>
                       <th>Unit</th>
                       <th className="col-status">Status</th>
                       {canManage && <th className="col-actions">Aksi</th>}
@@ -1334,6 +1353,18 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                           <div className="admin-sub">{person.email}</div>
                         </td>
                         <td>{tenantRoleLabel(person.role)}</td>
+                        <td>
+                          {person.job_title || (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
+                        <td>
+                          {person.team ? (
+                            teamLabel(person.team)
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
                         <td>
                           {person.unit_name || (
                             <span className="muted">Tanpa unit</span>
@@ -1373,8 +1404,8 @@ function TenantDetail({ tenantId, canManage, onClose, onChanged }) {
                                 type="button"
                                 onClick={() => {
                                   setPwdTarget(person);
-                                  setPwdValue("");
-                                  setPwdError("");
+                                  pwdFormik.setStatus("");
+                                  pwdFormik.resetForm();
                                   setNotice("");
                                 }}
                               >

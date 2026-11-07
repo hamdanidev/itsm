@@ -2,17 +2,23 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "../../../components/ui/PageHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import Modal from "../../../components/ui/Modal";
+import { TableSkeleton } from "../../../components/ui/Skeleton";
 import { pb } from "../../../lib/pocketbase";
 import { getErrorMessage } from "../../../lib/api";
+import { formErrorText, useAppForm } from "../../../lib/formik";
 import { priorityLabel, typeLabel } from "../../../lib/format";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import TeamTab from "../components/TeamTab";
 import IdentityTab from "../components/IdentityTab";
+import ServiceCatalogTab from "../components/ServiceCatalogTab";
+import IntakePointsTab from "../components/IntakePointsTab";
 
 const TABS = [
   { key: "identity", label: "Identitas" },
   { key: "units", label: "Unit" },
   { key: "categories", label: "Kategori" },
+  { key: "services", label: "Layanan" },
+  { key: "intake", label: "Titik QR" },
   { key: "policies", label: "Kebijakan SLA" },
   { key: "holidays", label: "Hari libur" },
   { key: "tim", label: "Tim" },
@@ -188,10 +194,88 @@ export default function AdminPage() {
   const [notice, setNotice] = useState("");
 
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM.units);
-  const [formError, setFormError] = useState("");
-  const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
+
+  const formInitialValues = useMemo(() => {
+    if (modal?.record) return formFromRecord(modal.tab, modal.record);
+    return { ...EMPTY_FORM[modal?.tab || tab] };
+  }, [modal?.record?.id, modal?.tab, tab]);
+
+  const formik = useAppForm({
+    enableReinitialize: true,
+    initialValues: formInitialValues,
+    validate: (values) => {
+      const errors = {};
+
+      if (modal?.tab === "policies") {
+        if (!Number(values.response_minutes)) {
+          errors.response_minutes = "Batas respons harus lebih dari 0 menit.";
+        }
+        if (
+          values.calendar_mode === "business_hours" &&
+          values.business_start >= values.business_end
+        ) {
+          errors.business_start =
+            "Jam mulai harus lebih awal dari jam selesai.";
+        }
+        if (
+          values.calendar_mode === "business_hours" &&
+          values.business_days.length === 0
+        ) {
+          errors.business_days = "Pilih minimal satu hari kerja.";
+        }
+      }
+
+      if (modal?.tab === "holidays" && !values.date) {
+        errors.date = "Tanggal hari libur wajib diisi.";
+      }
+
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+
+      const payload = { ...values };
+
+      if (modal.tab === "holidays") {
+        payload.date = `${values.date} 00:00:00.000Z`;
+      }
+
+      if (modal.tab === "units" || modal.tab === "categories") {
+        payload.code = String(values.code || "").trim().toUpperCase();
+      }
+
+      if (modal.tab === "policies") {
+        payload.response_minutes = Number(values.response_minutes) || 0;
+        payload.approval_minutes = Number(values.approval_minutes) || 0;
+        payload.resolution_minutes = Number(values.resolution_minutes) || 0;
+        payload.version = Number(values.version) || 1;
+      }
+
+      try {
+        const collection = pb.collection(COLLECTIONS[modal.tab]);
+
+        if (modal.record) {
+          await collection.update(modal.record.id, payload);
+        } else {
+          await collection.create({ ...payload, tenant: user.tenant });
+        }
+
+        setModal(null);
+        setNotice(
+          modal.record ? "Perubahan disimpan." : "Data baru ditambahkan."
+        );
+        formik.resetForm();
+        await load();
+      } catch (err) {
+        helpers.setStatus(getErrorMessage(err));
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const formError = formErrorText(formik);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -229,7 +313,12 @@ export default function AdminPage() {
 
   const isTeamTab = tab === "tim";
   const isIdentityTab = tab === "identity";
-  const items = isTeamTab || isIdentityTab ? [] : data[tab];
+  const isServiceTab = tab === "services";
+  const isIntakeTab = tab === "intake";
+  const items =
+    isTeamTab || isIdentityTab || isServiceTab || isIntakeTab
+      ? []
+      : data[tab];
 
   const missingPolicyCombos = useMemo(() => {
     const taken = new Set(
@@ -249,113 +338,34 @@ export default function AdminPage() {
     () => ({
       units: "unit",
       categories: "kategori",
+      intake: "titik QR",
       policies: "kebijakan SLA",
       holidays: "hari libur",
     }),
     []
   );
 
-  function setField(key, value) {
-    setForm((current) => ({ ...current, [key]: value }));
-  }
-
   function openCreate() {
-    setForm({ ...EMPTY_FORM[tab] });
-    setFormError("");
     setNotice("");
     setModal({ tab, record: null });
   }
 
   function openEdit(record) {
-    setForm(formFromRecord(tab, record));
-    setFormError("");
     setNotice("");
     setModal({ tab, record });
   }
 
   function closeModal() {
-    if (saving) return;
+    if (formik.isSubmitting) return;
     setModal(null);
-    setFormError("");
   }
 
   function toggleDay(day) {
-    setForm((current) => {
-      const days = current.business_days.includes(day)
-        ? current.business_days.filter((value) => value !== day)
-        : [...current.business_days, day].sort((a, b) => a - b);
+    const days = formik.values.business_days.includes(day)
+      ? formik.values.business_days.filter((value) => value !== day)
+      : [...formik.values.business_days, day].sort((a, b) => a - b);
 
-      return { ...current, business_days: days };
-    });
-  }
-
-  function validate() {
-    if (modal.tab === "policies") {
-      if (!Number(form.response_minutes)) {
-        return "Batas respons harus lebih dari 0 menit.";
-      }
-      if (
-        form.calendar_mode === "business_hours" &&
-        form.business_start >= form.business_end
-      ) {
-        return "Jam mulai harus lebih awal dari jam selesai.";
-      }
-      if (
-        form.calendar_mode === "business_hours" &&
-        form.business_days.length === 0
-      ) {
-        return "Pilih minimal satu hari kerja.";
-      }
-    }
-
-    if (modal.tab === "holidays" && !form.date) {
-      return "Tanggal hari libur wajib diisi.";
-    }
-
-    return "";
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setFormError("");
-
-    const validation = validate();
-    if (validation) {
-      setFormError(validation);
-      return;
-    }
-
-    setSaving(true);
-
-    const payload = { ...form };
-
-    if (modal.tab === "holidays") {
-      payload.date = `${form.date} 00:00:00.000Z`;
-    }
-
-    if (modal.tab === "units" || modal.tab === "categories") {
-      payload.code = String(form.code || "").trim().toUpperCase();
-    }
-
-    try {
-      const collection = pb.collection(COLLECTIONS[modal.tab]);
-
-      if (modal.record) {
-        await collection.update(modal.record.id, payload);
-      } else {
-        await collection.create({ ...payload, tenant: user.tenant });
-      }
-
-      setModal(null);
-      setNotice(
-        modal.record ? "Perubahan disimpan." : "Data baru ditambahkan."
-      );
-      await load();
-    } catch (err) {
-      setFormError(getErrorMessage(err));
-    } finally {
-      setSaving(false);
-    }
+    formik.setFieldValue("business_days", days);
   }
 
   async function toggleActive(record) {
@@ -383,9 +393,9 @@ export default function AdminPage() {
       <PageHeader
         breadcrumb={[{ label: "Service desk" }, { label: "Pengaturan" }]}
         title="Pengaturan"
-        description="Kelola identitas rumah sakit, unit, kategori, kebijakan SLA, hari libur, dan tim IT. Perubahan data master berlaku untuk tiket baru; tiket lama memakai snapshot SLA saat dibuat."
+        description="Kelola identitas rumah sakit, unit, kategori, layanan, titik QR, kebijakan SLA, hari libur, dan tim IT. Perubahan data master berlaku untuk tiket baru; tiket lama memakai snapshot SLA saat dibuat."
         actions={
-          isTeamTab || isIdentityTab ? undefined : (
+          isTeamTab || isIdentityTab || isServiceTab || isIntakeTab ? undefined : (
             <button
               className="btn btn-primary"
               type="button"
@@ -432,9 +442,14 @@ export default function AdminPage() {
             }}
           >
             {item.label}
-            {item.key !== "tim" && item.key !== "identity" && (
-              <span className="tab-count">{(data[item.key] || []).length}</span>
-            )}
+            {item.key !== "tim" &&
+              item.key !== "identity" &&
+              item.key !== "services" &&
+              item.key !== "intake" && (
+                <span className="tab-count">
+                  {(data[item.key] || []).length}
+                </span>
+              )}
           </button>
         ))}
       </div>
@@ -453,14 +468,15 @@ export default function AdminPage() {
         <TeamTab units={data.units} currentUser={user} />
       ) : isIdentityTab ? (
         <IdentityTab />
+      ) : isServiceTab ? (
+        <ServiceCatalogTab />
+      ) : isIntakeTab ? (
+        <IntakePointsTab units={data.units} />
       ) : (
         <>
           <div className="list-panel admin-panel">
         {loading ? (
-          <div className="admin-loading">
-            <span className="spinner spinner--dark" role="status" />
-            Memuat data...
-          </div>
+          <TableSkeleton rows={5} />
         ) : items.length === 0 ? (
           <EmptyState
             icon="bi-sliders"
@@ -544,7 +560,7 @@ export default function AdminPage() {
                 className="btn btn-subtle"
                 type="button"
                 onClick={closeModal}
-                disabled={saving}
+                disabled={formik.isSubmitting}
               >
                 Batal
               </button>
@@ -552,9 +568,9 @@ export default function AdminPage() {
                 className="btn btn-primary"
                 type="submit"
                 form="admin-form"
-                disabled={saving}
+                disabled={formik.isSubmitting}
               >
-                {saving ? (
+                {formik.isSubmitting ? (
                   <>
                     <span className="spinner" aria-hidden="true" />
                     Menyimpan...
@@ -566,7 +582,11 @@ export default function AdminPage() {
             </>
           }
         >
-          <form id="admin-form" className="admin-form" onSubmit={handleSubmit}>
+          <form
+            id="admin-form"
+            className="admin-form"
+            onSubmit={formik.handleSubmit}
+          >
             {formError && (
               <div className="alert alert--error" role="alert">
                 <i className="bi bi-exclamation-triangle" aria-hidden="true" />
@@ -714,9 +734,8 @@ export default function AdminPage() {
             <input
               id="admin-name"
               className="input"
-              value={form.name}
-              onChange={(event) => setField("name", event.target.value)}
               maxLength={120}
+              {...formik.getFieldProps("name")}
               required
             />
           </div>
@@ -729,10 +748,9 @@ export default function AdminPage() {
               <input
                 id="admin-code"
                 className="input"
-                value={form.code}
-                onChange={(event) => setField("code", event.target.value)}
                 maxLength={modal.tab === "units" ? 20 : 40}
                 placeholder="Contoh: IGD"
+                {...formik.getFieldProps("code")}
                 required
               />
               <div className="hint">Unik per tenant, otomatis diubah ke huruf besar.</div>
@@ -745,8 +763,7 @@ export default function AdminPage() {
               <select
                 id="admin-kind"
                 className="select"
-                value={form.kind}
-                onChange={(event) => setField("kind", event.target.value)}
+                {...formik.getFieldProps("kind")}
               >
                 {kinds.map(([value, label]) => (
                   <option key={value} value={value}>
@@ -765,8 +782,7 @@ export default function AdminPage() {
               <select
                 id="admin-manager"
                 className="select"
-                value={form.manager}
-                onChange={(event) => setField("manager", event.target.value)}
+                {...formik.getFieldProps("manager")}
               >
                 <option value="">Belum ditentukan</option>
                 {people.map((person) => (
@@ -777,7 +793,7 @@ export default function AdminPage() {
               </select>
               <div className="hint">
                 Approver tahap pertama untuk tiket unit ini. Bila kosong,
-                approval langsung ke IT Lead.
+                approval langsung ke Kepala IT.
               </div>
             </div>
           )}
@@ -795,10 +811,9 @@ export default function AdminPage() {
             <input
               id="admin-name"
               className="input"
-              value={form.name}
-              onChange={(event) => setField("name", event.target.value)}
               maxLength={120}
               placeholder="Contoh: Incident normal - jam kerja"
+              {...formik.getFieldProps("name")}
               required
             />
           </div>
@@ -811,8 +826,7 @@ export default function AdminPage() {
               <select
                 id="admin-type"
                 className="select"
-                value={form.ticket_type}
-                onChange={(event) => setField("ticket_type", event.target.value)}
+                {...formik.getFieldProps("ticket_type")}
               >
                 {TICKET_TYPES.map(([value, label]) => (
                   <option key={value} value={value}>
@@ -829,8 +843,7 @@ export default function AdminPage() {
               <select
                 id="admin-priority"
                 className="select"
-                value={form.priority}
-                onChange={(event) => setField("priority", event.target.value)}
+                {...formik.getFieldProps("priority")}
               >
                 {PRIORITIES.map(([value, label]) => (
                   <option key={value} value={value}>
@@ -851,10 +864,7 @@ export default function AdminPage() {
                 className="input"
                 type="number"
                 min={1}
-                value={form.response_minutes}
-                onChange={(event) =>
-                  setField("response_minutes", Number(event.target.value))
-                }
+                {...formik.getFieldProps("response_minutes")}
                 required
               />
             </div>
@@ -868,10 +878,7 @@ export default function AdminPage() {
                 className="input"
                 type="number"
                 min={0}
-                value={form.approval_minutes}
-                onChange={(event) =>
-                  setField("approval_minutes", Number(event.target.value))
-                }
+                {...formik.getFieldProps("approval_minutes")}
               />
             </div>
 
@@ -884,10 +891,7 @@ export default function AdminPage() {
                 className="input"
                 type="number"
                 min={0}
-                value={form.resolution_minutes}
-                onChange={(event) =>
-                  setField("resolution_minutes", Number(event.target.value))
-                }
+                {...formik.getFieldProps("resolution_minutes")}
               />
             </div>
           </div>
@@ -900,8 +904,7 @@ export default function AdminPage() {
               <select
                 id="admin-calendar"
                 className="select"
-                value={form.calendar_mode}
-                onChange={(event) => setField("calendar_mode", event.target.value)}
+                {...formik.getFieldProps("calendar_mode")}
               >
                 {CALENDAR_MODES.map(([value, label]) => (
                   <option key={value} value={value}>
@@ -920,14 +923,13 @@ export default function AdminPage() {
                 className="input"
                 type="number"
                 min={1}
-                value={form.version}
-                onChange={(event) => setField("version", Number(event.target.value))}
+                {...formik.getFieldProps("version")}
               />
               <div className="hint">Naikkan saat aturan SLA berubah.</div>
             </div>
           </div>
 
-          {form.calendar_mode === "business_hours" && (
+          {formik.values.calendar_mode === "business_hours" && (
             <>
               <div className="field-row" style={{ marginTop: 16 }}>
                 <span className="form-label">Hari kerja</span>
@@ -936,12 +938,12 @@ export default function AdminPage() {
                     <label
                       key={day}
                       className={`day-chip${
-                        form.business_days.includes(day) ? " is-on" : ""
+                        formik.values.business_days.includes(day) ? " is-on" : ""
                       }`}
                     >
                       <input
                         type="checkbox"
-                        checked={form.business_days.includes(day)}
+                        checked={formik.values.business_days.includes(day)}
                         onChange={() => toggleDay(day)}
                       />
                       {label}
@@ -959,10 +961,7 @@ export default function AdminPage() {
                     id="admin-start"
                     className="input"
                     type="time"
-                    value={form.business_start}
-                    onChange={(event) =>
-                      setField("business_start", event.target.value)
-                    }
+                    {...formik.getFieldProps("business_start")}
                   />
                 </div>
 
@@ -974,10 +973,7 @@ export default function AdminPage() {
                     id="admin-end"
                     className="input"
                     type="time"
-                    value={form.business_end}
-                    onChange={(event) =>
-                      setField("business_end", event.target.value)
-                    }
+                    {...formik.getFieldProps("business_end")}
                   />
                 </div>
               </div>
@@ -997,8 +993,7 @@ export default function AdminPage() {
             id="admin-date"
             className="input"
             type="date"
-            value={form.date}
-            onChange={(event) => setField("date", event.target.value)}
+            {...formik.getFieldProps("date")}
             required
           />
         </div>
@@ -1010,10 +1005,9 @@ export default function AdminPage() {
           <input
             id="admin-name"
             className="input"
-            value={form.name}
-            onChange={(event) => setField("name", event.target.value)}
             maxLength={120}
             placeholder="Contoh: Hari Kemerdekaan RI"
+            {...formik.getFieldProps("name")}
             required
           />
         </div>

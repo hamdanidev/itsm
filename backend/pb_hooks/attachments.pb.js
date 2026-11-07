@@ -40,8 +40,10 @@ routerAdd(
       visibility = String(comment.get("visibility"));
     }
 
-    if (visibility === "internal" && !guards.isStaff(auth)) {
-      throw new ForbiddenError("Only IT staff can add internal attachments");
+    if (visibility === "internal" && !guards.canWorkAsStaff(auth, ticket)) {
+      throw new ForbiddenError(
+        "Hanya Staff IT atau Teknisi pemilik tiket yang dapat menambah lampiran internal"
+      );
     }
 
     var existing = e.app.findRecordsByFilter(

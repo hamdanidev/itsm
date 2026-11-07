@@ -10,6 +10,23 @@
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Healthcare ITSM</title>
+    <!-- Terapkan tema sebelum React dimuat agar tidak berkedip putih. -->
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem("itsm-theme") || "auto";
+          var dark =
+            pref === "dark" ||
+            (pref === "auto" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (error) {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

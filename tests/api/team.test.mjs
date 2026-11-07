@@ -24,7 +24,13 @@ describe("akses tim", () => {
     const data = await org.lead.client.json("GET", "/api/itsm/team");
 
     assert.ok(data.items.length >= 3);
-    assert.deepEqual(data.roles, ["requester", "it_support", "it_lead"]);
+    assert.deepEqual(data.roles, [
+      "requester",
+      "it_support",
+      "resolver",
+      "it_lead",
+      "viewer",
+    ]);
     assert.ok(data.items.every((item) => item.email));
     assert.ok(data.items.some((item) => item.role === "it_lead"));
   });
@@ -35,6 +41,33 @@ describe("akses tim", () => {
 
     const requester = await org.requester.client.request("GET", "/api/itsm/team");
     assert.equal(requester.status, 403);
+  });
+
+  it("daftar tim mendukung halaman dan pencarian", async () => {
+    const first = await org.lead.client.json("GET", "/api/itsm/team?page=1&perPage=2");
+
+    assert.equal(first.perPage, 2);
+    assert.equal(first.items.length, 2);
+    assert.ok(first.totalItems >= 3);
+    assert.equal(first.totalPages, Math.ceil(first.totalItems / 2));
+    assert.equal(typeof first.active_lead_count, "number");
+
+    const second = await org.lead.client.json("GET", "/api/itsm/team?page=2&perPage=2");
+    assert.equal(second.page, 2);
+    assert.notDeepEqual(
+      second.items.map((item) => item.id),
+      first.items.map((item) => item.id)
+    );
+
+    const target = first.items[0];
+    const search = await org.lead.client.json(
+      "GET",
+      `/api/itsm/team?q=${encodeURIComponent(target.name)}`
+    );
+
+    assert.ok(search.items.some((item) => item.id === target.id));
+    assert.ok(search.totalItems >= 1);
+    assert.equal(search.page, 1);
   });
 });
 
@@ -91,6 +124,38 @@ describe("menambah anggota tim", () => {
     });
 
     assert.equal(created.user.role, "it_lead");
+  });
+
+  it("lead boleh menambah teknisi dan pengamat", async () => {
+    const teknisi = await org.lead.client.json("POST", "/api/itsm/team", {
+      body: {
+        name: "Teknisi Baru",
+        email: memberEmail("teknisi"),
+        role: "resolver",
+        job_title: "Programmer",
+        team: "application",
+      },
+    });
+
+    const pengamat = await org.lead.client.json("POST", "/api/itsm/team", {
+      body: {
+        name: "Pengamat Baru",
+        email: memberEmail("pengamat"),
+        role: "viewer",
+      },
+    });
+
+    assert.equal(teknisi.user.role, "resolver");
+    assert.equal(teknisi.user.job_title, "Programmer");
+    assert.equal(teknisi.user.team, "application");
+    assert.equal(pengamat.user.role, "viewer");
+
+    const updated = await org.lead.client.json(
+      "PATCH",
+      `/api/itsm/team/${teknisi.user.id}`,
+      { body: { job_title: "Senior Programmer" } }
+    );
+    assert.equal(updated.user.job_title, "Senior Programmer");
   });
 });
 

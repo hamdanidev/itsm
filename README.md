@@ -1,17 +1,52 @@
 # Healthcare ITSM
 
-Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request, dan
-Change Request dalam satu portal yang terstruktur, memiliki SLA, RBAC, dan audit
-trail.
+Platform tata kelola layanan TI untuk rumah sakit: Incident, Service Request,
+Change Request, Problem, dan Knowledge Base dalam satu portal yang terstruktur,
+memiliki SLA, RBAC, dan audit trail.
 
-Status saat ini: **fase lanjutan — multi-tenant, tim tenant, email
-transaksional, dan identitas rumah sakit**. Fitur sampai konsol vendor
-multi-tenant, pengelolaan tim oleh IT Lead, logo rumah sakit, serta lupa
-password mandiri:
+Status saat ini: **Increment A+B+C selesai — service catalog, problem
+management, knowledge base, asset/CI, CSAT, laporan operasional, multi-tenant,
+tim tenant, email transaksional, dan identitas rumah sakit**. Fitur sampai
+konsol vendor multi-tenant, pengelolaan tim oleh IT Lead, logo rumah sakit,
+serta lupa password mandiri:
 
 - autentikasi staff dan intake tiga jenis tiket;
+- setup awal instalasi: halaman `/setup` membuat data awal dan akun pertama
+  (rumah sakit + Kepala IT pada mode standalone, akun vendor pada mode vendor)
+  dengan kode setup sekali pakai, lalu menutup diri;
+- intake publik lewat **titik QR per unit**: staf memindai QR, mengisi form tanpa
+  login, dan tiket memakai unit/lokasi dari titik QR; lampiran screenshot bisa
+  dikirim sejak awal, dengan rate limit dan attestation data pasien; langkah
+  form bisa dibuka kembali lewat indikator, ada progres langkah, dan nomor tiket
+  di layar sukses bisa disalin beserta ringkasan laporan;
+- katalog layanan dan item permintaan: approval mode per item, SLA per layanan,
+  serta intake yang bisa mencatat sumber telepon/email/WhatsApp dan pemohon
+  atas nama (on-behalf);
+- triage tiket oleh staf IT: koreksi prioritas, dampak klinis, kategori,
+  layanan, item, dan lokasi sebelum pekerjaan dimulai, dengan recompute SLA dan
+  audit;
+- problem management: kelompokkan beberapa insiden, root cause, workaround,
+  known error, permanent fix, dan status problem;
+- knowledge base: artikel SOP/known error dengan lifecycle draft → review →
+  terbit → pensiun, visibilitas internal/publik, pencarian, serta saran artikel
+  dan workaround saat intake;
 - daftar tiket dengan pagination/filter/URL state dan dashboard antrean kerja;
+- daftar tiket lanjutan: tampilan tersimpan (Aktif, Tiket saya, Belum di-assign,
+  SLA lewat, Menunggu approval), pilih massal + assign/mulai, aksi cepat per
+  baris, kolom tim/SLA, dan kepadatan tabel yang tersimpan;
+- form buat tiket tiga langkah (klasifikasi → detail → tinjau & kirim) dengan
+  validasi per langkah, ringkasan sebelum submit, dan navigasi kembali tanpa
+  kehilangan isian;
+- papan kerja (Kanban) sebagai mode tampilan sekunder: empat kolom
+  (Baru, Dikerjakan, Menunggu pelapor, Selesai), seret kartu untuk transisi
+  tervalidasi, menu "pindahkan" untuk layar sentuh, badge approval/SLA, dan
+  modal penyelesaian bersama;
 - detail tiket dengan riwayat aktivitas + pembaruan realtime;
+- detail tiket lanjutan: bilah aksi lengket, panel SLA/approval di atas kolom
+  samping (lengket + bisa digulir sendiri), riwayat dikelompokkan per hari
+  dengan jam, komposer dengan pilihan Publik/Internal, pintasan Ctrl+Enter, dan
+  draf komentar tersimpan lokal; modal penyelesaian dipakai bersama (siap untuk
+  papan Kanban);
 - assignment, transisi status termasuk `waiting` dengan jeda SLA, recompute SLA
   saat reopen, dan eskalasi berjenjang;
 - approval berjenjang (manajer unit → IT Lead → CAB), delegasi approver, dan
@@ -30,11 +65,24 @@ password mandiri:
 - email transaksional lewat SMTP (Mailtrap saat development) dengan antrean,
   retry, dan preferensi penerima;
 - komentar publik/internal, lampiran terproteksi, pengaturan unit/kategori/SLA/
-  hari libur, notifikasi in-app, SLA awal + breach scan, dan audit log.
+  hari libur, notifikasi in-app, SLA awal + breach scan, dan audit log;- seluruh form data-entry memakai **Formik** (nilai, validasi, status submit,
+  dan error server) — termasuk auth, tiket, problem, pengetahuan, pengaturan,
+  tim, serta konsol vendor;
+- editor rich text untuk artikel, deskripsi tiket, komentar, resolusi, problem,
+  dan change plan: toolbar tebal/miring/daftar/judul/kutipan/kode/tautan, dengan
+  sanitasi HTML berbasis allowlist sebelum disimpan dan dirender;
+- asset/CI register: tipe perangkat, lokasi, unit, layanan, criticality, garansi,
+  status, penanggung jawab, service CI, dan riwayat tiket per aset;
+- tautan aset ke tiket dari intake maupun detail tiket, plus CSAT satu respons
+  per tiket setelah tiket selesai/ditutup;
+- laporan operasional bulanan: insiden per layanan, problem teratas, pemakaian
+  KB, CSAT per layanan, dan compliance SLA, dengan ekspor CSV.
 
 ## Stack
 
 - Frontend: React 19 + Vite 8 + CSS (tanpa framework UI)
+- Form state: Formik (semua form data-entry)
+- Rich text: contenteditable kustom + sanitizer allowlist (tanpa dependency baru)
 - Backend: PocketBase v0.40.5 (API, auth, realtime, file storage, Admin UI)
 - Development: PocketBase native binary + Vite, **tanpa Docker**
 - Production: Docker + Docker Compose + Caddy
@@ -100,54 +148,56 @@ URL:
 
 Data dev tersimpan di `backend/pb_data/` dan tidak ikut ter-commit.
 
-### 2. Buat superuser
+### 2. Setup awal (wajib sekali)
 
-Jalankan sekali setelah data dev pertama kali dibuat:
+Instalasi yang belum punya akun otomatis dialihkan ke `/setup`. Halaman ini
+membuat data awal sekaligus akun pertama:
+
+- **standalone** — identitas rumah sakit (nama, kode, zona waktu) + akun
+  Kepala IT pertama;
+- **vendor** — akun platform (vendor) pertama yang mengelola seluruh rumah sakit.
+
+Langkahnya:
+
+1. Ambil kode setup dari server. Kode dibuat otomatis saat instalasi pertama
+   dijalankan, disimpan di `backend/pb_data/setup_token`, dan dicetak di log
+   server:
+
+   ```bash
+   npm run pb:setup-token
+   ```
+
+   Untuk deployment otomatis, setel environment `SETUP_TOKEN` sebelum
+   PocketBase dijalankan; nilai itu yang dipakai tanpa menulis berkas.
+
+2. Buka <http://localhost:5173>. Isi kode setup, data rumah sakit (mode
+   standalone), dan akun pertama. Password minimal 8 karakter.
+
+3. Setelah selesai, akun langsung dipakai masuk ke dashboard, kode setup
+   dihapus, dan halaman `/setup` tertutup. Setup hanya bisa dilakukan selama
+   belum ada satu pun akun.
+
+### 3. Superuser PocketBase (opsional)
+
+Hanya diperlukan untuk membuka Admin UI `http://127.0.0.1:8090/_/` (mis. inspeksi
+database). Aplikasi sehari-hari tidak memakainya:
 
 ```bash
 npm run pb:superuser -- admin@itsm.local "PasswordKuat123!"
 ```
 
-### 3. Buat akun staff
+### 4. Akun staf lain
 
-Lewat Admin UI (`Collections > users`), buat record dengan field:
+Kepala IT menambah anggota lewat **Pengaturan → Tim**. Password awal dibuat
+sistem, dikirim lewat email undangan, dan wajib diganti saat login pertama.
 
-| Field | Nilai |
-|---|---|
-| `email` | email staff |
-| `password` | password awal |
-| `name` | nama tampilan |
-| `role` | `requester`, `it_support`, atau `it_lead` |
-| `tenant` | tenant `RS01` (seed) |
-| `unit` | unit yang sesuai; untuk IT gunakan unit `IT` |
-| `is_active` | **true** (wajib, jika tidak login ditolak) |
-| `verified` | true |
+`users.createRule` sengaja dikunci: pembuatan akun di luar alur Tim (mis. Admin
+UI) hanya untuk keperluan darurat superuser. Akun rumah sakit wajib punya
+`tenant`, sedangkan akun platform wajib `is_platform_staff = true` tanpa
+`tenant` — hook validasi menolak kombinasi lain. Rumah sakit baru pada mode
+vendor dibuat dari menu **Konsol Vendor**, bukan dari Admin UI.
 
-Catatan: `users.createRule` sengaja dikunci. Provisioning akun dilakukan oleh
-superuser lewat Admin UI pada MVP ini. IT Lead adalah role bisnis, bukan superuser.
-
-### 3b. Akun vendor (hanya instalasi mode vendor)
-
-Instalasi `TENANCY_MODE=vendor` dikelola dari akun platform (vendor). Buat akun
-pertama lewat Admin UI dengan field:
-
-| Field | Nilai |
-|---|---|
-| `email` | email vendor |
-| `password` | password awal |
-| `name` | nama tampilan |
-| `role` | `it_lead` (admin konsol) atau `it_support` (hanya baca) |
-| `tenant` | **kosong** |
-| `is_platform_staff` | **true** |
-| `is_active` | **true** |
-| `verified` | true |
-
-`tenant` kosong dan `is_platform_staff = true` harus diisi dalam satu kali
-simpan: hook validasi menolak akun rumah sakit tanpa tenant, dan menolak akun
-platform yang punya tenant. Setelah akun ini ada, rumah sakit baru dibuat dari
-dalam aplikasi (menu **Konsol Vendor**), bukan dari Admin UI.
-
-### 4. Perintah dev lain
+### 5. Perintah dev lain
 
 ```bash
 npm run dev:pb       # PocketBase saja
@@ -155,10 +205,11 @@ npm run dev:web      # Vite saja (PocketBase harus sudah jalan)
 npm run pb:download  # unduh/segarkan binary saja
 npm run pb:serve     # PocketBase foreground dengan opsi dev
 npm run pb:migrate -- collections
+npm run pb:setup-token  # cetak kode setup instalasi baru
 ```
 
 Reset data lokal: hentikan dev, hapus `backend/pb_data/`, lalu jalankan
-`npm run dev` lagi dan buat superuser.
+`npm run dev` lagi dan ulangi setup (langkah 2).
 
 Debug query SQL PocketBase:
 
@@ -171,7 +222,7 @@ Di PowerShell: `$env:PB_DEBUG=1; npm run dev`.
 `PB_VERSION`, `PB_HTTP`, dan `DEV_ORIGINS` dapat diatur lewat environment atau
 `.env` (opsional; default sudah cocok untuk dev).
 
-### 5. Cek cepat
+### 6. Cek cepat
 
 - Login sebagai requester.
 - Buat tiket Incident / Service Request / Change Request.
@@ -196,8 +247,8 @@ Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`
 | Perintah | Cakupan | Butuh |
 |---|---|---|
 | `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, scope platform, mode tenancy, validasi input konsol vendor, helper antrean dashboard, agregasi laporan | Node |
-| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, lampiran terproteksi, laporan SLA + CSV, profil & password, lupa password mandiri (token, sekali pakai, audit), tim rumah sakit (provisioning + wajib ganti password), email transaksional (undangan, reset, antrean, preferensi), logo rumah sakit, konsol vendor (tenant, seed, provisioning, isolasi), vendor sebagai resolver tiket, laporan & audit lintas RS | Node + binary PocketBase |
-| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, profil, intake, lupa password, logo rumah sakit, konsol vendor (mode vendor) | Node + PocketBase + Chromium |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, katalog layanan + approval mode + SLA per layanan, triage, on-behalf, outcome perubahan, problem management + known error, knowledge base (visibilitas, publish, pencarian, workaround), asset/CI + service CI + riwayat tiket, CSAT satu respons per tiket, laporan SLA + CSV + laporan operasional, lampiran terproteksi, profil & password, lupa password mandiri, tim rumah sakit, email transaksional, logo rumah sakit, konsol vendor, vendor sebagai resolver tiket, laporan & audit lintas RS, setup awal (kode setup, standalone, vendor, penutupan setelah akun pertama) | Node + binary PocketBase |
+| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, profil, intake, katalog + intake layanan, triage prioritas, pengelolaan layanan di Pengaturan, problem known error dari tiket, penerbitan artikel + saran intake, lupa password, logo rumah sakit, konsol vendor (mode vendor), setup awal instalasi baru | Node + PocketBase + Chromium |
 | `npm run test:all` | ketiganya | — |
 
 Cara kerjanya:
@@ -211,6 +262,9 @@ Cara kerjanya:
   (`frontend/vite.config.js`), jadi tidak perlu `npm run dev` lebih dulu dan
   tidak bentrok dengan dev server di 5173/8090. File e2e konsol vendor menyalakan
   instance PocketBase sendiri dalam mode vendor.
+- File e2e dijalankan maksimal empat sekaligus (`--test-concurrency=4`) karena
+  setiap file menyalakan PocketBase, Vite, dan Chromium sendiri; paralelitas
+  penuh membuat mesin kecil kehabisan resource dan test jadi flaky.
 - Setiap file test membuat organisasinya sendiri (unit + manajer + requester +
   support + lead) sehingga file test aman berjalan paralel.
 - Binary PocketBase memakai `PB_VERSION` yang sama dengan dev dan diunduh sekali
@@ -237,24 +291,233 @@ Status: `open → assigned → in_progress → resolved → closed`, dengan `wai
 (menunggu requester) dari `assigned`/`in_progress`, dan `reopened` dari
 `resolved`/`closed`.
 
-| Aksi | Requester | IT Support | Manajer unit | IT Lead | Aturan |
-|---|---|---|---|---|---|
-| Assign | — | ke diri sendiri | — | ke staf IT mana pun / lepas | Hanya staf aktif di tenant yang sama |
-| Mulai kerjakan | — | assignee atau tiket belum di-assign | — | ya | Service/Change Request harus sudah approved; tiket tanpa assignee otomatis di-claim |
-| Menunggu requester | — | assignee | — | ya | Dari assigned/in_progress; jam penyelesaian dijeda, komentar tetap bisa ditambahkan |
-| Lanjutkan | — | assignee | — | ya | Dari waiting; tenggat penyelesaian digeser sebesar durasi jeda |
-| Selesaikan | — | assignee | — | ya | Wajib ringkasan resolusi ≥ 10 karakter + kode resolusi; approval harus approved untuk non-incident; tidak bisa dari waiting |
-| Tutup | — | ya | — | ya | Hanya dari status resolved |
-| Buka kembali | tiket sendiri | ya | — | ya | Dari resolved/closed; resolusi dibersihkan, `reopen_count` bertambah, dan SLA penyelesaian dihitung ulang |
-| Approval | — | — | tahap 1 (bila ditunjuk) | tahap 2 dan CAB | Hanya sebelum pekerjaan dimulai; CAB khusus CR high risk dan harus lead berbeda |
-| Delegasikan approval | — | — | tahap aktif miliknya | tahap mana pun | Pengganti harus aktif; tahap IT Lead/CAB hanya ke IT Lead; alasan wajib |
+| Aksi | Pemohon | Staff IT | Teknisi | Manajer unit | Kepala IT | Aturan |
+|---|---|---|---|---|---|---|
+| Assign | — | ke diri sendiri | — | — | ke Staff IT/Teknisi mana pun / lepas | Hanya staf aktif di tenant yang sama |
+| Mulai kerjakan | — | assignee atau tiket belum di-assign | assignee | — | ya | Service/Change Request harus sudah approved; tiket tanpa assignee otomatis di-claim |
+| Menunggu requester | — | assignee | assignee | — | ya | Dari assigned/in_progress; jam penyelesaian dijeda, komentar tetap bisa ditambahkan |
+| Lanjutkan | — | assignee | assignee | — | ya | Dari waiting; tenggat penyelesaian digeser sebesar durasi jeda |
+| Selesaikan | — | assignee | assignee | — | ya | Wajib ringkasan resolusi ≥ 10 karakter + kode resolusi; approval harus approved untuk non-incident; tidak bisa dari waiting |
+| Tutup | — | ya | — | — | ya | Hanya dari status resolved |
+| Buka kembali | tiket sendiri | ya | — | — | ya | Dari resolved/closed; resolusi dibersihkan, `reopen_count` bertambah, dan SLA penyelesaian dihitung ulang |
+| Approval | — | — | — | tahap 1 (bila ditunjuk) | tahap 2 dan CAB | Hanya sebelum pekerjaan dimulai; CAB khusus CR high risk dan harus lead berbeda |
+| Delegasikan approval | — | — | — | tahap aktif miliknya | tahap mana pun | Pengganti harus aktif; tahap Kepala IT/CAB hanya ke Kepala IT; alasan wajib |
 
-Setiap aksi ditulis ke audit log (`assign`, `transition`, `approve`, `reject`)
-dengan aktor dan perubahan status.
+**Teknisi (`resolver`)** melihat tiket yang ditugaskan kepadanya dan antrean
+timnya (`tickets.team`), lalu dapat mengambil tiket tim yang belum di-assign.
+Ia boleh menulis komentar/lampiran internal setelah tiket menjadi miliknya. Ia
+tidak boleh triage, meng-assign orang lain, menutup tiket, atau mengelola
+aset/problem/KB.
+**Pengamat (`viewer`)** hanya membaca laporan dan audit tenant; tidak membuka
+tiket dan tidak menulis apa pun.
+
+Setiap aksi ditulis ke audit log (`assign`, `transition`, `triage`, `approve`,
+`reject`) dengan aktor dan perubahan status.
+
+### Antrean tim
+
+Tiket dapat dimiliki sebuah **tim/bidang kerja**, terpisah dari unit rumah
+sakit. Nilainya: `service_desk`, `application`, `network`, `hardware`,
+`database`, `biomedical`, `other`.
+
+- `services.team` menentukan tim default layanan; tiket baru mewarisi nilai ini.
+- `tickets.team` dapat dikoreksi lewat triage oleh Staff IT/Kepala IT.
+- Teknisi (`resolver`) melihat tiket timnya, termasuk yang belum di-assign, lalu
+  menekan **Ambil tiket** untuk menjadi assignee.
+- Komentar/lampiran internal tiket tim baru terlihat setelah tiket diambil.
+- Teknisi tim lain tidak melihat atau mengambil tiket tersebut.
+- Staff IT dan Kepala IT tetap melihat seluruh tiket tenant.
+
+## Katalog layanan dan triage
+
+Tiket bisa dikaitkan ke satu **layanan** dan satu **item permintaan**. Katalog
+dikelola Kepala IT di **Pengaturan > Layanan**; pengguna memilihnya dari
+`/catalog` atau langsung di form tiket.
+
+| Konsep | Isi |
+|---|---|
+| `services` | nama, kode, deskripsi, service owner, unit pendukung, tim default, SLA default |
+| `service_items` | nama, kode, deskripsi, `approval_mode`, SLA item, urutan |
+| `tickets.service` / `service_item` | layanan dan item yang dipilih saat intake/triage |
+| `tickets.requested_for` | pemohon sebenarnya bila staf mencatat atas nama pengguna lain |
+| `tickets.location` | poli/ruangan/lokasi perangkat |
+| `tickets.approval_mode` | snapshot mode approval saat tiket dibuat |
+
+Mode approval per item:
+
+| Mode | Perilaku |
+|---|---|
+| `none` | tanpa approval; cocok untuk reset password atau permintaan rutin |
+| `manager` | manajer unit; bila tidak ada, fallback ke IT Lead |
+| `lead` | IT Lead saja |
+| `cab` | manajer unit → IT Lead → CAB (CAB hanya untuk CR high risk) |
+| `default` | perilaku lama: manajer unit → IT Lead → CAB |
+
+Prioritas SLA: **SLA item → SLA default layanan → policy tipe × prioritas**.
+Tiket menyimpan `sla_policy` dan `sla_snapshot`, sehingga perubahan katalog
+tidak mengubah tiket lama.
+
+Triage (`POST /api/itsm/tickets/{id}/triage`) hanya untuk staf IT, hanya pada
+status `open`/`assigned`, dan hanya sebelum ada approval yang diputuskan. Staf
+dapat mengubah prioritas, dampak, kategori, layanan, item, dan lokasi. Bila
+layanan/item berubah, alur approval yang masih pending dibangun ulang; SLA
+dihitung ulang dari waktu tiket dibuat dan breach/escalation lama dibersihkan
+(nilainya tetap tersimpan di audit). Triage wajib menyertakan alasan minimal 5
+karakter.
+
+Staf juga dapat mencatat tiket dari kanal non-web (`source` = `phone`,
+`email`, `whatsapp`) dan mengisi `requested_for`, `reporter_name`, serta
+`reporter_contact`. Requester biasa selalu tercatat sebagai dirinya sendiri.
+
+Change Request wajib mengisi `change_outcome` (`successful`, `partial`,
+`failed`, `rolled_back`) saat resolved; `actual_start` diisi saat pekerjaan
+dimulai dan `actual_end` saat resolved.
+
+## Intake QR publik
+
+Setiap unit dapat memiliki satu titik QR. Staf memindai stiker, mengisi form
+tanpa login, dan tiket langsung masuk ke antrean tim yang tepat.
+
+- **Pengaturan > Titik QR** (Kepala IT): buat titik dengan unit, lokasi, dan
+  batas tiket per jam; cetak lembar A5, salin tautan, rotasi token, atau
+  nonaktifkan titik.
+- **URL publik** `/i/{token}`: hanya menampilkan nama rumah sakit, logo, layanan
+  aktif, item, dan pilihan dampak. Tidak ada daftar pengguna, aset, tiket, atau
+  data internal lain.
+- **Identitas:** pelapor mengisi nama dan email/WhatsApp. Tiket memakai
+  `requester` kosong, `reporter_name`/`reporter_contact` terisi, dan unit diambil
+  dari titik QR — bukan dari body request.
+- **Lampiran:** maksimal 3 file, 10 MB per file (PDF, PNG, JPG, WEBP, TXT, LOG).
+  Screenshot bug bisa dikirim sejak awal. Lampiran tamu disimpan tanpa akun
+  pengunggah.
+- **Alur tiket:** `source=web`, `intake_channel=qr`, `intake_ref` = titik QR.
+  SLA, approval, dan penugasan berjalan sama seperti tiket lain.
+- **Pengamanan:** rate limit per titik (default 20/jam), honeypot, token yang
+  dapat dicabut, attestation data pasien wajib, serta validasi tipe/ukuran
+  lampiran. Batas per IP tidak dipakai karena di produksi semua request melewati
+  reverse proxy yang sama.
+- **Batasan:** pelapor tamu belum bisa membuka status tiket atau mengisi CSAT;
+  keduanya memerlukan tautan bertoken (fase berikutnya). Change Request tidak
+  dapat diajukan dari kanal publik.
+
+## Lampiran saat membuat tiket
+
+Form buat tiket menerima sampai 3 lampiran sebelum tiket dikirim. Setelah tiket
+dibuat, frontend mengunggah lampiran ke endpoint lampiran yang sudah ada; bila
+salah satu gagal, tiket tetap tersimpan dan detail tiket menampilkan peringatan
+agar lampiran bisa diunggah ulang secara manual.
+
+## Problem dan pengetahuan
+
+Problem mengelompokkan beberapa insiden yang berbagi akar masalah. Artikel
+pengetahuan menyimpan SOP dan known error agar tidak diselesaikan dari nol.
+
+### Problem
+
+- Dibuat dari detail tiket (**Buat problem**) atau dari halaman **Problem**.
+- Satu problem dapat memiliki banyak tiket lewat `problem_tickets`; tiket
+  menyimpan problem utama di `tickets.problem`.
+- Status: `identified → investigating → known_error → resolved → closed`.
+- `known_error` wajib memiliki **root cause** dan **workaround**.
+- `resolved` wajib memiliki **permanent fix** dan mengisi `resolved_at`.
+- `closed` hanya dari `resolved`.
+- Requester tidak dapat membaca problem; hanya staf IT dan akun platform.
+- Halaman problem menampilkan tiket terkait dan artikel yang ditautkan.
+
+### Pengetahuan
+
+- Artikel disimpan sebagai `draft`, diajukan `review` oleh staf, lalu
+  `published` atau `retired` oleh IT Lead.
+- Visibilitas `internal` hanya untuk staf IT; `public` dapat dibaca requester
+  setelah artikel terbit.
+- Artikel dapat ditautkan ke layanan, problem, dan tiket. Membuat artikel dari
+  detail tiket langsung menautkannya ke tiket tersebut.
+- Pencarian `GET /api/itsm/knowledge/search` hanya mengembalikan artikel terbit;
+  requester dibatasi ke artikel publik, staf dapat melihat artikel internal.
+- Jika artikel terkait problem berstatus `known_error`, hasil pencarian membawa
+  workaround sehingga form intake dapat menampilkannya sebelum tiket dibuat.
+
+Route:
+
+| Method | Path | Keterangan |
+|---|---|---|
+| POST | `/api/itsm/problems` | Buat problem; opsional tautkan `ticket_id` |
+| PATCH | `/api/itsm/problems/{id}` | Ubah status, root cause, workaround, permanent fix |
+| POST | `/api/itsm/problems/{id}/tickets` | Tautkan tiket ke problem |
+| POST | `/api/itsm/knowledge` | Buat artikel draft; opsional tautkan `ticket_id` |
+| PATCH | `/api/itsm/knowledge/{id}` | Ubah isi/visibilitas/tag atau ajukan review |
+| POST | `/api/itsm/knowledge/{id}/publish` | Terbitkan/pensiunkan; hanya IT Lead |
+| GET | `/api/itsm/knowledge/search` | Cari artikel terbit + known error/workaround |
+
+## Insiden mayor
+
+Insiden mayor adalah satu induk untuk gangguan besar (mis. SIMRS atau jaringan
+mati) sehingga puluhan tiket tidak ditangani terpisah.
+
+- **Deklarasi**: dari halaman **Insiden mayor** atau tombol **Deklarasikan** di
+  detail tiket. Nomor otomatis `INC-YYYYMMDD-XXXXXX`, severity `SEV-1/2/3`,
+  komandan (default pembuat), layanan terdampak, dan tiket sumber.
+- **Broadcast**: saat deklarasi dan setiap perubahan status, staf IT rumah sakit
+  dan lead vendor menerima notifikasi in-app + email sesuai preferensi. Update
+  `public` juga dikirim ke pemilik tiket terdampak; update `internal` tidak.
+- **Status**: `declared → investigating → mitigating → monitoring → resolved →
+  closed`. Insiden `resolved` dapat dibuka kembali ke `investigating`.
+- **Resolusi** wajib ringkasan pemulihan. **Penutupan** hanya dari `resolved`
+  dan wajib PIR lengkap: root cause + aksi perbaikan (`pir_completed_at`,
+  `pir_by`).
+- **Tiket terdampak**: tautkan banyak tiket dengan relasi
+  `impacted/caused/related`; `tickets.major_incident` menyimpan insiden utama
+  dan detail tiket menampilkan tautan ke insiden.
+- **Timeline**: update berkala (update/keputusan/komunikasi) dengan visibilitas
+  internal atau publik, lengkap dengan penulis dan waktu.
+- **Laporan**: panel **Insiden mayor** di halaman Laporan menampilkan total,
+  aktif, MTTR median, PIR selesai, dan tren bulanan.
+- Requester tidak dapat membaca detail insiden; hanya staf IT dan akun platform.
+
+Route:
+
+| Method | Path | Keterangan |
+|---|---|---|
+| POST | `/api/itsm/incidents` | Deklarasikan insiden; opsional `source_ticket` |
+| PATCH | `/api/itsm/incidents/{id}` | Ubah status/severity/komandan/layanan/PIR |
+| POST | `/api/itsm/incidents/{id}/updates` | Update komunikasi internal/publik |
+| POST | `/api/itsm/incidents/{id}/tickets` | Tautkan tiket terdampak |
+| GET | `/api/itsm/incidents/stats` | Statistik MTTR/PIR untuk laporan |
+
+## Asset/CI, CSAT, dan laporan operasional
+
+- Aset/CI menyimpan tipe, status, criticality, lokasi, unit, layanan utama,
+  penanggung jawab, garansi, dan catatan. Nomor aset dibuat otomatis bila
+  kosong. `service_cis` disinkronkan dari layanan utama.
+- Aset dapat ditautkan ke tiket saat intake atau dari detail tiket dengan relasi
+  `affected/caused/related`; detail aset menampilkan riwayat tiket.
+- Requester dapat memilih aset terdampak lewat `GET /api/itsm/assets/options`
+  (data ringkas), sedangkan daftar aset penuh dan detail hanya untuk staf.
+- CSAT hanya dapat dikirim requester setelah tiket `resolved`/`closed`, satu
+  respons per tiket. Staf dan requester dapat melihat skor/komentar.
+- Laporan operasional memakai rentang laporan yang sama: insiden per layanan,
+  problem teratas, pemakaian KB, CSAT per layanan, dan ringkasan SLA, plus ekspor
+  CSV.
+
+| Method | Path | Keterangan |
+|---|---|---|
+| POST | `/api/itsm/assets` | Buat aset; nomor otomatis bila kosong |
+| PATCH | `/api/itsm/assets/{id}` | Ubah aset dan sinkronkan service CI |
+| GET | `/api/itsm/assets/{id}` | Detail aset + service CI + riwayat tiket |
+| GET | `/api/itsm/assets/options` | Opsi aset ringkas untuk intake |
+| GET | `/api/itsm/tickets/{id}/assets` | Aset yang tertaut ke tiket |
+| POST | `/api/itsm/tickets/{id}/assets` | Tautkan aset ke tiket |
+| DELETE | `/api/itsm/tickets/{id}/assets/{assetId}` | Lepas aset dari tiket |
+| GET | `/api/itsm/tickets/{id}/csat` | Baca CSAT tiket |
+| POST | `/api/itsm/tickets/{id}/csat` | Kirim CSAT (requester, resolved/closed) |
+| GET | `/api/itsm/reports/operations` | Laporan operasional JSON |
+| GET | `/api/itsm/reports/operations.csv` | Ekspor CSV operasional |
 
 ## Approval berjenjang
 
-Service Request dan Change Request memakai **dua sampai tiga tahap berurutan**:
+Secara default, Service Request dan Change Request memakai **dua sampai tiga
+tahap berurutan**. Bila tiket memakai item katalog, `approval_mode` item
+menggantikan alur default (termasuk `none` untuk permintaan rutin):
 
 1. **Manajer unit pemohon** — hanya jika unit tersebut punya `manager` aktif.
    Bila belum ditunjuk, tahap ini dilewati dan alur langsung ke IT Lead.
@@ -363,7 +626,7 @@ Hanya untuk akun `is_platform_staff`. `role` tetap menentukan kewenangan:
 |---|---|
 | Daftar rumah sakit | Nama, kode, zona waktu, status, jumlah pengguna, tiket aktif |
 | Tambah rumah sakit | Membuat tenant + data master default + akun IT pertama dalam satu transaksi |
-| Data master default | 10 unit, 9 kategori, 12 kebijakan SLA, 3 hari libur; idempoten, bisa diulang |
+| Data master default | 10 unit, 9 kategori, 12 kebijakan SLA, 3 hari libur, 6 layanan + 7 item; idempoten, bisa diulang |
 | Data master per RS | Kelola unit, kategori, kebijakan SLA, dan hari libur setelah RS berjalan |
 | Pengguna tenant | Tambah pengguna, aktif/nonaktif, reset password |
 | Audit | Setiap aksi menulis `audit_logs` dengan `actor_role` berawalan `platform_` |
@@ -426,8 +689,9 @@ request, dan seluruh API rule memfilter `tenant = @request.auth.tenant`.
 
 ## Dashboard dan antrean kerja
 
-Staff (IT Support/IT Lead) mendarat di `/dashboard` setelah login; requester
-tetap diarahkan ke `/tickets` dan tidak melihat menu Ringkasan.
+Staff IT dan Kepala IT mendarat di `/dashboard` setelah login; Pemohon dan
+Teknisi diarahkan ke `/tickets`, sedangkan Pengamat ke `/reports`. Menu
+Ringkasan hanya tampil untuk Staff IT/Kepala IT.
 
 | Kartu / panel | Isi |
 |---|---|
@@ -461,7 +725,7 @@ Request akan selalu muncul di atas karena tidak punya resolution SLA.
 
 ## Laporan SLA
 
-Menu **Laporan** (`/reports`) tersedia untuk IT Lead. Halaman ini memakai
+Menu **Laporan** (`/reports`) tersedia untuk Kepala IT dan Pengamat. Halaman ini memakai
 route server-side, bukan agregasi di browser seperti dashboard, sehingga angkanya
 konsisten untuk rentang tanggal berapa pun.
 
@@ -482,6 +746,7 @@ rata-rata median per rumah sakit, jadi angka gabungan tetap benar.
 | Perbandingan RS | khusus vendor: total, selesai, breach, compliance, median per rumah sakit |
 | Tren | jumlah dibuat/selesai/breach dan compliance per bulan atau per minggu |
 | Per unit | total, selesai, breach, compliance per unit pemohon |
+| Per layanan | agregat yang sama per layanan; tiket tanpa layanan masuk "Tanpa layanan" |
 | Per prioritas / jenis | agregat yang sama per prioritas dan jenis tiket |
 | Breach terbaru | 20 tiket breach terakhir dengan level eskalasi dan status |
 | Unduh CSV | satu baris per tiket pada rentang terpilih |
@@ -509,12 +774,25 @@ GET /api/itsm/reports/sla?from=2026-08-01&to=2026-10-31&bucket=month
 GET /api/itsm/reports/sla.csv?from=2026-08-01&to=2026-10-31
 ```
 
+## Audit rumah sakit
+
+Menu **Audit** (`/audit`) tersedia untuk **Kepala IT** dan **Pengamat**.
+Pengamat hanya membaca: tidak ada tombol ubah/hapus, dan seluruh data dibatasi
+ke tenant-nya sendiri.
+
+- Route: `GET /api/itsm/audit` (filter tanggal, aktor, aksi, cakupan, nomor
+  tiket).
+- Rule koleksi `audit_logs` tetap hanya untuk Kepala IT; Pengamat membaca lewat
+  route server yang mengambil tenant dari `e.auth`.
+- Vendor tetap memakai `/api/itsm/platform/audit` untuk lintas rumah sakit.
+
 ## Riwayat aktivitas dan realtime
 
 Halaman detail tiket punya tab **Riwayat** di samping komentar. Datanya berasal
 dari `audit_logs` lewat route `GET /api/itsm/tickets/{id}/timeline`, bukan dari
 list rule audit (yang tetap khusus IT Lead). Route memproyeksikan satu event per
-aksi — create, assign, transition, approve/reject, comment, attachment,
+aksi — create, assign, transition, triage, problem_link, knowledge_link,
+approve/reject, comment, attachment,
 sla_breach — dan menyembunyikan komentar/lampiran internal dari requester.
 
 - Tiap event berisi aktor, aksi, perubahan yang aman ditampilkan, dan waktu.
@@ -676,30 +954,34 @@ dan `POST /api/itsm/profile/password`.
 
 ## Pengaturan (admin in-app)
 
-IT Lead mengelola data master dan timnya sendiri lewat `/admin`; menu
-**Pengaturan** hanya tampil untuk role `it_lead`, dan requester/IT Support yang
-membuka URL-nya dialihkan ke daftar tiket.
+Kepala IT mengelola data master dan timnya sendiri lewat `/admin`; menu
+**Pengaturan** hanya tampil untuk role `it_lead`, dan role lain yang membuka
+URL-nya dialihkan ke daftar tiket.
 
 | Tab | Isi | Catatan |
 |---|---|---|
 | Identitas | nama, kode, logo rumah sakit | logo dipakai sidebar dan halaman masuk |
 | Unit | nama, kode, jenis (klinis/penunjang/manajemen), manajer | dipakai pada form intake; manajer menjadi approver tahap 1 |
 | Kategori | nama, kode, jenis tiket | filter pilihan kategori per tipe |
+| Layanan | layanan + item permintaan, approval mode, SLA, owner, unit | dipakai pada katalog dan intake |
 | Kebijakan SLA | tipe, prioritas, respons/approval/penyelesaian, kalender | unik per `(tipe, prioritas)` |
 | Hari libur | tanggal + nama | memengaruhi SLA jam kerja |
-| Tim | anggota tim IT, role, unit, status | password awal dibuat sistem + email undangan |
+| Tim | anggota tim IT, role, jabatan, tim/bidang, unit, status | password awal dibuat sistem + email undangan |
 
 Aturan tab **Tim**:
 
 - Cakupan selalu tenant si lead (diambil server dari `e.auth`).
-- Role yang bisa dibuat: `requester`, `it_support`, `it_lead`.
+- Role yang bisa dibuat: `requester`, `it_support`, `resolver`, `it_lead`, `viewer`.
+- `job_title` (Jabatan) hanya metadata tampilan; tidak mengubah hak akses.
+- `team` (Tim) menentukan antrean tiket yang terlihat oleh Teknisi; tidak
+  mengubah role akses.
 - Password awal **dibuat sistem** (16 karakter) dan hanya ditampilkan sekali;
   anggota wajib menggantinya saat login pertama.
 - Bila SMTP aktif, undangan berisi password awal dikirim ke email anggota saat
   akun dibuat; reset password juga mengirim password baru. Bila SMTP mati atau
   gagal, password tetap ditampilkan di UI untuk diserahkan manual.
 - Lead tidak bisa menonaktifkan akun sendiri atau mengubah role sendiri.
-- IT Lead aktif terakhir tidak bisa dinonaktifkan atau diturunkan.
+- Kepala IT aktif terakhir tidak bisa dinonaktifkan atau diturunkan.
 - Email tidak bisa diubah setelah akun dibuat; tidak ada hard delete.
 
 - Semua data memakai `tenant` dari user, bukan dari body bebas.
@@ -711,8 +993,8 @@ Aturan tab **Tim**:
   `sla_snapshot` saat dibuat.
 - Setiap create/update data master menulis audit (`collection_name`,
   `record_id`, dan diff field yang berubah) lewat `pb_hooks/admin_audit.pb.js`.
-- Akun rumah sakit kini dibuat lewat tab **Tim**; Admin UI PocketBase hanya
-  dipakai untuk superuser dan akun platform (vendor).
+- Akun rumah sakit kini dibuat lewat tab **Tim** dan akun pertama lewat
+  `/setup`; Admin UI PocketBase hanya untuk operasi teknis superuser.
 
 ## Production
 
@@ -758,7 +1040,20 @@ ssh -L 8090:127.0.0.1:8090 user@server
 # buka http://127.0.0.1:8090/_/
 ```
 
-### 4. Buat superuser
+### 4. Setup awal
+
+Buka `https://$APP_DOMAIN`. Instalasi baru langsung dialihkan ke `/setup`.
+Kode setup dibuat server dan tersimpan di volume data:
+
+```bash
+docker compose exec pocketbase cat /pb/pb_data/setup_token
+```
+
+Setelah form setup selesai (identitas rumah sakit + akun Kepala IT, atau akun
+vendor pada `TENANCY_MODE=vendor`), kode dihapus dan `/setup` tertutup. Untuk
+otomatisasi, setel `SETUP_TOKEN` di `.env` sebelum `docker compose up`.
+
+### 5. Superuser PocketBase (opsional)
 
 ```bash
 docker compose exec pocketbase \
@@ -766,10 +1061,13 @@ docker compose exec pocketbase \
   --dir=/pb/pb_data
 ```
 
-### 5. Setelah deploy
+Hanya untuk akses darurat Admin UI lewat tunnel SSH, bukan untuk operasional
+harian.
 
-- Buat akun staff lewat Admin UI.
-- Uji login, intake, komentar, lampiran, audit.
+### 6. Setelah deploy
+
+- Tambah anggota tim lewat **Pengaturan → Tim** (bukan Admin UI).
+- Uji login, intake QR, komentar, lampiran, audit.
 - Pastikan backup berjalan.
 - Batasi akses SSH dan Admin UI.
 
@@ -834,6 +1132,7 @@ Environment yang dibaca backend:
 | Variabel | Default | Keterangan |
 |---|---|---|
 | `TENANCY_MODE` | `standalone` | `vendor` mengaktifkan Konsol Vendor dan akun platform |
+| `SETUP_TOKEN` | — | Kode setup awal; bila kosong server membuat sendiri di `<dataDir>/setup_token` |
 | `PB_ENCRYPTION_KEY` | — | Enkripsi setting PocketBase (opsional) |
 | `TZ` | `Asia/Jakarta` | Zona proses; cron SLA tetap `Asia/Jakarta` |
 | `GOMEMLIMIT` | `512MiB` | Batas memori Go |
@@ -847,12 +1146,24 @@ PocketBase oleh `scripts/lib/pocketbase.mjs`.
 UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 - Top bar putih 56 px + sidebar project 240 px dengan border tipis.
+- Sidebar bisa diciutkan lewat tombol di kiri top bar menjadi rail ikon 56 px;
+  label menu muncul sebagai tooltip saat hover/fokus, pilihan disimpan di
+  `localStorage`, dan batas lebar halaman naik dari 1320 px ke 1680 px agar area
+  konten memakai ruang yang terbebas. Di bawah 1081 px sidebar tetap menjadi
+  drawer dengan label penuh.
 - Warna aksen Atlassian Blue `#0052CC`, teks `#172B4D`, border `#DFE1E6`.
+- Panel `.panel` memakai header abu `#F4F5F7` dengan border bawah `#DFE1E6`
+  supaya judul panel terpisah jelas dari isinya; KPI card tetap putih tanpa
+  header.
 - Status memakai lozenge kecil (uppercase, 11 px, radius 2 px), prioritas memakai
   ikon chevron, bukan badge pil.
 - Action bar tiket di bawah judul: transisi status, assignment, dan approval,
   dengan modal Jira-style untuk resolusi dan approval.
 - Tabel issue yang padat, sticky-free, dengan skeleton loading.
+- Tabel admin/laporan: judul kolom rata kiri mengikuti isi sel, sedangkan kolom
+  angka (`.col-num`) rata kanan agar judul dan nilainya sejajar. Tabel tren
+  memakai `table-layout: fixed` supaya kolom periode ringkas dan bar volume
+  mengambil sisa lebar.
 - Panel aktivitas tiket memakai tab **Komentar / Riwayat** dan indikator `Live`
   saat koneksi realtime PocketBase aktif.
 - Login: satu kartu di tengah dengan latar gradien biru lembut dan pola titik halus; teks pendamping dihilangkan agar fokus ke form.
@@ -874,14 +1185,37 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | Method | Path | Keterangan |
 |---|---|---|
 | POST | `/api/itsm/tickets` | Buat tiket (auth) |
+| GET | `/api/itsm/public/intake/{token}` | Meta form QR publik (tanpa auth) |
+| POST | `/api/itsm/public/intake/{token}` | Buat tiket tamu dari QR; `payload` + `files` (tanpa auth) |
+| GET | `/api/itsm/public/intake/{token}/logo` | Logo tenant untuk halaman QR (tanpa auth) |
+| GET/POST | `/api/itsm/intake-points` | Daftar / buat titik QR; hanya IT Lead |
+| PATCH | `/api/itsm/intake-points/{id}` | Ubah titik QR; hanya IT Lead |
+| POST | `/api/itsm/intake-points/{id}/rotate` | Rotasi token titik QR; hanya IT Lead |
 | POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee (staff) |
 | POST | `/api/itsm/tickets/{id}/transition` | Mulai, menunggu/lanjutkan, selesaikan, tutup, buka kembali |
+| POST | `/api/itsm/tickets/{id}/triage` | Koreksi prioritas/klasifikasi/layanan sebelum pekerjaan dimulai |
+| POST | `/api/itsm/problems` | Buat problem; opsional tautkan tiket |
+| PATCH | `/api/itsm/problems/{id}` | Ubah status/root cause/workaround/permanent fix |
+| POST | `/api/itsm/problems/{id}/tickets` | Tautkan tiket ke problem |
+| POST | `/api/itsm/knowledge` | Buat artikel draft |
+| PATCH | `/api/itsm/knowledge/{id}` | Ubah artikel atau ajukan review |
+| POST | `/api/itsm/knowledge/{id}/publish` | Terbitkan/pensiunkan artikel; hanya IT Lead |
+| GET | `/api/itsm/knowledge/search` | Cari artikel terbit + workaround known error |
+| POST | `/api/itsm/assets` | Buat aset/CI |
+| PATCH | `/api/itsm/assets/{id}` | Ubah aset/CI |
+| GET | `/api/itsm/assets/{id}` | Detail aset + riwayat tiket |
+| GET | `/api/itsm/assets/options` | Opsi aset ringkas untuk intake |
+| GET/POST | `/api/itsm/tickets/{id}/assets` | Lihat / tautkan aset ke tiket |
+| DELETE | `/api/itsm/tickets/{id}/assets/{assetId}` | Lepas aset dari tiket |
+| GET/POST | `/api/itsm/tickets/{id}/csat` | Baca / kirim CSAT |
+| GET | `/api/itsm/reports/operations` | Laporan operasional |
+| GET | `/api/itsm/reports/operations.csv` | Ekspor CSV operasional |
 | POST | `/api/itsm/tickets/{id}/approval` | Setujui / tolak / delegasikan tahap approval aktif |
 | POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
 | POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran (multipart) |
 | GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
-| GET | `/api/itsm/reports/sla` | Laporan SLA (JSON); hanya IT Lead |
-| GET | `/api/itsm/reports/sla.csv` | Ekspor CSV per tiket; hanya IT Lead |
+| GET | `/api/itsm/reports/sla` | Laporan SLA (JSON); Kepala IT atau Pengamat |
+| GET | `/api/itsm/reports/sla.csv` | Ekspor CSV per tiket; Kepala IT atau Pengamat |
 | GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri |
 | POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus foto profil |
 | POST | `/api/itsm/profile/password` | Ganti password (verifikasi password lama) |
@@ -895,6 +1229,9 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | GET | `/api/itsm/mail/status` | Status SMTP dan antrean email; hanya IT Lead |
 | POST | `/api/itsm/mail/dispatch` | Kirim antrean email sekarang; hanya superuser |
 | GET | `/api/itsm/app-meta` | Mode tenancy aktif (publik) |
+| GET | `/api/itsm/setup/status` | Status setup awal + identitas RS untuk prefill (publik) |
+| POST | `/api/itsm/setup` | Buat data awal + akun pertama; wajib kode setup (publik) |
+| GET | `/api/itsm/audit` | Audit tenant; Kepala IT atau Pengamat |
 | GET | `/api/itsm/platform/tenants` | Daftar rumah sakit + hitungan; akun vendor |
 | GET | `/api/itsm/platform/audit` | Audit lintas rumah sakit; akun vendor |
 | POST | `/api/itsm/platform/tenants` | Buat rumah sakit + seed + akun IT pertama; vendor admin |
@@ -907,6 +1244,11 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | POST | `/api/itsm/platform/tenants/{id}/master/{kind}` | Tambah data master; vendor admin |
 | PATCH | `/api/itsm/platform/tenants/{id}/master/{kind}/{recordId}` | Ubah/nonaktifkan data master; vendor admin |
 | GET | `/api/collections/tickets/records` | List tiket sesuai API rules |
+| GET | `/api/collections/services/records` | Katalog layanan; baca semua pengguna tenant |
+| GET | `/api/collections/service_items/records` | Item permintaan per layanan |
+| GET | `/api/collections/problems/records` | Problem; hanya staf IT/akun platform |
+| GET | `/api/collections/problem_tickets/records` | Tiket terkait problem |
+| GET | `/api/collections/knowledge_articles/records` | Artikel; requester hanya published + public |
 | GET | `/api/collections/ticket_comments/records` | List komentar sesuai rules |
 | GET | `/api/collections/ticket_attachments/records` | List lampiran sesuai rules |
 | GET | `/api/collections/audit_logs/records` | Audit; hanya IT Lead |
@@ -915,13 +1257,39 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 44 unit test, 163 test API, dan 24
+- Suite otomatis lulus lokal (Windows): 49 unit test, 225 test API, dan 32
   skenario e2e — lihat bagian Testing.
+- Rich editor diverifikasi Playwright: toolbar tebal menghasilkan format,
+  HTML berbahaya (`script`, atribut `onclick`) dibuang sebelum disimpan, dan
+  script tidak dieksekusi saat artikel dirender.
+- Asset/CI + CSAT + laporan operasional diverifikasi test API + Playwright:
+  pembuatan aset dengan nomor otomatis, service CI, isolasi tenant, tautan dan
+  pelepasan aset dengan audit, riwayat tiket pada detail aset, CSAT hanya oleh
+  requester setelah resolved, satu respons per tiket, serta laporan operasional
+  dan CSV yang memuat insiden per layanan, CSAT, KB, problem, dan SLA.
+- Insiden mayor diverifikasi test API + Playwright: deklarasi dari tiket dengan
+  nomor otomatis dan broadcast, tautan beberapa tiket tanpa duplikasi, update
+  internal/publik, resolusi wajib ringkasan, penutupan wajib PIR lengkap, PIR
+  tersimpan, isolasi tenant, statistik MTTR, dan tautan balik di detail tiket.
+- Problem & pengetahuan diverifikasi test API + Playwright: problem dari tiket,
+  syarat known error/resolved/closed, penautan tiket kedua + audit, isolasi
+  tenant, draft internal tidak terlihat requester, publish hanya IT Lead,
+  artikel publik terlihat requester, pencarian known error membawa workaround,
+  artikel internal hanya untuk staf, dan item knowledge lintas tenant ditolak.
+  UI problem known error dan saran artikel di intake diuji Playwright.
+- Katalog layanan diverifikasi test API + Playwright: seed 6 layanan/7 item,
+  kode dinormalisasi, item lintas tenant ditolak, support tidak bisa menulis
+  katalog, item `none` tidak membuat approval, item `manager` membuat tahap
+  manajer, SLA layanan dipakai, on-behalf + sumber telepon, triage menghitung
+  ulang SLA dan menulis audit, triage membangun ulang approval, triage ditolak
+  setelah pekerjaan dimulai, dan CR wajib outcome/tanggal aktual. UI katalog,
+  intake, triage, dan pengelolaan layanan diuji Playwright.
 - Konsol Vendor diverifikasi test API: mode `standalone` menolak login akun
   vendor, mode `vendor` mengizinkan; pengguna rumah sakit ditolak dari route
   platform; `it_support` hanya baca; pembuatan tenant (seed 10 unit, 9 kategori,
-  12 kebijakan, 3 hari libur + akun IT pertama) atomik; seed idempoten; kode
-  unik; email duplikat ditolak; menonaktifkan tenant memblokir login.
+  12 kebijakan, 3 hari libur, 6 layanan + 7 item + akun IT pertama) atomik; seed
+  idempoten; kode unik; email duplikat ditolak; menonaktifkan tenant memblokir
+  login.
 - Vendor sebagai resolver diverifikasi test API: membaca tiket dan master data
   rumah sakit lain, ditugaskan lalu menyelesaikan siklus tiket rumah sakit,
   menerima notifikasi penugasan, menyetujui semua tahap service request,
@@ -1049,6 +1417,12 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Scope berikutnya
 
+- Laporan problem aging, repeat incident rate, KB usage/deflection, dan PIR
+  khusus perubahan (PIR insiden mayor sudah tersedia).
+- PIR insiden mayor otomatis membuat problem/KB dengan aksi perbaikan dan
+  pemiliknya.
+- Dynamic form dan checklist fulfillment per item layanan; penulisan katalog
+  dari konsol vendor.
 - Verifikasi email saat pemilik akun ingin mengganti alamat email.
 - WhatsApp untuk notifikasi kritis; email sudah tersedia lewat SMTP.
 - SSO SIMRS dan provisioning akun tanpa Admin UI.

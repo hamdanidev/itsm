@@ -6,6 +6,7 @@ var AUDIT_KEYS = [
   "name",
   "code",
   "kind",
+  "description",
   "ticket_type",
   "priority",
   "response_minutes",
@@ -17,6 +18,13 @@ var AUDIT_KEYS = [
   "business_end",
   "version",
   "date",
+  "owner",
+  "support_unit",
+  "default_sla",
+  "service",
+  "approval_mode",
+  "sla_policy",
+  "sort",
   "is_active",
 ];
 

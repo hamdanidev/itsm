@@ -2,11 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "../../../components/ui/PageHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import Modal from "../../../components/ui/Modal";
+import { TableSkeleton } from "../../../components/ui/Skeleton";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useTenant } from "../../../app/providers/TenantProvider";
 import { formatDateTime } from "../../../lib/format";
-import { isPlatformAdmin } from "../../../lib/permissions";
-import { fetchPlatformAudit, getErrorMessage } from "../../../lib/api";
+import { isPlatformAdmin, isPlatformStaff } from "../../../lib/permissions";
+import {
+  fetchPlatformAudit,
+  fetchTenantAudit,
+  getErrorMessage,
+} from "../../../lib/api";
 
 const ACTION_LABELS = {
   create: "Dibuat",
@@ -21,6 +26,19 @@ const ACTION_LABELS = {
   sla_breach: "SLA lewat",
   escalate: "Eskalasi",
   delegate: "Delegasi",
+  problem_link: "Tautan problem",
+  knowledge_link: "Tautan pengetahuan",
+  asset_create: "Aset dibuat",
+  asset_update: "Aset diubah",
+  asset_link: "Tautan aset",
+  asset_unlink: "Lepas aset",
+  csat: "CSAT",
+  incident_declare: "Insiden dideklarasikan",
+  incident_update: "Update insiden",
+  incident_resolve: "Insiden pulih",
+  incident_close: "Insiden ditutup",
+  incident_link: "Tautan insiden",
+  incident_pir: "PIR insiden",
 };
 
 const COLLECTION_LABELS = {
@@ -34,6 +52,11 @@ const COLLECTION_LABELS = {
   sla_policies: "Kebijakan SLA",
   holidays: "Hari libur",
   tenants: "Rumah sakit",
+  problems: "Problem",
+  knowledge_articles: "Pengetahuan",
+  assets: "Aset",
+  major_incidents: "Insiden mayor",
+  services: "Layanan",
 };
 
 const SCOPE_OPTIONS = [
@@ -81,6 +104,7 @@ function scopeBadge(item) {
 export default function AuditPage() {
   const { user } = useAuth();
   const { tenants } = useTenant();
+  const isPlatform = isPlatformStaff(user);
   const isAdmin = isPlatformAdmin(user);
 
   const [filters, setFilters] = useState({
@@ -110,7 +134,8 @@ export default function AuditPage() {
     setError("");
 
     try {
-      const payload = await fetchPlatformAudit({
+      const request = isPlatform ? fetchPlatformAudit : fetchTenantAudit;
+      const payload = await request({
         ...nextFilters,
         page: nextPage,
         perPage: 25,
@@ -129,14 +154,14 @@ export default function AuditPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isPlatform]);
 
   useEffect(() => {
-    document.title = "Audit · Konsol Vendor";
+    document.title = isPlatform ? "Audit · Konsol Vendor" : "Audit · Healthcare ITSM";
     load(filters, 1);
     // Muat sekali saat halaman dibuka; filter berikutnya lewat tombol Terapkan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load]);
+  }, [load, isPlatform]);
 
   function setField(key, value) {
     setFilters((current) => {
@@ -167,9 +192,17 @@ export default function AuditPage() {
   return (
     <>
       <PageHeader
-        breadcrumb={[{ label: "Vendor" }, { label: "Audit" }]}
+        breadcrumb={
+          isPlatform
+            ? [{ label: "Vendor" }, { label: "Audit" }]
+            : [{ label: "Audit" }]
+        }
         title="Audit"
-        description="Jejak aktivitas lintas rumah sakit: siapa mengubah apa, di tiket atau data master mana, dan kapan."
+        description={
+          isPlatform
+            ? "Jejak aktivitas lintas rumah sakit: siapa mengubah apa, di tiket atau data master mana, dan kapan."
+            : "Jejak aktivitas rumah sakit Anda: siapa mengubah apa, di tiket atau data master mana, dan kapan."
+        }
       />
 
       {error && (
@@ -179,28 +212,30 @@ export default function AuditPage() {
         </div>
       )}
 
-      <div className="report-filters">
-        <div className="report-fields">
-          <div className="report-field">
-            <label className="form-label" htmlFor="audit-tenant">
-              Rumah sakit
-            </label>
-            <select
-              id="audit-tenant"
-              className="select"
-              value={filters.tenant}
-              onChange={(event) => setField("tenant", event.target.value)}
-            >
-              <option value="">Semua rumah sakit</option>
-              {tenants.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </div>
+      <div className="filter-bar is-boxed">
+        <div className="filter-fields">
+          {isPlatform && (
+            <div className="filter-field">
+              <label className="form-label" htmlFor="audit-tenant">
+                Rumah sakit
+              </label>
+              <select
+                id="audit-tenant"
+                className="select"
+                value={filters.tenant}
+                onChange={(event) => setField("tenant", event.target.value)}
+              >
+                <option value="">Semua rumah sakit</option>
+                {tenants.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
-          <div className="report-field">
+          <div className="filter-field">
             <label className="form-label" htmlFor="audit-actor">
               Aktor
             </label>
@@ -220,7 +255,7 @@ export default function AuditPage() {
             </select>
           </div>
 
-          <div className="report-field">
+          <div className="filter-field">
             <label className="form-label" htmlFor="audit-scope">
               Cakupan
             </label>
@@ -238,7 +273,7 @@ export default function AuditPage() {
             </select>
           </div>
 
-          <div className="report-field">
+          <div className="filter-field">
             <label className="form-label" htmlFor="audit-action">
               Aksi
             </label>
@@ -257,7 +292,7 @@ export default function AuditPage() {
             </select>
           </div>
 
-          <div className="report-field">
+          <div className="filter-field">
             <label className="form-label" htmlFor="audit-from">
               Dari
             </label>
@@ -271,7 +306,7 @@ export default function AuditPage() {
             />
           </div>
 
-          <div className="report-field">
+          <div className="filter-field">
             <label className="form-label" htmlFor="audit-to">
               Sampai
             </label>
@@ -286,7 +321,7 @@ export default function AuditPage() {
             />
           </div>
 
-          <div className="report-field">
+          <div className="filter-field">
             <label className="form-label" htmlFor="audit-q">
               Cari nomor tiket
             </label>
@@ -306,7 +341,7 @@ export default function AuditPage() {
           </div>
 
           <button
-            className="btn btn-outline report-apply"
+            className="btn btn-outline"
             type="button"
             onClick={apply}
             disabled={loading}
@@ -315,9 +350,7 @@ export default function AuditPage() {
             Terapkan
           </button>
         </div>
-      </div>
 
-      <div className="list-toolbar">
         <span className="list-count">
           {loading ? "Memuat..." : `${data.totalItems} aktivitas`}
         </span>
@@ -325,10 +358,7 @@ export default function AuditPage() {
 
       <div className="list-panel">
         {loading ? (
-          <div className="admin-loading">
-            <span className="spinner spinner--dark" role="status" />
-            Memuat jejak audit...
-          </div>
+          <TableSkeleton rows={5} />
         ) : data.items.length === 0 ? (
           <EmptyState
             icon="bi-clipboard-data"

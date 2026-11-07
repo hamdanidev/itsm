@@ -1,14 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import PageHeader from "../../../components/ui/PageHeader";
 import EmptyState from "../../../components/ui/EmptyState";
+import { TableSkeleton } from "../../../components/ui/Skeleton";
 import { pb } from "../../../lib/pocketbase";
-import { escapeFilterValue, getErrorMessage } from "../../../lib/api";
+import {
+  assignTicket,
+  escapeFilterValue,
+  getErrorMessage,
+  transitionTicket,
+} from "../../../lib/api";
 import { formatRelative, initials, isOpen } from "../../../lib/format";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useTenant } from "../../../app/providers/TenantProvider";
-import { isStaff } from "../../../lib/permissions";
-import { ACTIVE_FILTER } from "../lib/queues";
+import { isLead, isResolver, isStaff } from "../../../lib/permissions";
+import { teamLabel } from "../../../lib/teams";
+import { ACTIVE_FILTER, isBreached, nextDueOf } from "../lib/queues";
+import TicketBoard from "../components/TicketBoard";
 import {
   Priority,
   SlaChip,
@@ -57,60 +65,67 @@ const sortMap = {
 
 const pageSizes = [25, 50, 100];
 
-function TableSkeleton({ rows = 6 }) {
+// Tampilan tersimpan = preset filter yang sering dipakai tim IT. Nilai yang
+// tidak ada di preset dihapus saat preset dipilih agar hasilnya dapat diprediksi.
+const savedViews = [
+  { key: "active", label: "Aktif", icon: "bi-inbox", params: { scope: "active" } },
+  {
+    key: "mine",
+    label: "Tiket saya",
+    icon: "bi-person-check",
+    params: { scope: "active", assignee: "mine" },
+  },
+  {
+    key: "unassigned",
+    label: "Belum di-assign",
+    icon: "bi-people",
+    params: { scope: "active", assignee: "unassigned" },
+  },
+  {
+    key: "breached",
+    label: "SLA lewat",
+    icon: "bi-exclamation-triangle",
+    params: { scope: "active", sla: "breached" },
+  },
+  {
+    key: "approval",
+    label: "Menunggu approval",
+    icon: "bi-hourglass-split",
+    params: { scope: "active", approval: "pending" },
+  },
+];
+
+const viewFilterKeys = [
+  "scope",
+  "assignee",
+  "sla",
+  "approval",
+  "status",
+  "priority",
+  "q",
+];
+
+const DENSITY_KEY = "ticket-list-density";
+
+const startableStatuses = ["open", "assigned", "reopened", "waiting"];
+
+function SelectAllCheckbox({ checked, indeterminate, onChange, disabled }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = Boolean(indeterminate);
+  }, [indeterminate]);
+
   return (
-    <div className="issue-table-wrap">
-      <table className="issue-table" aria-hidden="true">
-        <thead>
-          <tr>
-            <th className="col-type" />
-            <th className="col-key">Tiket</th>
-            <th>Ringkasan</th>
-            <th className="col-status">Status</th>
-            <th className="col-priority">Prioritas</th>
-            <th className="col-assignee">Assignee</th>
-            <th className="col-sla">SLA</th>
-            <th className="col-created">Dibuat</th>
-            <th className="col-action" />
-          </tr>
-        </thead>
-        <tbody>
-          {Array.from({ length: rows }).map((_, index) => (
-            <tr key={index}>
-              <td className="col-type">
-                <span className="skeleton" style={{ width: 16, height: 16 }} />
-              </td>
-              <td className="col-key">
-                <span className="skeleton" style={{ width: 92 }} />
-              </td>
-              <td>
-                <span className="skeleton" style={{ width: "70%" }} />
-                <span
-                  className="skeleton"
-                  style={{ width: "35%", marginTop: 8, height: 10 }}
-                />
-              </td>
-              <td className="col-status">
-                <span className="skeleton" style={{ width: 64 }} />
-              </td>
-              <td className="col-priority">
-                <span className="skeleton" style={{ width: 54 }} />
-              </td>
-              <td className="col-assignee">
-                <span className="skeleton" style={{ width: 96 }} />
-              </td>
-              <td className="col-sla">
-                <span className="skeleton" style={{ width: 104 }} />
-              </td>
-              <td className="col-created">
-                <span className="skeleton" style={{ width: 64 }} />
-              </td>
-              <td className="col-action" />
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <input
+      ref={ref}
+      type="checkbox"
+      className="row-check"
+      checked={checked}
+      onChange={onChange}
+      disabled={disabled}
+      aria-label="Pilih semua tiket di halaman ini"
+    />
   );
 }
 
@@ -144,6 +159,11 @@ export default function TicketListPage() {
   const sortKey = sortMap[params.get("sort")] ? params.get("sort") : "created";
   const page = Math.max(1, Number(params.get("page")) || 1);
   const q = params.get("q") || "";
+  const paramsKey = params.toString();
+
+  // Aksi cepat, aksi massal, dan papan kerja hanya untuk staf IT dan teknisi.
+  const canBulkAct = isStaff(user) || isResolver(user);
+  const view = canBulkAct && params.get("view") === "board" ? "board" : "list";
 
   const [search, setSearch] = useState(q);
   const [perPage, setPerPage] = useState(25);
@@ -153,10 +173,33 @@ export default function TicketListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [managesUnit, setManagesUnit] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [rowBusy, setRowBusy] = useState("");
+  const [notice, setNotice] = useState("");
+  const [density, setDensity] = useState("comfortable");
 
   useEffect(() => {
     document.title = "Tiket · Healthcare ITSM";
   }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(DENSITY_KEY);
+    if (saved === "compact" || saved === "comfortable") setDensity(saved);
+  }, []);
+
+  // Pilihan baris tidak boleh bertahan saat filter/halaman berubah: aksi massal
+  // harus selalu terlihat pada layar yang sedang dibaca.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [paramsKey]);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+
+    const timer = setTimeout(() => setNotice(""), 7000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   useEffect(() => {
     if (!user?.id || isStaff(user)) {
@@ -209,6 +252,9 @@ export default function TicketListPage() {
   }, [q, search, updateParams]);
 
   const loadTickets = useCallback(async () => {
+    // Papan punya query sendiri per kolom; daftar tidak perlu dimuat.
+    if (view === "board") return;
+
     setLoading(true);
     setError("");
 
@@ -274,6 +320,7 @@ export default function TicketListPage() {
     user?.id,
     isPlatformScope,
     activeTenantId,
+    view,
   ]);
 
   useEffect(() => {
@@ -305,6 +352,171 @@ export default function TicketListPage() {
     goToPage(1);
   }
 
+  function toggleDensity() {
+    setDensity((current) => {
+      const next = current === "compact" ? "comfortable" : "compact";
+      localStorage.setItem(DENSITY_KEY, next);
+      return next;
+    });
+  }
+
+  function toggleRow(ticketId) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(ticketId)) next.delete(ticketId);
+      else next.add(ticketId);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelectedIds((current) => {
+      const allSelected =
+        tickets.length > 0 && tickets.every((ticket) => current.has(ticket.id));
+      return allSelected ? new Set() : new Set(tickets.map((ticket) => ticket.id));
+    });
+  }
+
+  function viewActive(view) {
+    return viewFilterKeys.every((key) => {
+      const expected = view.params[key] || "";
+      return (params.get(key) || "") === expected;
+    });
+  }
+
+  function applyView(view) {
+    setSearch("");
+    updateParams({
+      status: "",
+      priority: "",
+      approval: "",
+      sla: "",
+      assignee: "",
+      scope: "",
+      q: "",
+      ...view.params,
+    });
+  }
+
+  // Pindah mode tampilan: papan mengabaikan filter status (kolom sudah
+  // mewakili status) dan scope "aktif" agar kolom Selesai tetap terisi.
+  function switchView(next) {
+    setSelectedIds(new Set());
+    updateParams(
+      next === "board"
+        ? { view: "board", status: "", scope: "" }
+        : { view: "" }
+    );
+  }
+
+  // Aksi cepat per baris mengikuti aturan server: tiket tanpa assignee boleh
+  // diambil staf (atau teknisi pada antrean timnya), dan hanya tiket yang
+  // approval-nya siap yang ditawari "Mulai".
+  function quickActionFor(ticket) {
+    if (!canBulkAct) return null;
+
+    const assignee = String(ticket.assignee || "");
+    const status = String(ticket.status || "");
+    const staff = isStaff(user);
+    const lead = isLead(user);
+    const teamMatch = Boolean(user?.team) && ticket.team === user.team;
+
+    const canClaim =
+      !assignee &&
+      (status === "open" || status === "reopened") &&
+      (staff || (isResolver(user) && teamMatch));
+
+    if (canClaim) {
+      return {
+        key: "claim",
+        label: "Ambil",
+        icon: "bi-hand-index",
+        run: () => assignTicket(ticket.id, user.id),
+        done: "di-assign kepada Anda.",
+      };
+    }
+
+    const approvalReady =
+      ticket.type === "incident" || ticket.approval_status === "approved";
+    const ownershipOk = staff
+      ? lead || !assignee || assignee === user?.id
+      : assignee === user?.id || (!assignee && teamMatch);
+
+    if (startableStatuses.includes(status) && approvalReady && ownershipOk) {
+      const resuming = status === "waiting";
+
+      return {
+        key: "start",
+        label: resuming ? "Lanjut" : "Mulai",
+        icon: resuming ? "bi-play-circle" : "bi-play-fill",
+        run: () => transitionTicket(ticket.id, { status: "in_progress" }),
+        done: resuming ? "dilanjutkan." : "mulai dikerjakan.",
+      };
+    }
+
+    return null;
+  }
+
+  async function runRowAction(ticket, action) {
+    if (!action || rowBusy) return;
+
+    setRowBusy(ticket.id);
+    setError("");
+
+    try {
+      await action.run();
+      setNotice(`${ticket.ticket_no} ${action.done}`);
+      await loadTickets();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setRowBusy("");
+    }
+  }
+
+  async function runBulk(mode) {
+    const items = tickets.filter((ticket) => selectedIds.has(ticket.id));
+    if (!items.length || bulkBusy) return;
+
+    setBulkBusy(true);
+    setError("");
+
+    let done = 0;
+    const failures = [];
+
+    for (const ticket of items) {
+      try {
+        if (mode === "assign") {
+          await assignTicket(ticket.id, user.id);
+        } else {
+          await transitionTicket(ticket.id, { status: "in_progress" });
+        }
+        done += 1;
+      } catch (err) {
+        failures.push(`${ticket.ticket_no}: ${getErrorMessage(err)}`);
+      }
+    }
+
+    setBulkBusy(false);
+    setSelectedIds(new Set());
+    await loadTickets();
+
+    if (failures.length > 0) {
+      setNotice("");
+      setError(
+        `${done} tiket diproses, ${failures.length} gagal — ${failures
+          .slice(0, 2)
+          .join("; ")}`
+      );
+    } else {
+      setNotice(
+        mode === "assign"
+          ? `${done} tiket di-assign kepada Anda.`
+          : `${done} tiket mulai dikerjakan.`
+      );
+    }
+  }
+
   const filtersActive = Boolean(
     status || priority || assignee || sla || approval || scope || q
   );
@@ -315,6 +527,12 @@ export default function TicketListPage() {
 
   const from = total === 0 ? 0 : (page - 1) * perPage + 1;
   const to = Math.min(page * perPage, total);
+
+  const selectedCount = selectedIds.size;
+  const allSelected =
+    tickets.length > 0 && tickets.every((ticket) => selectedIds.has(ticket.id));
+  const someSelected =
+    !allSelected && tickets.some((ticket) => selectedIds.has(ticket.id));
 
   const chips = useMemo(() => {
     const items = [];
@@ -333,6 +551,47 @@ export default function TicketListPage() {
 
     return items;
   }, [scope, assignee, sla, approval]);
+
+  // Filter dasar papan: sama dengan daftar, tanpa status/scope karena kolom
+  // papan sudah mewakili status.
+  const boardBaseFilter = useMemo(() => {
+    const filters = [];
+
+    if (isPlatformScope && activeTenantId) {
+      filters.push(`tenant = "${escapeFilterValue(activeTenantId)}"`);
+    }
+
+    if (priority) filters.push(`priority = "${priority}"`);
+    if (approval) filters.push(`approval_status = "${approval}"`);
+
+    if (assignee === "mine" && user?.id) {
+      filters.push(`assignee = "${user.id}"`);
+    } else if (assignee === "unassigned") {
+      filters.push('assignee = ""');
+    }
+
+    if (sla === "breached") {
+      filters.push(
+        '(response_breach_at != "" || approval_breach_at != "" || resolution_breach_at != "")'
+      );
+    }
+
+    const term = escapeFilterValue(q);
+    if (term) {
+      filters.push(`(ticket_no ~ "${term}" || title ~ "${term}")`);
+    }
+
+    return filters.join(" && ");
+  }, [
+    isPlatformScope,
+    activeTenantId,
+    priority,
+    approval,
+    assignee,
+    sla,
+    q,
+    user?.id,
+  ]);
 
   if (noActiveTenant) {
     return (
@@ -362,16 +621,72 @@ export default function TicketListPage() {
     <>
       <PageHeader
         breadcrumb={[{ label: "Service desk" }, { label: "Tiket" }]}
-        title={isStaff(user) || managesUnit ? "Tiket" : "Tiket saya"}
+        title={
+          isStaff(user) || managesUnit
+            ? "Tiket"
+            : isResolver(user)
+              ? "Tiket & antrean tim"
+              : "Tiket saya"
+        }
         description={
           isStaff(user)
             ? "Antrean insiden, permintaan layanan, dan perubahan SIMRS."
-            : managesUnit
-              ? "Tiket yang Anda laporkan dan tiket unit yang Anda kelola."
-              : "Status dan riwayat tiket yang Anda laporkan."
+            : isResolver(user)
+              ? "Tiket tim Anda dan tiket yang ditugaskan kepada Anda."
+              : managesUnit
+                ? "Tiket yang Anda laporkan dan tiket unit yang Anda kelola."
+                : "Status dan riwayat tiket yang Anda laporkan."
         }
       />
 
+      {canBulkAct && (
+        <div className="saved-views" role="group" aria-label="Tampilan tersimpan">
+          {view === "list" && (
+            <>
+              <span className="saved-views-label">Tampilan</span>
+              {savedViews.map((item) => {
+                const active = viewActive(item);
+
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={`view-pill${active ? " is-active" : ""}`}
+                    aria-pressed={active}
+                    onClick={() => applyView(item)}
+                  >
+                    <i className={`bi ${item.icon}`} aria-hidden="true" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          <div className="view-switch" role="group" aria-label="Mode tampilan">
+            <button
+              type="button"
+              className={view === "list" ? "is-active" : undefined}
+              aria-pressed={view === "list"}
+              onClick={() => switchView("list")}
+            >
+              <i className="bi bi-list-ul" aria-hidden="true" />
+              Daftar
+            </button>
+            <button
+              type="button"
+              className={view === "board" ? "is-active" : undefined}
+              aria-pressed={view === "board"}
+              onClick={() => switchView("board")}
+            >
+              <i className="bi bi-kanban" aria-hidden="true" />
+              Papan
+            </button>
+          </div>
+        </div>
+      )}
+
+      {view !== "board" && (
       <div className="tabs" role="tablist" aria-label="Filter status">
         {statusTabs.map((tab) => (
           <button
@@ -386,8 +701,9 @@ export default function TicketListPage() {
           </button>
         ))}
       </div>
+      )}
 
-      <div className="list-toolbar">
+      <div className="filter-bar">
         <div className="search-box">
           <i className="bi bi-search" aria-hidden="true" />
           <input
@@ -423,7 +739,7 @@ export default function TicketListPage() {
           ))}
         </select>
 
-        {isStaff(user) && (
+        {(isStaff(user) || isResolver(user)) && (
           <select
             className="select toolbar-select"
             aria-label="Filter assignee"
@@ -438,18 +754,20 @@ export default function TicketListPage() {
           </select>
         )}
 
-        <select
-          className="select toolbar-select"
-          aria-label="Urutkan"
-          value={sortKey}
-          onChange={(event) => apply({ sort: event.target.value })}
-        >
-          {sortOptions.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
+        {view !== "board" && (
+          <select
+            className="select toolbar-select"
+            aria-label="Urutkan"
+            value={sortKey}
+            onChange={(event) => apply({ sort: event.target.value })}
+          >
+            {sortOptions.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        )}
 
         <button
           className={`btn btn-sm ${
@@ -474,9 +792,33 @@ export default function TicketListPage() {
           </button>
         )}
 
-        <span className="list-count">
-          {loading ? "Memuat..." : `${total} tiket`}
-        </span>
+        {view !== "board" && (
+          <button
+            className="btn btn-subtle btn-sm"
+            type="button"
+            aria-pressed={density === "compact"}
+            title={
+              density === "compact"
+                ? "Tampilkan baris lebih lega"
+                : "Tampilkan lebih banyak tiket per layar"
+            }
+            onClick={toggleDensity}
+          >
+            <i
+              className={`bi ${
+                density === "compact" ? "bi-arrows-expand" : "bi-arrows-collapse"
+              }`}
+              aria-hidden="true"
+            />
+            {density === "compact" ? "Padat" : "Nyaman"}
+          </button>
+        )}
+
+        {view !== "board" && (
+          <span className="list-count">
+            {loading ? "Memuat..." : `${total} tiket`}
+          </span>
+        )}
       </div>
 
       {chips.length > 0 && (
@@ -489,6 +831,59 @@ export default function TicketListPage() {
               onRemove={() => apply({ [chip.key]: "" })}
             />
           ))}
+        </div>
+      )}
+
+      {canBulkAct && selectedCount > 0 && (
+        <div className="bulk-bar" role="region" aria-label="Aksi massal">
+          <span>
+            <strong>{selectedCount}</strong> tiket dipilih
+          </span>
+          <div className="bulk-bar-actions">
+            <button
+              className="btn btn-sm btn-outline"
+              type="button"
+              disabled={bulkBusy}
+              onClick={() => runBulk("assign")}
+            >
+              <i className="bi bi-person-check" aria-hidden="true" />
+              Assign ke saya
+            </button>
+            <button
+              className="btn btn-sm btn-outline"
+              type="button"
+              disabled={bulkBusy}
+              onClick={() => runBulk("start")}
+            >
+              <i className="bi bi-play-fill" aria-hidden="true" />
+              Mulai
+            </button>
+            <button
+              className="btn btn-sm btn-subtle"
+              type="button"
+              disabled={bulkBusy}
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Batal
+            </button>
+            {bulkBusy && <span className="muted">Memproses...</span>}
+          </div>
+        </div>
+      )}
+
+      {notice && (
+        <div className="alert alert--success" role="status">
+          <i className="bi bi-check2-circle" aria-hidden="true" />
+          <div>
+            {notice}{" "}
+            <button
+              className="btn btn-subtle btn-sm"
+              type="button"
+              onClick={() => setNotice("")}
+            >
+              Tutup
+            </button>
+          </div>
         </div>
       )}
 
@@ -508,6 +903,14 @@ export default function TicketListPage() {
         </div>
       )}
 
+      {view === "board" ? (
+        <TicketBoard
+          baseFilter={boardBaseFilter}
+          user={user}
+          canAct={canBulkAct}
+          onOpenTicket={(ticket) => navigate(`/tickets/${ticket.id}`)}
+        />
+      ) : (
       <div className="list-panel">
         {loading ? (
           <TableSkeleton />
@@ -540,29 +943,60 @@ export default function TicketListPage() {
         ) : (
           <>
             <div className="issue-table-wrap">
-              <table className="issue-table">
+              <table
+                className={`issue-table${
+                  density === "compact" ? " is-compact" : ""
+                }`}
+              >
                 <thead>
                   <tr>
+                    {canBulkAct && (
+                      <th className="col-select">
+                        <SelectAllCheckbox
+                          checked={allSelected}
+                          indeterminate={someSelected}
+                          onChange={toggleAll}
+                          disabled={tickets.length === 0}
+                        />
+                      </th>
+                    )}
                     <th className="col-type" aria-label="Jenis" />
                     <th className="col-key">Tiket</th>
                     <th>Ringkasan</th>
                     <th className="col-status">Status</th>
                     <th className="col-priority">Prioritas</th>
                     <th className="col-assignee">Assignee</th>
+                    <th className="col-team is-hide-sm">Tim</th>
                     <th className="col-sla">SLA</th>
-                    <th className="col-created">Dibuat</th>
                     <th className="col-action" aria-label="Aksi" />
                   </tr>
                 </thead>
                 <tbody>
                   {tickets.map((ticket) => {
                     const assigneeUser = ticket.expand?.assignee;
+                    const quickAction = quickActionFor(ticket);
+                    const selected = selectedIds.has(ticket.id);
 
                     return (
                       <tr
                         key={ticket.id}
+                        className={selected ? "is-selected" : undefined}
                         onClick={() => navigate(`/tickets/${ticket.id}`)}
                       >
+                        {canBulkAct && (
+                          <td
+                            className="col-select"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              className="row-check"
+                              checked={selected}
+                              onChange={() => toggleRow(ticket.id)}
+                              aria-label={`Pilih ${ticket.ticket_no}`}
+                            />
+                          </td>
+                        )}
                         <td className="col-type">
                           <TypeIcon type={ticket.type} />
                         </td>
@@ -587,7 +1021,9 @@ export default function TicketListPage() {
                             {ticket.title}
                           </div>
                           <div className="issue-meta">
-                            {ticket.expand?.unit?.name || "Tanpa unit"}
+                            {formatRelative(ticket.created)}
+                            {` · ${ticket.expand?.unit?.name || "Tanpa unit"}`}
+                            {ticket.team ? ` · ${teamLabel(ticket.team)}` : ""}
                             {ticket.expand?.requester?.name
                               ? ` · ${ticket.expand.requester.name}`
                               : ""}
@@ -616,37 +1052,56 @@ export default function TicketListPage() {
                             <span className="muted">Belum di-assign</span>
                           )}
                         </td>
-                        <td className="col-sla">
-                          <div className="sla-stack">
-                            <SlaChip
-                              label="Respon"
-                              dueAt={ticket.response_due_at}
-                              breached={ticket.response_breach_at}
-                              active={isOpen(ticket)}
-                              compact
-                            />
-                            <SlaChip
-                              label="Selesai"
-                              dueAt={ticket.resolution_due_at}
-                              breached={ticket.resolution_breach_at}
-                              active={isOpen(ticket)}
-                              paused={ticket.status === "waiting"}
-                              compact
-                            />
-                          </div>
+                        <td className="col-team is-hide-sm">
+                          {ticket.team ? (
+                            teamLabel(ticket.team)
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
                         </td>
-                        <td className="col-created muted nowrap">
-                          {formatRelative(ticket.created)}
+                        <td className="col-sla">
+                          <SlaChip
+                            label="SLA"
+                            dueAt={nextDueOf(ticket)}
+                            breached={isBreached(ticket)}
+                            active={isOpen(ticket)}
+                            paused={ticket.status === "waiting"}
+                            compact
+                          />
                         </td>
                         <td className="col-action">
-                          <Link
-                            className="row-action"
-                            to={`/tickets/${ticket.id}`}
-                            onClick={(event) => event.stopPropagation()}
-                            aria-label={`Buka ${ticket.ticket_no}`}
-                          >
-                            <i className="bi bi-chevron-right" aria-hidden="true" />
-                          </Link>
+                          <div className="row-actions">
+                            {quickAction && (
+                              <button
+                                className="quick-action"
+                                type="button"
+                                disabled={rowBusy === ticket.id}
+                                title={`${quickAction.label} ${ticket.ticket_no}`}
+                                aria-label={`${quickAction.label} ${ticket.ticket_no}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  runRowAction(ticket, quickAction);
+                                }}
+                              >
+                                <i
+                                  className={`bi ${quickAction.icon}`}
+                                  aria-hidden="true"
+                                />
+                                {quickAction.label}
+                              </button>
+                            )}
+                            <Link
+                              className="row-action"
+                              to={`/tickets/${ticket.id}`}
+                              onClick={(event) => event.stopPropagation()}
+                              aria-label={`Buka ${ticket.ticket_no}`}
+                            >
+                              <i
+                                className="bi bi-chevron-right"
+                                aria-hidden="true"
+                              />
+                            </Link>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -700,6 +1155,7 @@ export default function TicketListPage() {
           </>
         )}
       </div>
+      )}
     </>
   );
 }

@@ -110,9 +110,11 @@ function escapeHtml(value) {
 }
 
 function roleLabel(role) {
-  if (role === "it_lead") return "IT Lead";
-  if (role === "it_support") return "IT Support";
-  if (role === "requester") return "Requester";
+  if (role === "it_lead") return "Kepala IT";
+  if (role === "it_support") return "Staff IT";
+  if (role === "resolver") return "Teknisi";
+  if (role === "viewer") return "Pengamat";
+  if (role === "requester") return "Pemohon";
   return String(role || "Anggota tim");
 }
 
@@ -196,13 +198,13 @@ function credentialEmail(app, opts) {
   var isInvite = opts.kind === "invitation";
   var title = isInvite ? "Undangan akses " + appName(app) : "Password baru";
   var intro = isInvite
-    ? escapeHtml(String(opts.inviterName || "IT Lead")) +
+    ? escapeHtml(String(opts.inviterName || "Kepala IT")) +
       " mengundang Anda bergabung sebagai " +
       escapeHtml(roleLabel(opts.role)) +
       (tenantName ? " di " + escapeHtml(tenantName) : "") +
       "."
     : "Password akun Anda telah direset oleh " +
-      escapeHtml(String(opts.inviterName || "IT Lead")) +
+      escapeHtml(String(opts.inviterName || "Kepala IT")) +
       ".";
 
   var rows = [
@@ -241,13 +243,13 @@ function credentialEmail(app, opts) {
     appName(app) +
     "\n\n" +
     (isInvite
-      ? String(opts.inviterName || "IT Lead") +
+      ? String(opts.inviterName || "Kepala IT") +
         " mengundang Anda bergabung sebagai " +
         roleLabel(opts.role) +
         (tenantName ? " di " + tenantName : "") +
         "."
       : "Password akun Anda telah direset oleh " +
-        String(opts.inviterName || "IT Lead") +
+        String(opts.inviterName || "Kepala IT") +
         ".") +
     "\n\nEmail: " +
     opts.email +

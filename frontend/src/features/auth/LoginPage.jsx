@@ -3,7 +3,9 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { useMeta } from "../../app/providers/MetaProvider";
 import { getErrorMessage } from "../../lib/api";
+import { formErrorText, useAppForm } from "../../lib/formik";
 import AuthBrand from "./AuthBrand";
+import ThemeToggle from "../../components/ui/ThemeToggle";
 
 export default function LoginPage() {
   const { ready, isAuthenticated, login } = useAuth();
@@ -11,11 +13,36 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+
+  const formik = useAppForm({
+    initialValues: { email: "", password: "" },
+    validate: (values) => {
+      const errors = {};
+      if (!values.email.trim()) errors.email = "Email wajib diisi.";
+      if (!values.password) errors.password = "Password wajib diisi.";
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+
+      try {
+        await login(values.email, values.password);
+        navigate(from, { replace: true });
+      } catch (err) {
+        const message = getErrorMessage(err);
+        helpers.setStatus(
+          /failed to authenticate/i.test(message)
+            ? "Email atau password salah. Periksa kembali lalu coba lagi."
+            : message
+        );
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const error = formErrorText(formik);
 
   // Jangan pernah kembali ke halaman wajib-ganti-password setelah login ulang;
   // halaman itu hanya untuk sesi yang masih membawa password awal.
@@ -31,26 +58,6 @@ export default function LoginPage() {
 
   if (ready && isAuthenticated) {
     return <Navigate to={from} replace />;
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setError("");
-    setSubmitting(true);
-
-    try {
-      await login(email, password);
-      navigate(from, { replace: true });
-    } catch (err) {
-      const message = getErrorMessage(err);
-      setError(
-        /failed to authenticate/i.test(message)
-          ? "Email atau password salah. Periksa kembali lalu coba lagi."
-          : message
-      );
-    } finally {
-      setSubmitting(false);
-    }
   }
 
   return (
@@ -84,7 +91,7 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form className="login-form" onSubmit={handleSubmit}>
+          <form className="login-form" onSubmit={formik.handleSubmit}>
             <div className="login-field">
               <label className="form-label" htmlFor="email">
                 Email
@@ -96,8 +103,7 @@ export default function LoginPage() {
                 placeholder="nama@rs.example.com"
                 autoComplete="username"
                 autoFocus
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                {...formik.getFieldProps("email")}
                 required
               />
             </div>
@@ -113,8 +119,7 @@ export default function LoginPage() {
                   className="input"
                   placeholder="Masukkan password"
                   autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                  {...formik.getFieldProps("password")}
                   required
                 />
                 <button
@@ -140,9 +145,9 @@ export default function LoginPage() {
             <button
               className="btn btn-primary btn-block login-submit"
               type="submit"
-              disabled={submitting}
+              disabled={formik.isSubmitting}
             >
-              {submitting ? (
+              {formik.isSubmitting ? (
                 <>
                   <span className="spinner" aria-hidden="true" />
                   Memproses...
@@ -164,6 +169,7 @@ export default function LoginPage() {
 
       <footer className="login-footer">
         <span>© 2026 Healthcare ITSM</span>
+        <ThemeToggle className="login-theme" />
       </footer>
     </div>
   );

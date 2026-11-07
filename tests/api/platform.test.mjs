@@ -51,6 +51,42 @@ test("akun vendor dapat melihat seluruh tenant", async () => {
   assert.ok(rs01.counts.policies >= 12);
 });
 
+test("daftar tenant mendukung halaman dan pencarian", async () => {
+  const admin = await adminClient();
+  const { client } = await createPlatformUser(admin, { role: "it_lead" });
+
+  const first = await client.json(
+    "GET",
+    "/api/itsm/platform/tenants?page=1&perPage=1"
+  );
+
+  assert.equal(first.perPage, 1);
+  assert.equal(first.items.length, 1);
+  assert.ok(first.totalItems >= 2);
+  assert.ok(first.totalPages >= 2);
+  assert.equal(first.summary.tenants, first.totalItems);
+
+  const second = await client.json(
+    "GET",
+    "/api/itsm/platform/tenants?page=2&perPage=1"
+  );
+  assert.equal(second.page, 2);
+  assert.notEqual(second.items[0].id, first.items[0].id);
+
+  const search = await client.json(
+    "GET",
+    `/api/itsm/platform/tenants?q=${encodeURIComponent("RS01")}`
+  );
+
+  assert.ok(search.items.length >= 1);
+  assert.ok(
+    search.items.every(
+      (tenant) => tenant.code.includes("RS01") || tenant.name.includes("RS01")
+    )
+  );
+  assert.equal(search.totalItems, search.items.length);
+});
+
 test("pengguna rumah sakit tidak dapat membuka konsol vendor", async () => {
   const org = await seedOrg({ label: uniqueLabel("rbac") });
 
@@ -104,6 +140,8 @@ test("membuat rumah sakit baru beserta data master dan akun IT pertama", async (
     categories: 9,
     policies: 12,
     holidays: 3,
+    services: 6,
+    serviceItems: 7,
   });
   assert.equal(created.admin.email, email);
 
@@ -128,6 +166,8 @@ test("membuat rumah sakit baru beserta data master dan akun IT pertama", async (
     categories: 0,
     policies: 0,
     holidays: 0,
+    services: 0,
+    serviceItems: 0,
   });
 
   // Akun IT pertama langsung dapat login dan melihat master data tenant-nya.
@@ -203,10 +243,17 @@ test("menambah pengguna tenant dan menolak email duplikat", async () => {
   const path = `/api/itsm/platform/tenants/${created.tenant.id}/users`;
 
   const added = await client.json("POST", path, {
-    body: { name: "Support RS", email, role: "it_support", password: PASSWORD },
+    body: {
+      name: "Support RS",
+      email,
+      role: "it_support",
+      job_title: "Teknisi Jaringan",
+      password: PASSWORD,
+    },
   });
 
   assert.equal(added.user.role, "it_support");
+  assert.equal(added.user.job_title, "Teknisi Jaringan");
   assert.equal(added.user.is_active, true);
 
   const duplicate = await client.request("POST", path, {
@@ -214,6 +261,11 @@ test("menambah pengguna tenant dan menolak email duplikat", async () => {
   });
 
   assert.equal(duplicate.status, 400);
+
+  const updated = await client.json("PATCH", `${path}/${added.user.id}`, {
+    body: { job_title: "Programmer" },
+  });
+  assert.equal(updated.user.job_title, "Programmer");
 
   const deactivated = await client.json(
     "PATCH",

@@ -4,7 +4,7 @@
 // Semua fungsi di sini dipanggil dari route /api/itsm/team; tenant selalu
 // berasal dari `e.auth`, tidak pernah dari body request.
 
-var ROLES = ["requester", "it_support", "it_lead"];
+var ROLES = ["requester", "it_support", "resolver", "it_lead", "viewer"];
 
 // Tanpa karakter ambigu (0/O, 1/l/I) supaya mudah diserahkan secara lisan.
 var PASSWORD_ALPHABET =
@@ -28,6 +28,8 @@ function serialize(record, unitName) {
     email: String(record.get("email") || ""),
     name: String(record.get("name") || ""),
     role: String(record.get("role") || ""),
+    job_title: String(record.get("job_title") || ""),
+    team: String(record.get("team") || ""),
     unit: String(record.get("unit") || ""),
     unit_name: String(unitName || ""),
     is_active: Boolean(record.get("is_active")),
@@ -54,15 +56,35 @@ function unitNames(app, tenantId) {
   return map;
 }
 
-function list(app, tenantId) {
+// Daftar anggota tim dengan pagination + pencarian nama/email.
+// `options` boleh kosong agar pemanggil lama tetap mendapat halaman pertama.
+function list(app, tenantId, options) {
+  var paging = require(__hooks + "/lib/paging.js");
+  var opts = options || {};
+  var page = Math.max(1, parseInt(String(opts.page || 1), 10) || 1);
+  var perPage = Math.min(
+    paging.MAX_PER_PAGE,
+    Math.max(1, parseInt(String(opts.perPage || paging.DEFAULT_PER_PAGE), 10) || paging.DEFAULT_PER_PAGE)
+  );
+  var q = String(opts.q || "").trim();
+
+  var filter = "tenant = {:tenant} && is_platform_staff != true";
+  var params = { tenant: tenantId };
+
+  if (q) {
+    filter += " && (name ~ {:q} || email ~ {:q})";
+    params.q = q;
+  }
+
+  var totalItems = paging.count(app, "users", filter, params);
   var names = unitNames(app, tenantId);
   var records = app.findRecordsByFilter(
     "users",
-    "tenant = {:tenant} && is_platform_staff != true",
+    filter,
     "name",
-    500,
-    0,
-    { tenant: tenantId }
+    perPage,
+    (page - 1) * perPage,
+    params
   );
   var items = [];
 
@@ -72,7 +94,10 @@ function list(app, tenantId) {
     );
   }
 
-  return items;
+  var meta = paging.meta(page, perPage, totalItems);
+  meta.items = items;
+
+  return meta;
 }
 
 function activeLeads(app, tenantId, excludeId) {
@@ -132,7 +157,10 @@ function create(app, tenantId, input) {
   var name = text(input.name, 120);
   var email = text(input.email, 200).toLowerCase();
   var role = text(input.role, 20);
+  var jobTitle = text(input.job_title, 80);
+  var team = text(input.team, 20);
   var unit = text(input.unit, 64);
+  var constants = require(__hooks + "/lib/constants.js");
 
   if (name.length < 2) {
     throw new BadRequestError("Nama minimal 2 karakter");
@@ -141,7 +169,12 @@ function create(app, tenantId, input) {
     throw new BadRequestError("Email tidak valid");
   }
   if (ROLES.indexOf(role) < 0) {
-    throw new BadRequestError("Role harus requester, it_support, atau it_lead");
+    throw new BadRequestError(
+      "Role harus Pemohon, Staff IT, Teknisi, Kepala IT, atau Pengamat"
+    );
+  }
+  if (team && constants.TEAMS.indexOf(team) < 0) {
+    throw new BadRequestError("Tim tidak valid");
   }
 
   assertUnit(app, tenantId, unit);
@@ -156,6 +189,8 @@ function create(app, tenantId, input) {
   record.set("verified", true);
   record.set("name", name);
   record.set("role", role);
+  if (jobTitle) record.set("job_title", jobTitle);
+  if (team) record.set("team", team);
   record.set("tenant", tenantId);
   record.set("is_active", true);
   record.set("is_platform_staff", false);
@@ -212,7 +247,7 @@ function update(app, tenantId, userId, input, actorId) {
 
     if (ROLES.indexOf(role) < 0) {
       throw new BadRequestError(
-        "Role harus requester, it_support, atau it_lead"
+        "Role harus Pemohon, Staff IT, Teknisi, Kepala IT, atau Pengamat"
       );
     }
     if (role !== currentRole) {
@@ -225,12 +260,37 @@ function update(app, tenantId, userId, input, actorId) {
         activeLeads(app, tenantId, record.id).length === 0
       ) {
         throw new BadRequestError(
-          "Tidak dapat menurunkan IT Lead aktif terakhir"
+          "Tidak dapat menurunkan Kepala IT aktif terakhir"
         );
       }
 
       changes.role = { from: currentRole, to: role };
       record.set("role", role);
+    }
+  }
+
+  if (input.team !== undefined) {
+    var team = text(input.team, 20);
+    var constants = require(__hooks + "/lib/constants.js");
+
+    if (team && constants.TEAMS.indexOf(team) < 0) {
+      throw new BadRequestError("Tim tidak valid");
+    }
+    if (team !== String(record.get("team") || "")) {
+      changes.team = { from: String(record.get("team") || ""), to: team };
+      record.set("team", team);
+    }
+  }
+
+  if (input.job_title !== undefined) {
+    var jobTitle = text(input.job_title, 80);
+
+    if (jobTitle !== String(record.get("job_title") || "")) {
+      changes.job_title = {
+        from: String(record.get("job_title") || ""),
+        to: jobTitle,
+      };
+      record.set("job_title", jobTitle);
     }
   }
 
@@ -258,7 +318,7 @@ function update(app, tenantId, userId, input, actorId) {
         activeLeads(app, tenantId, record.id).length === 0
       ) {
         throw new BadRequestError(
-          "Tidak dapat menonaktifkan IT Lead aktif terakhir"
+          "Tidak dapat menonaktifkan Kepala IT aktif terakhir"
         );
       }
 

@@ -57,6 +57,106 @@ var HOLIDAYS = [
   ["2027-01-01 00:00:00.000Z", "Tahun Baru"],
 ];
 
+// Katalog layanan awal. Item sengaja sedikit agar katalog tidak menjadi
+// taksonomi raksasa; admin dapat menambah item sesuai kebutuhan rumah sakit.
+var SERVICES = [
+  {
+    code: "SIMRS",
+    name: "SIMRS",
+    description:
+      "Aplikasi SIMRS dan modul klinis: pendaftaran, farmasi, laboratorium, radiologi, kasir, dan rekam medis.",
+    items: [
+      {
+        code: "PERUBAHAN-KONFIG",
+        name: "Perubahan konfigurasi SIMRS",
+        description:
+          "Perubahan parameter, template, atau konfigurasi modul SIMRS yang perlu persetujuan.",
+        approval: "lead",
+      },
+    ],
+  },
+  {
+    code: "INFRA",
+    name: "Jaringan & Infrastruktur",
+    description:
+      "Jaringan, server, penyimpanan, dan infrastruktur yang menopang layanan rumah sakit.",
+    items: [
+      {
+        code: "PERUBAHAN-JARINGAN",
+        name: "Perubahan jaringan",
+        description:
+          "Perubahan konfigurasi jaringan, VLAN, firewall, atau akses internet.",
+        approval: "lead",
+      },
+    ],
+  },
+  {
+    code: "DEVICE",
+    name: "Perangkat & Printer",
+    description:
+      "Workstation, printer, scanner, dan perangkat pendukung layanan.",
+    items: [
+      {
+        code: "PERBAIKAN-PERANGKAT",
+        name: "Perbaikan perangkat",
+        description:
+          "Permintaan perbaikan printer, workstation, atau perangkat pendukung.",
+        approval: "none",
+      },
+    ],
+  },
+  {
+    code: "ACCESS",
+    name: "Akun & Akses",
+    description:
+      "Pembuatan akun, reset password, dan pengelolaan hak akses pengguna.",
+    items: [
+      {
+        code: "AKUN-BARU",
+        name: "Permintaan akun baru",
+        description:
+          "Pembuatan akun untuk pegawai baru. Sertakan nama, unit, dan masa berlaku.",
+        approval: "manager",
+      },
+      {
+        code: "RESET-PASSWORD",
+        name: "Reset password",
+        description:
+          "Reset password akun SIMRS atau aplikasi internal. Tidak perlu approval.",
+        approval: "none",
+      },
+      {
+        code: "AKSES-TAMBAH",
+        name: "Tambah atau ubah akses",
+        description:
+          "Permintaan tambahan akses modul, dengan persetujuan manajer unit.",
+        approval: "manager",
+      },
+    ],
+  },
+  {
+    code: "INTEGRASI",
+    name: "SATUSEHAT & Integrasi",
+    description:
+      "Integrasi SATUSEHAT, BPJS, laboratorium, radiologi, dan sistem eksternal.",
+    items: [
+      {
+        code: "AKSES-INTEGRASI",
+        name: "Akses atau perubahan integrasi",
+        description:
+          "Permintaan kredensial, endpoint, atau perubahan integrasi eksternal.",
+        approval: "lead",
+      },
+    ],
+  },
+  {
+    code: "LAINNYA",
+    name: "Layanan Lainnya",
+    description: "Permintaan atau gangguan yang belum termasuk layanan di atas.",
+    items: [],
+  },
+];
+
 function findFirst(app, collection, filter, params) {
   try {
     return app.findFirstRecordByFilter(collection, filter, params);
@@ -173,16 +273,79 @@ function seedHolidays(app, tenantId, created) {
   }
 }
 
-// Melengkapi tenant dengan unit, kategori, kebijakan SLA, dan hari libur
-// default. Mengembalikan jumlah record yang benar-benar dibuat.
+function seedServices(app, tenantId, created) {
+  var serviceCollection = app.findCollectionByNameOrId("services");
+  var itemCollection = app.findCollectionByNameOrId("service_items");
+
+  var itUnit = findFirst(app, "units", 'tenant = {:tenant} && code = "IT"', {
+    tenant: tenantId,
+  });
+
+  for (var s = 0; s < SERVICES.length; s++) {
+    var seed = SERVICES[s];
+    var service = findFirst(
+      app,
+      "services",
+      "tenant = {:tenant} && code = {:code}",
+      { tenant: tenantId, code: seed.code }
+    );
+
+    if (!service) {
+      service = new Record(serviceCollection);
+      service.set("tenant", tenantId);
+      service.set("name", seed.name);
+      service.set("code", seed.code);
+      service.set("description", seed.description);
+      service.set("is_active", true);
+      if (itUnit) service.set("support_unit", itUnit.id);
+      app.save(service);
+      created.services += 1;
+    }
+
+    for (var i = 0; i < seed.items.length; i++) {
+      var item = seed.items[i];
+      var existingItem = findFirst(
+        app,
+        "service_items",
+        "tenant = {:tenant} && service = {:service} && code = {:code}",
+        { tenant: tenantId, service: service.id, code: item.code }
+      );
+
+      if (existingItem) continue;
+
+      var record = new Record(itemCollection);
+      record.set("tenant", tenantId);
+      record.set("service", service.id);
+      record.set("name", item.name);
+      record.set("code", item.code);
+      record.set("description", item.description);
+      record.set("approval_mode", item.approval);
+      record.set("sort", (i + 1) * 10);
+      record.set("is_active", true);
+      app.save(record);
+      created.serviceItems += 1;
+    }
+  }
+}
+
+// Melengkapi tenant dengan unit, kategori, kebijakan SLA, hari libur, dan
+// katalog layanan default. Mengembalikan jumlah record yang benar-benar dibuat.
 function seed(app, tenantId, timezone) {
   var zone = String(timezone || "Asia/Jakarta");
-  var created = { units: 0, categories: 0, policies: 0, holidays: 0 };
+  var created = {
+    units: 0,
+    categories: 0,
+    policies: 0,
+    holidays: 0,
+    services: 0,
+    serviceItems: 0,
+  };
 
   seedUnits(app, tenantId, zone, created);
   seedCategories(app, tenantId, created);
   seedPolicies(app, tenantId, zone, created);
   seedHolidays(app, tenantId, created);
+  seedServices(app, tenantId, created);
 
   return created;
 }
@@ -194,5 +357,6 @@ module.exports = {
     categories: CATEGORIES,
     policies: POLICIES,
     holidays: HOLIDAYS,
+    services: SERVICES,
   },
 };

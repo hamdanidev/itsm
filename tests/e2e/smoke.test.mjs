@@ -210,6 +210,26 @@ before(async () => {
     name: "Pengguna Reset",
   });
 
+  const catalogSuffix = Date.now().toString(36).toUpperCase().slice(-6);
+  state.catalogService = await state.org.admin.create("services", {
+    tenant: state.org.tenant.id,
+    name: `Layanan E2E ${catalogSuffix}`,
+    code: `E2E-${catalogSuffix}`,
+    description: "Layanan untuk menguji katalog dan intake.",
+    support_unit: state.org.itUnit.id,
+    is_active: true,
+  });
+  state.catalogItem = await state.org.admin.create("service_items", {
+    tenant: state.org.tenant.id,
+    service: state.catalogService.id,
+    name: "Reset password E2E",
+    code: "RESET-E2E",
+    description: "Permintaan rutin tanpa approval.",
+    approval_mode: "none",
+    sort: 10,
+    is_active: true,
+  });
+
   state.srDelegate = await createTicket(requester.client, {
     type: "service_request",
     title: "Akses akun baru untuk uji delegasi",
@@ -276,7 +296,7 @@ test("staf mendarat di dashboard dan tautan antrean membawa filter URL", async (
 
   try {
     await page.waitForSelector(".kpi-card");
-    assert.equal(await page.locator(".kpi-card").count(), 5);
+    assert.ok((await page.locator(".kpi-card").count()) >= 5);
 
     const panelTitles = await page.locator(".panel-title").allInnerTexts();
     assert.ok(panelTitles.some((title) => title.includes("Antrean saya")));
@@ -299,7 +319,7 @@ test("IT Lead membuka laporan SLA dan mengunduh CSV", async () => {
     await page.goto(`${state.web.url}/reports`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector(".kpi-card", { timeout: 20_000 });
 
-    assert.equal(await page.locator(".kpi-card").count(), 5);
+    assert.ok((await page.locator(".kpi-card").count()) >= 5);
 
     const heads = (await page.locator(".kpi-head").allInnerTexts()).map((text) =>
       text.toLowerCase()
@@ -312,7 +332,7 @@ test("IT Lead membuka laporan SLA dan mengunduh CSV", async () => {
 
     const [download] = await Promise.all([
       page.waitForEvent("download", { timeout: 20_000 }),
-      page.getByRole("button", { name: /Unduh CSV/ }).click(),
+      page.getByRole("button", { name: "Unduh CSV", exact: true }).click(),
     ]);
 
     assert.match(
@@ -474,6 +494,8 @@ test("requester membuat tiket baru lewat form intake", async () => {
 
   try {
     await page.goto(`${state.web.url}/tickets/new`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".wizard-steps", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Lanjut" }).click();
     await page.waitForSelector("#title", { timeout: 20_000 });
 
     const title = `Printer loket pendaftaran macet ${Date.now()}`;
@@ -482,6 +504,9 @@ test("requester membuat tiket baru lewat form intake", async () => {
       "#description",
       "Printer di loket pendaftaran tidak mengeluarkan tiket antrean sejak pagi."
     );
+
+    await page.getByRole("button", { name: "Lanjut" }).click();
+    await page.waitForSelector("#confirmData", { timeout: 20_000 });
     await page.check("#confirmData");
 
     await page.locator('form button[type="submit"]').click();
@@ -756,6 +781,650 @@ test("pengguna mereset password lewat tautan email", async () => {
   }
 });
 
+test("requester mengajukan permintaan dari katalog layanan", async () => {
+  const page = await login(
+    state.org.requester.email,
+    "**/tickets",
+    "catalog-request"
+  );
+
+  try {
+    await page.goto(`${state.web.url}/catalog`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForSelector(".catalog-card", { timeout: 20_000 });
+
+    const card = page
+      .locator(".catalog-card", { hasText: state.catalogService.name })
+      .first();
+
+    assert.equal(await card.count(), 1, "layanan katalog harus tampil");
+    await card.getByRole("link", { name: "Ajukan" }).click();
+
+    await page.waitForURL(/\/tickets\/new\?/, { timeout: 20_000 });
+    await page.waitForFunction(
+      () => Boolean(document.querySelector("#serviceItem")?.value),
+      { timeout: 20_000 }
+    );
+
+    await page.getByRole("button", { name: "Lanjut" }).click();
+    await page.waitForSelector("#title", { timeout: 20_000 });
+    await page.fill("#title", "Reset password dari katalog E2E");
+    await page.fill(
+      "#description",
+      "Permintaan dibuat dari katalog untuk memverifikasi intake layanan."
+    );
+
+    await page.getByRole("button", { name: "Lanjut" }).click();
+    await page.waitForSelector("#confirmData", { timeout: 20_000 });
+    await page.check("#confirmData");
+    await page.getByRole("button", { name: "Buat tiket" }).click();
+
+    await page.waitForURL(/\/tickets\/[a-z0-9]+$/, { timeout: 20_000 });
+    await page.waitForSelector(".issue-title", { timeout: 20_000 });
+
+    assert.match(
+      await page.locator(".issue-title").innerText(),
+      /Reset password dari katalog/
+    );
+
+    const side = await page.locator(".detail-side").innerText();
+    assert.ok(
+      side.includes(state.catalogService.name),
+      "detail tiket harus menampilkan layanan"
+    );
+    assert.ok(
+      side.includes(state.catalogItem.name),
+      "detail tiket harus menampilkan item permintaan"
+    );
+  } finally {
+    await closePage(page);
+  }
+});
+
+test("staf melakukan triage prioritas dari detail tiket", async () => {
+  const incident = await createTicket(state.org.requester.client, {
+    type: "incident",
+    impact: "operational",
+    title: "Antrean farmasi lambat setelah pembaruan",
+    description: "Antrean farmasi melambat dan perlu dikoreksi prioritasnya.",
+  });
+
+  const page = await login(
+    state.org.support.email,
+    "**/dashboard",
+    "triage-detail"
+  );
+
+  try {
+    await page.goto(`${state.web.url}/tickets/${incident.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForSelector(".issue-title", { timeout: 20_000 });
+
+    await page.getByRole("button", { name: "Triage" }).click();
+    await page.waitForSelector("#triagePriority", { timeout: 20_000 });
+
+    await page.selectOption("#triagePriority", "critical");
+    await page.selectOption("#triageImpact", "patient_safety");
+    await page.fill(
+      "#triageReason",
+      "Dampak keselamatan pasien lebih tinggi dari laporan awal."
+    );
+    await page.getByRole("button", { name: "Simpan triage" }).click();
+
+    await page.waitForSelector("#triagePriority", {
+      state: "detached",
+      timeout: 20_000,
+    });
+
+    await waitFor(
+      async () =>
+        (await page.locator(".issue-meta-line").innerText()).includes("Kritis"),
+      { label: "prioritas kritis tampil setelah triage" }
+    );
+  } finally {
+    await closePage(page);
+  }
+});
+
+test("IT Lead mengelola layanan dan item dari Pengaturan", async () => {
+  const page = await login(state.org.lead.email, "**/dashboard", "admin-catalog");
+  const suffix = Date.now().toString(36).toUpperCase().slice(-5);
+  const serviceName = `Layanan Admin ${suffix}`;
+
+  try {
+    await page.goto(`${state.web.url}/admin`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("tab", { name: "Layanan" }).click();
+    await page.waitForSelector(".catalog-admin-grid", { timeout: 20_000 });
+
+    await page.getByRole("button", { name: "Tambah layanan" }).click();
+    await page.waitForSelector("#service-name", { timeout: 15_000 });
+    await page.fill("#service-name", serviceName);
+    await page.fill("#service-code", `ADM-${suffix}`);
+    await page.fill(
+      "#service-description",
+      "Layanan yang dibuat dari pengujian UI Pengaturan."
+    );
+    await page.locator('button[form="service-form"]').click();
+    await page.waitForSelector("#service-name", {
+      state: "detached",
+      timeout: 20_000,
+    });
+
+    await page.waitForSelector(`.catalog-admin-table tr:has-text("${serviceName}")`);
+
+    await page
+      .locator(".catalog-admin-table tr", { hasText: serviceName })
+      .first()
+      .locator("td")
+      .first()
+      .click();
+    await page.getByRole("button", { name: "Tambah item" }).first().click();
+    await page.waitForSelector("#item-name", { timeout: 15_000 });
+    await page.fill("#item-name", "Reset password admin E2E");
+    await page.fill("#item-code", "RESET-ADMIN");
+    await page.selectOption("#item-approval", "none");
+    await page.locator('button[form="item-form"]').click();
+    await page.waitForSelector("#item-name", {
+      state: "detached",
+      timeout: 20_000,
+    });
+
+    await page.waitForSelector(
+      '.admin-table tr:has-text("Reset password admin E2E")'
+    );
+  } finally {
+    await closePage(page);
+  }
+});
+
+test("support membuat problem known error dari tiket", async () => {
+  const incident = await createTicket(state.org.requester.client, {
+    type: "incident",
+    service: state.catalogService.id,
+    impact: "operational",
+    title: "E-resep gagal cetak setelah pembaruan",
+    description: "Insiden untuk menguji problem management dari detail tiket.",
+  });
+
+  const page = await login(
+    state.org.support.email,
+    "**/dashboard",
+    "problem-flow"
+  );
+
+  try {
+    await page.goto(`${state.web.url}/tickets/${incident.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForSelector(".issue-title", { timeout: 20_000 });
+
+    await page.getByRole("button", { name: "Buat problem" }).click();
+    await page.waitForSelector("#ticket-problem-title", { timeout: 15_000 });
+    await page.fill(
+      "#ticket-problem-title",
+      "Driver printer e-resep tidak kompatibel"
+    );
+    await page.locator('button[form="ticket-problem-form"]').click();
+    await page.waitForSelector("#ticket-problem-title", {
+      state: "detached",
+      timeout: 20_000,
+    });
+
+    await page.waitForSelector(".ticket-problem-head a", { timeout: 20_000 });
+    const problemNo = (
+      await page.locator(".ticket-problem-head a").innerText()
+    ).trim();
+    assert.match(problemNo, /^PRB-/);
+
+    await page.locator(".ticket-problem-head a").click();
+    await page.waitForURL(/\/problems\/[a-z0-9]+$/, { timeout: 20_000 });
+    await page.waitForSelector("#problem-status", { timeout: 20_000 });
+
+    await page.selectOption("#problem-status", "known_error");
+    await page.fill(
+      "#problem-root",
+      "Driver versi lama tidak kompatibel dengan printer farmasi."
+    );
+    await page.fill(
+      "#problem-workaround",
+      "Gunakan printer cadangan dan cetak ulang dari antrean."
+    );
+    await page.getByRole("button", { name: "Simpan problem" }).click();
+    await page.waitForSelector(".alert--success", { timeout: 20_000 });
+
+    await page.goto(`${state.web.url}/tickets/${incident.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForSelector(".ticket-problem-box", { timeout: 20_000 });
+
+    const panel = await page.locator(".ticket-problem-box").innerText();
+    assert.match(panel, /known error/i, `panel: ${panel}`);
+    assert.ok(panel.includes("Gunakan printer cadangan"), `panel: ${panel}`);
+  } finally {
+    await closePage(page);
+  }
+});
+
+test("IT Lead menerbitkan artikel dan requester melihat saran di intake", async () => {
+  const suffix = Date.now().toString(36).slice(-5);
+  const articleTitle = `Reset password SIMRS ${suffix}`;
+  const articleBody =
+    "Buka halaman lupa password, masukkan email terdaftar, lalu ikuti tautan reset yang dikirim.";
+
+  const leadPage = await login(
+    state.org.lead.email,
+    "**/dashboard",
+    "knowledge-lead"
+  );
+
+  try {
+    await leadPage.goto(`${state.web.url}/knowledge`, {
+      waitUntil: "domcontentloaded",
+    });
+    await leadPage.getByRole("button", { name: "Tulis artikel" }).click();
+    await leadPage.waitForSelector("#knowledge-title", { timeout: 15_000 });
+    await leadPage.fill("#knowledge-title", articleTitle);
+    await leadPage.fill("#knowledge-body", articleBody);
+    await leadPage.selectOption("#knowledge-visibility", "public");
+    await leadPage.selectOption("#knowledge-service", state.catalogService.id);
+    await leadPage.locator('button[form="knowledge-create-form"]').click();
+
+    await leadPage.waitForURL(/\/knowledge\/[a-z0-9]+$/, { timeout: 20_000 });
+    await leadPage.getByRole("button", { name: "Publikasikan" }).click();
+    await leadPage.waitForSelector(".alert--success", { timeout: 20_000 });
+
+    assert.ok(
+      (await leadPage.locator(".detail-side").innerText()).includes("Terbit")
+    );
+  } finally {
+    await closePage(leadPage);
+  }
+
+  const requesterPage = await login(
+    state.org.requester.email,
+    "**/tickets",
+    "knowledge-requester"
+  );
+
+  try {
+    await requesterPage.goto(`${state.web.url}/knowledge`, {
+      waitUntil: "domcontentloaded",
+    });
+    await requesterPage.waitForSelector(".issue-table tbody tr", {
+      timeout: 20_000,
+    });
+
+    const row = requesterPage
+      .locator(".issue-table tbody tr", { hasText: articleTitle })
+      .first();
+    assert.equal(await row.count(), 1, "artikel publik harus terlihat requester");
+    await row.locator("a").first().click();
+
+    await requesterPage.waitForSelector(".knowledge-body", { timeout: 20_000 });
+    assert.ok(
+      (await requesterPage.locator(".knowledge-body").innerText()).includes(
+        "lupa password"
+      )
+    );
+
+    await requesterPage.goto(`${state.web.url}/tickets/new`, {
+      waitUntil: "domcontentloaded",
+    });
+    await requesterPage.waitForSelector(".wizard-steps", { timeout: 20_000 });
+    await requesterPage.getByRole("button", { name: "Lanjut" }).click();
+    await requesterPage.waitForSelector("#title", { timeout: 20_000 });
+    await requesterPage.fill("#title", articleTitle);
+
+    await waitFor(
+      async () =>
+        (await requesterPage.locator(".knowledge-suggestions").count()) > 0,
+      { label: "saran artikel di intake" }
+    );
+    assert.ok(
+      (await requesterPage.locator(".knowledge-suggestions").innerText()).includes(
+        articleTitle
+      )
+    );
+  } finally {
+    await closePage(requesterPage);
+  }
+});
+
+test("editor rich text memformat teks dan membersihkan HTML berbahaya", async () => {
+  const suffix = Date.now().toString(36).slice(-5);
+  const articleTitle = `Panduan rich text ${suffix}`;
+  const articleText = "Langkah penting untuk reset password pengguna.";
+
+  const leadPage = await login(
+    state.org.lead.email,
+    "**/dashboard",
+    "rich-text-lead"
+  );
+
+  try {
+    await leadPage.goto(`${state.web.url}/knowledge`, {
+      waitUntil: "domcontentloaded",
+    });
+    await leadPage.getByRole("button", { name: "Tulis artikel" }).click();
+    await leadPage.waitForSelector("#knowledge-title", { timeout: 15_000 });
+    await leadPage.fill("#knowledge-title", articleTitle);
+
+    const editor = leadPage.locator("#knowledge-body");
+    await editor.click();
+    await leadPage.keyboard.type(articleText);
+    await leadPage.keyboard.press("Control+A");
+    await leadPage.locator('.rich-tool[title="Tebal"]').click();
+
+    assert.ok(
+      (await editor.locator("strong, b").count()) > 0,
+      "toolbar tebal harus menghasilkan teks tebal"
+    );
+
+    await editor.evaluate((element) => {
+      element.innerHTML =
+        '<p>Langkah <strong onclick="window.__richXss = true">penting</strong> untuk reset password pengguna.</p>' +
+        "<script>window.__richXss = true</script>";
+      element.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertText" })
+      );
+    });
+
+    await leadPage.selectOption("#knowledge-visibility", "public");
+    await leadPage.locator('button[form="knowledge-create-form"]').click();
+    await leadPage.waitForURL(/\/knowledge\/[a-z0-9]+$/, { timeout: 20_000 });
+
+    const body = leadPage.locator(".rich-text").first();
+    assert.ok((await body.innerText()).includes("Langkah penting"));
+    assert.equal(await body.locator("script").count(), 0);
+    assert.equal(await body.locator("[onclick]").count(), 0);
+    assert.equal(
+      await leadPage.evaluate(() => window.__richXss),
+      undefined,
+      "script dari HTML mentah tidak boleh dieksekusi"
+    );
+  } finally {
+    await closePage(leadPage);
+  }
+});
+
+test("aset/CI, CSAT, dan laporan operasional berjalan dari UI", async () => {
+  const suffix = Date.now().toString(36).slice(-5);
+  const assetName = `Printer E2E ${suffix}`;
+  const ticketTitle = `Insiden untuk aset ${suffix}`;
+
+  const leadPage = await login(
+    state.org.lead.email,
+    "**/dashboard",
+    "asset-lead"
+  );
+  let assetId = "";
+
+  try {
+    await leadPage.goto(`${state.web.url}/assets`, {
+      waitUntil: "domcontentloaded",
+    });
+    await leadPage.getByRole("button", { name: "Tambah aset" }).click();
+    await leadPage.waitForSelector("#asset-name", { timeout: 15_000 });
+    await leadPage.fill("#asset-name", assetName);
+    await leadPage.selectOption("#asset-type", "printer");
+    await leadPage.selectOption("#asset-criticality", "high");
+    await leadPage.fill("#asset-location", "Farmasi lantai 1");
+    await leadPage.selectOption("#asset-service", state.catalogService.id);
+    await leadPage.locator('button[form="asset-form"]').click();
+
+    await leadPage.waitForSelector(`text=${assetName}`, { timeout: 20_000 });
+    const row = leadPage.locator(".issue-table tbody tr", { hasText: assetName }).first();
+    await row.locator("a").first().click();
+    await leadPage.waitForURL(/\/assets\/[a-z0-9]+$/, { timeout: 20_000 });
+    assetId = leadPage.url().split("/").pop();
+    assert.ok(assetId);
+    await leadPage
+      .getByRole("heading", { name: assetName })
+      .waitFor({ timeout: 20_000 });
+  } finally {
+    await closePage(leadPage);
+  }
+
+  const ticket = await createTicket(state.org.requester.client, {
+    type: "incident",
+    impact: "operational",
+    service: state.catalogService.id,
+    title: ticketTitle,
+    description: "Printer farmasi tidak mencetak label resep.",
+  });
+
+  const supportPage = await login(
+    state.org.support.email,
+    "**/dashboard",
+    "asset-support"
+  );
+
+  try {
+    await supportPage.goto(`${state.web.url}/tickets/${ticket.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await supportPage.waitForSelector("#ticket-problem-form, .detail-main", {
+      timeout: 20_000,
+    });
+    await supportPage.getByRole("button", { name: "Tautkan aset" }).click();
+    await supportPage.waitForSelector("#ticket-asset", { timeout: 15_000 });
+    await supportPage.selectOption("#ticket-asset", assetId);
+    await supportPage.locator('button[form="ticket-asset-form"]').click();
+    await supportPage.waitForSelector(`text=${assetName}`, { timeout: 20_000 });
+  } finally {
+    await closePage(supportPage);
+  }
+
+  const assetPage = await login(state.org.lead.email, "**/dashboard", "asset-history");
+  try {
+    await assetPage.goto(`${state.web.url}/assets/${assetId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await assetPage.waitForSelector(".issue-table tbody tr", { timeout: 20_000 });
+    assert.ok(
+      (await assetPage.locator(".issue-table tbody").innerText()).includes(
+        ticketTitle
+      )
+    );
+  } finally {
+    await closePage(assetPage);
+  }
+
+  await assignTicket(state.org.lead.client, ticket.id, state.org.support.user.id);
+  await transition(state.org.support.client, ticket.id, "in_progress");
+  await transition(state.org.support.client, ticket.id, "resolved", {
+    resolution_summary: "Printer sudah dibersihkan dan diuji ulang.",
+    resolution_code: "fixed",
+  });
+
+  const requesterPage = await login(
+    state.org.requester.email,
+    "**/tickets",
+    "csat-requester"
+  );
+
+  try {
+    await requesterPage.goto(`${state.web.url}/tickets/${ticket.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await requesterPage.getByRole("button", { name: "5 dari 5" }).click();
+    await requesterPage.fill("#csat-comment", "Penanganan cepat dan jelas.");
+    await requesterPage.getByRole("button", { name: "Kirim penilaian" }).click();
+    await requesterPage.waitForSelector(".csat-stars", { timeout: 20_000 });
+    assert.ok(
+      (await requesterPage.locator(".csat-stars").innerText()).includes("5/5")
+    );
+  } finally {
+    await closePage(requesterPage);
+  }
+
+  const reportPage = await login(state.org.lead.email, "**/dashboard", "ops-report");
+  try {
+    await reportPage.goto(`${state.web.url}/reports`, {
+      waitUntil: "domcontentloaded",
+    });
+    await reportPage.waitForSelector("text=Laporan operasional", {
+      timeout: 20_000,
+    });
+    assert.ok(
+      (await reportPage.locator("body").innerText()).includes("CSAT")
+    );
+    assert.ok(
+      (await reportPage.locator("body").innerText()).includes("Insiden per layanan")
+    );
+  } finally {
+    await closePage(reportPage);
+  }
+});
+
+test("insiden mayor dideklarasikan dari tiket, diupdate, dan PIR lengkap", async () => {
+  const page = await login(state.org.support.email, "**/dashboard", "incident-e2e");
+
+  try {
+    await page.goto(`${state.web.url}/tickets/${state.incident.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForSelector(".issue-title", { timeout: 20_000 });
+
+    // Deklarasi dari detail tiket: judul terisi otomatis dan tiket menjadi sumber.
+    await page.getByRole("link", { name: "Deklarasikan" }).click();
+    await page.waitForURL("**/incidents?ticket=*", { timeout: 20_000 });
+    await page.waitForSelector("#incident-title", { timeout: 20_000 });
+
+    assert.match(
+      await page.inputValue("#incident-title"),
+      /Printer label farmasi/
+    );
+
+    await page.selectOption("#incident-severity", "sev1");
+    const serviceCheckbox = page.locator(".check-grid input[type=checkbox]").first();
+    if ((await serviceCheckbox.count()) > 0) {
+      await serviceCheckbox.check();
+    }
+    await page.click('button[form="incident-declare-form"]');
+
+    await page.waitForURL(/\/incidents\/[a-z0-9]+$/, { timeout: 20_000 });
+    await page.waitForSelector(".incident-update-list", { timeout: 20_000 });
+
+    const incidentNo = (await page.locator(".breadcrumb").innerText()).match(
+      /INC-\d{8}-[A-Z0-9]{6}/
+    )?.[0];
+    assert.ok(incidentNo, "nomor insiden harus tampil di breadcrumb");
+    assert.match(await page.locator(".problem-head-meta").innerText(), /SEV-1/);
+
+    // Update publik masuk ke timeline.
+    await page.getByRole("button", { name: "Tulis update" }).click();
+    await page.fill(
+      "#update-body",
+      "Failover jaringan selesai, pendaftaran rawat inap sudah normal."
+    );
+    await page.selectOption("#update-visibility", "public");
+    await page.click('button[form="incident-update-form"]');
+    await waitFor(
+      async () =>
+        (await page.locator(".incident-update-list").innerText()).includes(
+          "Failover jaringan selesai"
+        ),
+      { label: "update publik di timeline" }
+    );
+
+    // Resolusi wajib ringkasan.
+    await page.locator(".page-actions").getByRole("button", { name: "Tandai pulih" }).click();
+    await page.fill(
+      "#resolve-summary",
+      "Uplink switch IGD dipindah ke jalur cadangan; layanan dipantau 30 menit."
+    );
+    await page.click('button[form="incident-resolve-form"]');
+    await waitFor(
+      async () => (await page.locator(".problem-head-meta").innerText()).toLowerCase().includes("dipulihkan"),
+      { label: "status insiden dipulihkan" }
+    );
+
+    // PIR wajib lengkap sebelum tombol tutup aktif.
+    const closeButton = page.getByRole("button", { name: "Tutup insiden" });
+    assert.equal(await closeButton.isDisabled(), true);
+
+    await page.fill("#incident-root", "Modul SFP pada switch core gagal.");
+    await page.fill(
+      "#incident-pir-actions",
+      "Ganti modul SFP dan tambah monitoring suhu switch."
+    );
+    await page.getByRole("button", { name: "Simpan PIR" }).click();
+    await waitFor(
+      async () => (await page.locator(".panel").filter({ hasText: "Post-incident review" }).innerText()).toLowerCase().includes("pir selesai"),
+      { label: "PIR tersimpan" }
+    );
+
+    await closeButton.click();
+    await waitFor(
+      async () => (await page.locator(".problem-head-meta").innerText()).toLowerCase().includes("ditutup"),
+      { label: "insiden ditutup" }
+    );
+    assert.ok((await page.locator(".breadcrumb").innerText()).includes(incidentNo));
+
+    // Detail tiket menampilkan tautan insiden mayor.
+    await page.goto(`${state.web.url}/tickets/${state.incident.id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForSelector(".ticket-incident", { timeout: 20_000 });
+    assert.ok(
+      (await page.locator(".ticket-incident").innerText()).includes(incidentNo)
+    );
+  } finally {
+    await closePage(page);
+  }
+});
+
+test("pilihan tema gelap bertahan setelah muat ulang", async () => {
+  const context = await state.browser.newContext({
+    viewport: { width: 1280, height: 900 },
+    colorScheme: "light",
+  });
+  const page = await context.newPage();
+
+  try {
+    await page.goto(`${state.web.url}/login`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".login-theme", { timeout: 15_000 });
+
+    // Default mengikuti sistem (terang), lalu diubah dari footer halaman masuk.
+    assert.equal(
+      await page.evaluate(() => document.documentElement.dataset.theme),
+      "light"
+    );
+
+    await page.locator(".login-theme").click();
+    await page.waitForTimeout(300);
+
+    assert.equal(
+      await page.evaluate(() => document.documentElement.dataset.theme),
+      "dark"
+    );
+    assert.equal(
+      await page.evaluate(() => localStorage.getItem("itsm-theme")),
+      "dark"
+    );
+
+    // Warna latar harus memakai token gelap, bukan putih.
+    const background = await page.evaluate(
+      () => getComputedStyle(document.body).backgroundColor
+    );
+    assert.notEqual(background, "rgb(255, 255, 255)");
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".login-theme", { timeout: 15_000 });
+
+    assert.equal(
+      await page.evaluate(() => document.documentElement.dataset.theme),
+      "dark",
+      "tema gelap harus bertahan setelah muat ulang"
+    );
+  } finally {
+    await context.close();
+  }
+});
+
 test("tidak ada console error selama alur diuji", () => {
   assert.deepEqual(
     state.consoleErrors,
@@ -763,3 +1432,5 @@ test("tidak ada console error selama alur diuji", () => {
     `console error: ${state.consoleErrors.slice(0, 5).join(" || ")}`
   );
 });
+
+

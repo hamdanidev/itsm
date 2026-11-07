@@ -5,7 +5,10 @@ import { useAuth } from "../../../app/providers/AuthProvider";
 import { useTenant } from "../../../app/providers/TenantProvider";
 import { isPlatformStaff } from "../../../lib/permissions";
 import {
+  downloadOperationsReportCsv,
   downloadSlaReportCsv,
+  fetchIncidentStats,
+  fetchOperationsReport,
   fetchSlaReport,
   getErrorMessage,
 } from "../../../lib/api";
@@ -20,8 +23,7 @@ const PRIORITY_LABELS = {
 const TYPE_LABELS = {
   incident: "Incident",
   service_request: "Service Request",
-  change_request: "Change Request",
-};
+  change_request: "Change Request",};
 
 const STATUS_LABELS = {
   open: "Open",
@@ -141,6 +143,282 @@ function GroupTable({ rows, label }) {
   );
 }
 
+function OperationsSection({ data, onDownload, downloading }) {
+  if (!data) return null;
+
+  const csat = data.csat || { count: 0, average: null, by_service: [] };
+  const incidents = data.incidents || { total: 0, by_service: [] };
+  const knowledge = data.knowledge || {};
+  const sla = data.sla || {};
+
+  return (
+    <section className="panel report-panel" style={{ marginTop: 18 }}>
+      <div className="panel-head">
+        <div className="panel-title">
+          <i className="bi bi-activity" aria-hidden="true" />
+          Laporan operasional
+        </div>
+        <div className="panel-actions">
+          <span className="panel-count">
+            {data.range?.from} – {data.range?.to}
+          </span>
+          <button
+            className="btn btn-outline btn-sm"
+            type="button"
+            onClick={onDownload}
+            disabled={downloading}
+          >
+            {downloading ? (
+              <span className="spinner spinner--dark" aria-hidden="true" />
+            ) : (
+              <i className="bi bi-download" aria-hidden="true" />
+            )}
+            Unduh CSV operasional
+          </button>
+        </div>
+      </div>
+
+      <div className="panel-body">
+        <div className="kpi-grid">
+          <Kpi
+            icon="bi-star"
+            label="CSAT"
+            value={csat.average == null ? "—" : `${csat.average}/5`}
+            hint={`${csat.count} respons`}
+          />
+          <Kpi
+            icon="bi-ticket-detailed"
+            label="Insiden"
+            value={incidents.total}
+            hint={`${incidents.by_service.length} layanan`}
+          />
+          <Kpi
+            icon="bi-journal-text"
+            label="Artikel terbit"
+            value={knowledge.articles_published ?? 0}
+            hint={`${knowledge.tickets_with_kb ?? 0} tiket tertaut KB`}
+          />
+          <Kpi
+            icon="bi-link-45deg"
+            label="KB link rate"
+            value={formatPercent(knowledge.link_rate)}
+            hint="Tiket pada periode"
+          />
+          <Kpi
+            icon="bi-shield-check"
+            label="Compliance SLA"
+            value={formatPercent(sla.compliance)}
+            hint={`${sla.breached ?? 0} breach`}
+          />
+        </div>
+
+        <div className="report-grid">
+          <section className="panel report-panel">
+            <div className="panel-head">
+              <div className="panel-title">Insiden per layanan</div>
+            </div>
+            <div className="panel-body">
+              {incidents.by_service.length === 0 ? (
+                <div className="report-empty">Belum ada insiden.</div>
+              ) : (
+                <div className="report-table-wrap">
+                  <table className="admin-table report-table">
+                    <thead>
+                      <tr>
+                        <th>Layanan</th>
+                        <th className="col-num">Insiden</th>
+                        <th className="col-num">Selesai</th>
+                        <th className="col-num">Breach</th>
+                        <th className="col-num">Compliance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {incidents.by_service.map((item) => (
+                        <tr key={item.name}>
+                          <td>{item.name}</td>
+                          <td className="col-num">{item.total}</td>
+                          <td className="col-num">{item.resolved}</td>
+                          <td className="col-num">{item.breached}</td>
+                          <td className="col-num">
+                            <ComplianceCell value={item.compliance} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="panel report-panel">
+            <div className="panel-head">
+              <div className="panel-title">CSAT per layanan</div>
+            </div>
+            <div className="panel-body">
+              {csat.by_service.length === 0 ? (
+                <div className="report-empty">Belum ada respons CSAT.</div>
+              ) : (
+                <div className="report-table-wrap">
+                  <table className="admin-table report-table">
+                    <thead>
+                      <tr>
+                        <th>Layanan</th>
+                        <th className="col-num">Respons</th>
+                        <th className="col-num">Rata-rata</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csat.by_service.map((item) => (
+                        <tr key={item.name}>
+                          <td>{item.name}</td>
+                          <td className="col-num">{item.count}</td>
+                          <td className="col-num">{item.average}/5</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="panel report-panel">
+            <div className="panel-head">
+              <div className="panel-title">Problem teratas</div>
+            </div>
+            <div className="panel-body">
+              {data.top_problems.length === 0 ? (
+                <div className="report-empty">Belum ada problem.</div>
+              ) : (
+                <div className="report-table-wrap">
+                  <table className="admin-table report-table">
+                    <thead>
+                      <tr>
+                        <th>Problem</th>
+                        <th className="col-num">Tiket</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.top_problems.map((item) => (
+                        <tr key={item.id}>
+                          <td>
+                            <div className="admin-name">{item.title}</div>
+                            <div className="admin-sub">{item.problem_no}</div>
+                          </td>
+                          <td className="col-num">{item.ticket_count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <p className="dash-note">
+          Insiden dihitung dari tiket tipe incident pada periode. CSAT hanya
+          dari respons yang dikirim pemohon setelah tiket selesai/ditutup.
+          KB link rate adalah persentase tiket pada periode yang sudah
+          ditautkan ke artikel pengetahuan.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+const MONTH_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "Mei",
+  "Jun",
+  "Jul",
+  "Agu",
+  "Sep",
+  "Okt",
+  "Nov",
+  "Des",
+];
+
+function monthKeyLabel(key) {
+  const [year, month] = String(key).split("-");
+  const monthIndex = Number(month) - 1;
+  return `${MONTH_SHORT[monthIndex] || month} ${year}`;
+}
+
+function IncidentStatsSection({ stats }) {
+  if (!stats) return null;
+
+  const totals = stats.totals || {};
+  const trend = stats.trend || [];
+
+  return (
+    <section className="panel report-panel" style={{ marginTop: 18 }}>
+      <div className="panel-head">
+        <div className="panel-title">
+          <i className="bi bi-exclamation-octagon" aria-hidden="true" />
+          Insiden mayor
+        </div>
+        <span className="panel-count">
+          {stats.range?.from} – {stats.range?.to}
+        </span>
+      </div>
+      <div className="panel-body">
+        <div className="problem-kpis incident-report-kpis">
+          <div className="problem-kpi">
+            <span>Total insiden</span>
+            <strong>{totals.total ?? 0}</strong>
+          </div>
+          <div className="problem-kpi">
+            <span>Aktif</span>
+            <strong>{totals.active ?? 0}</strong>
+          </div>
+          <div className="problem-kpi">
+            <span>MTTR (median)</span>
+            <strong>{formatDuration(stats.mttr_minutes)}</strong>
+          </div>
+          <div className="problem-kpi">
+            <span>PIR selesai</span>
+            <strong>{totals.pir_completed ?? 0}</strong>
+          </div>
+        </div>
+
+        {trend.length === 0 ? (
+          <div className="report-empty">
+            Belum ada insiden mayor pada rentang ini.
+          </div>
+        ) : (
+          <div className="report-table-wrap">
+            <table className="admin-table report-table">
+              <thead>
+                <tr>
+                  <th>Periode</th>
+                  <th className="col-num">Insiden</th>
+                  <th className="col-num">Dipulihkan</th>
+                  <th className="col-num">PIR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trend.map((row) => (
+                  <tr key={row.key}>
+                    <td>{monthKeyLabel(row.key)}</td>
+                    <td className="col-num">{row.total}</td>
+                    <td className="col-num">{row.resolved}</td>
+                    <td className="col-num">{row.pir_completed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function ReportsPage() {
   const { user } = useAuth();
   const { tenants } = useTenant();
@@ -152,8 +430,11 @@ export default function ReportsPage() {
   // Kosong = gabungan semua rumah sakit (hanya berlaku untuk akun vendor).
   const [tenantFilter, setTenantFilter] = useState("");
   const [report, setReport] = useState(null);
+  const [operations, setOperations] = useState(null);
+  const [incidentStats, setIncidentStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [operationsDownloading, setOperationsDownloading] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async (params) => {
@@ -161,8 +442,14 @@ export default function ReportsPage() {
     setError("");
 
     try {
-      const data = await fetchSlaReport(params);
+      const [data, operational, incidents] = await Promise.all([
+        fetchSlaReport(params),
+        fetchOperationsReport(params),
+        fetchIncidentStats(params).catch(() => null),
+      ]);
       setReport(data);
+      setOperations(operational);
+      setIncidentStats(incidents);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -211,6 +498,19 @@ export default function ReportsPage() {
     }
   }
 
+  async function downloadOperations() {
+    setOperationsDownloading(true);
+    setError("");
+
+    try {
+      await downloadOperationsReportCsv({ from, to, tenant: tenantFilter });
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setOperationsDownloading(false);
+    }
+  }
+
   const summary = report?.summary;
   const isEmpty = Boolean(report) && report.summary.total === 0;
   const trendMax = Math.max(1, ...(report?.trend || []).map((item) => item.created));
@@ -244,10 +544,10 @@ export default function ReportsPage() {
         }
       />
 
-      <div className="report-filters">
-        <div className="report-fields">
+      <div className="filter-bar is-boxed">
+        <div className="filter-fields">
           {isVendor && (
-            <div className="report-field">
+            <div className="filter-field">
               <label className="form-label" htmlFor="report-tenant">
                 Rumah sakit
               </label>
@@ -267,7 +567,7 @@ export default function ReportsPage() {
             </div>
           )}
 
-          <div className="report-field">
+          <div className="filter-field">
             <label className="form-label" htmlFor="report-from">
               Dari
             </label>
@@ -281,7 +581,7 @@ export default function ReportsPage() {
             />
           </div>
 
-          <div className="report-field">
+          <div className="filter-field">
             <label className="form-label" htmlFor="report-to">
               Sampai
             </label>
@@ -296,7 +596,7 @@ export default function ReportsPage() {
             />
           </div>
 
-          <div className="report-field">
+          <div className="filter-field">
             <label className="form-label" htmlFor="report-bucket">
               Tren
             </label>
@@ -312,7 +612,7 @@ export default function ReportsPage() {
           </div>
 
           <button
-            className="btn btn-outline report-apply"
+            className="btn btn-outline"
             type="button"
             onClick={() => apply()}
             disabled={loading}
@@ -322,7 +622,7 @@ export default function ReportsPage() {
           </button>
         </div>
 
-        <div className="report-presets">
+        <div className="report-presets filter-end">
           <span>Rentang cepat:</span>
           {PRESETS.map((preset) => (
             <button
@@ -465,7 +765,7 @@ export default function ReportsPage() {
                 </div>
                 <div className="panel-body">
                   <div className="report-table-wrap">
-                    <table className="admin-table report-table">
+                    <table className="admin-table report-table report-table--trend">
                       <thead>
                         <tr>
                           <th>Periode</th>
@@ -514,6 +814,21 @@ export default function ReportsPage() {
                   </div>
                   <div className="panel-body">
                     <GroupTable rows={report.units} label="Unit" />
+                  </div>
+                </section>
+
+                <section className="panel report-panel">
+                  <div className="panel-head">
+                    <div className="panel-title">Per layanan</div>
+                    <span className="panel-count">
+                      {(report.services || []).length} layanan
+                    </span>
+                  </div>
+                  <div className="panel-body">
+                    <GroupTable
+                      rows={report.services || []}
+                      label="Layanan"
+                    />
                   </div>
                 </section>
 
@@ -607,6 +922,14 @@ export default function ReportsPage() {
           )}
         </>
       )}
+
+      <IncidentStatsSection stats={incidentStats} />
+
+      <OperationsSection
+        data={operations}
+        onDownload={downloadOperations}
+        downloading={operationsDownloading}
+      />
     </>
   );
 }

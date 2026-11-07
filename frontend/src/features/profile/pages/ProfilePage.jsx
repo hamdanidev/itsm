@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PageHeader from "../../../components/ui/PageHeader";
 import Avatar from "../../../components/ui/Avatar";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -12,6 +12,8 @@ import {
   uploadAvatar,
 } from "../../../lib/api";
 import { roleLabel } from "../../../lib/permissions";
+import { teamLabel } from "../../../lib/teams";
+import { formErrorText, useAppForm } from "../../../lib/formik";
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const AVATAR_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -23,22 +25,95 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [employeeNo, setEmployeeNo] = useState("");
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
   const [saveNotice, setSaveNotice] = useState("");
-
   const [uploading, setUploading] = useState(false);
   const [avatarError, setAvatarError] = useState("");
 
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [passwordError, setPasswordError] = useState("");
+  const profileInitialValues = useMemo(
+    () => ({
+      name: profile?.name || "",
+      phone: profile?.phone || "",
+      employee_no: profile?.employee_no || "",
+      email_notifications: profile?.email_notifications !== false,
+    }),
+    [
+      profile?.email_notifications,
+      profile?.employee_no,
+      profile?.name,
+      profile?.phone,
+    ]
+  );
+
+  const profileForm = useAppForm({
+    enableReinitialize: true,
+    initialValues: profileInitialValues,
+    validate: (values) => {
+      const errors = {};
+      if (values.name.trim().length < 2) {
+        errors.name = "Nama minimal 2 karakter.";
+      }
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+      setSaveNotice("");
+
+      try {
+        const updated = await updateProfile({
+          name: values.name.trim(),
+          phone: values.phone.trim(),
+          employee_no: values.employee_no.trim(),
+          email_notifications: values.email_notifications,
+        });
+
+        setProfile(updated);
+        setSaveNotice("Profil berhasil diperbarui.");
+        await refreshSession();
+      } catch (err) {
+        helpers.setStatus(getErrorMessage(err));
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const passwordForm = useAppForm({
+    initialValues: {
+      current_password: "",
+      new_password: "",
+      new_password_confirm: "",
+    },
+    validate: (values) => {
+      const errors = {};
+      if (!values.current_password) {
+        errors.current_password = "Password saat ini wajib diisi.";
+      }
+      if (values.new_password.length < 8) {
+        errors.new_password = "Password baru minimal 8 karakter.";
+      }
+      if (values.new_password !== values.new_password_confirm) {
+        errors.new_password_confirm = "Konfirmasi password tidak sama.";
+      }
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+
+      try {
+        await changePassword(values);
+        logout();
+        // Muat ulang penuh agar halaman login tidak sempat melihat sesi lama.
+        window.location.assign("/login?changed=1");
+      } catch (err) {
+        helpers.setStatus(getErrorMessage(err));
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const saveError = formErrorText(profileForm);
+  const passwordError = formErrorText(passwordForm);
 
   useEffect(() => {
     document.title = "Profil saya · Healthcare ITSM";
@@ -48,11 +123,8 @@ export default function ProfilePage() {
     fetchProfile()
       .then((data) => {
         if (!active) return;
+        // Nilai form mengikuti `profile` lewat `enableReinitialize`.
         setProfile(data);
-        setName(data.name || "");
-        setPhone(data.phone || "");
-        setEmployeeNo(data.employee_no || "");
-        setEmailNotifications(data.email_notifications !== false);
       })
       .catch((err) => {
         if (active) setLoadError(getErrorMessage(err));
@@ -68,37 +140,6 @@ export default function ProfilePage() {
 
   async function refreshSession() {
     await pb.collection("users").authRefresh();
-  }
-
-  async function handleSave(event) {
-    event.preventDefault();
-    setSaveError("");
-    setSaveNotice("");
-
-    if (name.trim().length < 2) {
-      setSaveError("Nama minimal 2 karakter.");
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const updated = await updateProfile({
-        name: name.trim(),
-        phone: phone.trim(),
-        employee_no: employeeNo.trim(),
-        email_notifications: emailNotifications,
-      });
-
-      setProfile(updated);
-      setEmailNotifications(updated.email_notifications !== false);
-      setSaveNotice("Profil berhasil diperbarui.");
-      await refreshSession();
-    } catch (err) {
-      setSaveError(getErrorMessage(err));
-    } finally {
-      setSaving(false);
-    }
   }
 
   async function handleAvatar(event) {
@@ -142,38 +183,6 @@ export default function ProfilePage() {
       setAvatarError(getErrorMessage(err));
     } finally {
       setUploading(false);
-    }
-  }
-
-  async function handlePassword(event) {
-    event.preventDefault();
-    setPasswordError("");
-
-    if (newPassword.length < 8) {
-      setPasswordError("Password baru minimal 8 karakter.");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordError("Konfirmasi password tidak sama.");
-      return;
-    }
-
-    setChangingPassword(true);
-
-    try {
-      await changePassword({
-        current_password: currentPassword,
-        new_password: newPassword,
-        new_password_confirm: confirmPassword,
-      });
-
-      logout();
-      // Muat ulang penuh agar halaman login tidak sempat melihat sesi lama.
-      window.location.assign("/login?changed=1");
-    } catch (err) {
-      setPasswordError(getErrorMessage(err));
-    } finally {
-      setChangingPassword(false);
     }
   }
 
@@ -255,6 +264,18 @@ export default function ProfilePage() {
                 <span>Email</span>
                 <strong>{shown?.email || "—"}</strong>
               </div>
+              {profile?.job_title && (
+                <div className="profile-meta-row">
+                  <span>Jabatan</span>
+                  <strong>{profile.job_title}</strong>
+                </div>
+              )}
+              {profile?.team && (
+                <div className="profile-meta-row">
+                  <span>Tim</span>
+                  <strong>{teamLabel(profile.team)}</strong>
+                </div>
+              )}
               <div className="profile-meta-row">
                 <span>Unit</span>
                 <strong>{profile?.unit_name || "—"}</strong>
@@ -285,7 +306,7 @@ export default function ProfilePage() {
                   </div>
                 )}
 
-                <form onSubmit={handleSave}>
+                <form onSubmit={profileForm.handleSubmit}>
                   <div className="field-row">
                     <label className="form-label" htmlFor="profile-name">
                       Nama <span className="req">*</span>
@@ -293,10 +314,9 @@ export default function ProfilePage() {
                     <input
                       id="profile-name"
                       className="input"
-                      value={name}
                       maxLength={120}
                       minLength={2}
-                      onChange={(event) => setName(event.target.value)}
+                      {...profileForm.getFieldProps("name")}
                       required
                     />
                   </div>
@@ -309,10 +329,9 @@ export default function ProfilePage() {
                       <input
                         id="profile-phone"
                         className="input"
-                        value={phone}
                         maxLength={40}
                         placeholder="+62 812 3456 7890"
-                        onChange={(event) => setPhone(event.target.value)}
+                        {...profileForm.getFieldProps("phone")}
                       />
                     </div>
 
@@ -323,10 +342,9 @@ export default function ProfilePage() {
                       <input
                         id="profile-employee"
                         className="input"
-                        value={employeeNo}
                         maxLength={40}
                         placeholder="Contoh: EMP-001"
-                        onChange={(event) => setEmployeeNo(event.target.value)}
+                        {...profileForm.getFieldProps("employee_no")}
                       />
                     </div>
                   </div>
@@ -341,10 +359,10 @@ export default function ProfilePage() {
                     <input
                       id="profile-email-notifications"
                       type="checkbox"
-                      checked={emailNotifications}
-                      onChange={(event) =>
-                        setEmailNotifications(event.target.checked)
-                      }
+                      {...profileForm.getFieldProps({
+                        name: "email_notifications",
+                        type: "checkbox",
+                      })}
                     />
                     Kirim notifikasi tiket ke email saya
                   </label>
@@ -358,9 +376,9 @@ export default function ProfilePage() {
                     <button
                       className="btn btn-primary"
                       type="submit"
-                      disabled={saving}
+                      disabled={profileForm.isSubmitting}
                     >
-                      {saving ? (
+                      {profileForm.isSubmitting ? (
                         <span className="spinner" aria-hidden="true" />
                       ) : (
                         <i className="bi bi-check2" aria-hidden="true" />
@@ -384,7 +402,7 @@ export default function ProfilePage() {
                   </div>
                 )}
 
-                <form onSubmit={handlePassword}>
+                <form onSubmit={passwordForm.handleSubmit}>
                   <div className="field-row">
                     <label className="form-label" htmlFor="current-password">
                       Password saat ini <span className="req">*</span>
@@ -394,8 +412,7 @@ export default function ProfilePage() {
                       className="input"
                       type="password"
                       autoComplete="current-password"
-                      value={currentPassword}
-                      onChange={(event) => setCurrentPassword(event.target.value)}
+                      {...passwordForm.getFieldProps("current_password")}
                       required
                     />
                   </div>
@@ -411,8 +428,7 @@ export default function ProfilePage() {
                         type="password"
                         autoComplete="new-password"
                         minLength={8}
-                        value={newPassword}
-                        onChange={(event) => setNewPassword(event.target.value)}
+                        {...passwordForm.getFieldProps("new_password")}
                         required
                       />
                     </div>
@@ -427,8 +443,7 @@ export default function ProfilePage() {
                         type="password"
                         autoComplete="new-password"
                         minLength={8}
-                        value={confirmPassword}
-                        onChange={(event) => setConfirmPassword(event.target.value)}
+                        {...passwordForm.getFieldProps("new_password_confirm")}
                         required
                       />
                     </div>
@@ -443,9 +458,9 @@ export default function ProfilePage() {
                     <button
                       className="btn btn-primary"
                       type="submit"
-                      disabled={changingPassword}
+                      disabled={passwordForm.isSubmitting}
                     >
-                      {changingPassword ? (
+                      {passwordForm.isSubmitting ? (
                         <span className="spinner" aria-hidden="true" />
                       ) : (
                         <i className="bi bi-shield-lock" aria-hidden="true" />

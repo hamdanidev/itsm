@@ -56,6 +56,53 @@ export async function createTicket(payload) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Intake publik (QR) dan pengelolaan titik QR.
+// ---------------------------------------------------------------------------
+
+export async function fetchPublicIntake(token) {
+  const response = await fetch(
+    `${pb.baseURL}/api/itsm/public/intake/${encodeURIComponent(token)}`
+  );
+
+  return parseResponse(response);
+}
+
+export async function submitPublicIntake(token, payload, files = []) {
+  const form = new FormData();
+  form.append("payload", JSON.stringify(payload));
+
+  for (const file of files) {
+    form.append("files", file, file.name);
+  }
+
+  const response = await fetch(
+    `${pb.baseURL}/api/itsm/public/intake/${encodeURIComponent(token)}`,
+    { method: "POST", body: form }
+  );
+
+  return parseResponse(response);
+}
+
+export async function fetchIntakePoints() {
+  return pb.send("/api/itsm/intake-points");
+}
+
+export async function createIntakePoint(payload) {
+  return pb.send("/api/itsm/intake-points", { method: "POST", body: payload });
+}
+
+export async function updateIntakePoint(id, payload) {
+  return pb.send(`/api/itsm/intake-points/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export async function rotateIntakePoint(id) {
+  return pb.send(`/api/itsm/intake-points/${id}/rotate`, { method: "POST" });
+}
+
 export async function createComment(ticketId, body, visibility) {
   return pb.send(`/api/itsm/tickets/${ticketId}/comments`, {
     method: "POST",
@@ -67,6 +114,13 @@ export async function assignTicket(ticketId, assignee) {
   return pb.send(`/api/itsm/tickets/${ticketId}/assign`, {
     method: "POST",
     body: { assignee },
+  });
+}
+
+export async function triageTicket(ticketId, payload) {
+  return pb.send(`/api/itsm/tickets/${ticketId}/triage`, {
+    method: "POST",
+    body: payload,
   });
 }
 
@@ -86,6 +140,89 @@ export async function decideTicketApproval(ticketId, decision, note) {
 
 export async function fetchTimeline(ticketId) {
   return pb.send(`/api/itsm/tickets/${ticketId}/timeline`);
+}
+
+export async function createProblem(payload) {
+  return pb.send("/api/itsm/problems", { method: "POST", body: payload });
+}
+
+export async function updateProblem(problemId, payload) {
+  return pb.send(`/api/itsm/problems/${problemId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export async function linkProblem(problemId, ticketId, relation = "caused_by") {
+  return pb.send(`/api/itsm/problems/${problemId}/tickets`, {
+    method: "POST",
+    body: { ticket_id: ticketId, relation },
+  });
+}
+
+export async function createKnowledge(payload) {
+  return pb.send("/api/itsm/knowledge", { method: "POST", body: payload });
+}
+
+export async function updateKnowledge(articleId, payload) {
+  return pb.send(`/api/itsm/knowledge/${articleId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export async function publishKnowledge(articleId, status = "published") {
+  return pb.send(`/api/itsm/knowledge/${articleId}/publish`, {
+    method: "POST",
+    body: { status },
+  });
+}
+
+export async function searchKnowledge(params = {}) {
+  const query = new URLSearchParams();
+  if (params.q) query.set("q", params.q);
+  if (params.service) query.set("service", params.service);
+  if (params.limit) query.set("limit", String(params.limit));
+  const text = query.toString();
+  return pb.send(`/api/itsm/knowledge/search${text ? `?${text}` : ""}`);
+}
+
+export async function declareIncident(payload) {
+  return pb.send("/api/itsm/incidents", { method: "POST", body: payload });
+}
+
+export async function updateIncident(incidentId, payload) {
+  return pb.send(`/api/itsm/incidents/${incidentId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export async function addIncidentUpdate(incidentId, payload) {
+  return pb.send(`/api/itsm/incidents/${incidentId}/updates`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function linkIncidentTicket(
+  incidentId,
+  ticketId,
+  relation = "impacted"
+) {
+  return pb.send(`/api/itsm/incidents/${incidentId}/tickets`, {
+    method: "POST",
+    body: { ticket_id: ticketId, relation },
+  });
+}
+
+export async function fetchIncidentStats(params = {}) {
+  const query = new URLSearchParams();
+  if (params.from) query.set("from", params.from);
+  if (params.to) query.set("to", params.to);
+  if (params.tenant) query.set("tenant", params.tenant);
+  const text = query.toString();
+  return pb.send(`/api/itsm/incidents/stats${text ? `?${text}` : ""}`);
 }
 
 export async function uploadAttachment(ticketId, file, visibility = "public") {
@@ -138,12 +275,16 @@ export async function fetchSlaReport(params = {}) {
   return pb.send(`/api/itsm/reports/sla${query ? `?${query}` : ""}`);
 }
 
-export async function downloadSlaReportCsv(params = {}) {
+export async function fetchOperationsReport(params = {}) {
   const query = reportQuery(params);
-  const response = await fetch(
-    `${pb.baseURL}/api/itsm/reports/sla.csv${query ? `?${query}` : ""}`,
-    { headers: { Authorization: pb.authStore.token } }
-  );
+  return pb.send(`/api/itsm/reports/operations${query ? `?${query}` : ""}`);
+}
+
+async function downloadCsv(path, params, fallbackName) {
+  const query = reportQuery(params);
+  const response = await fetch(`${pb.baseURL}${path}${query ? `?${query}` : ""}`, {
+    headers: { Authorization: pb.authStore.token },
+  });
 
   if (!response.ok) {
     const text = await response.text();
@@ -159,7 +300,7 @@ export async function downloadSlaReportCsv(params = {}) {
   const blob = await response.blob();
   const disposition = response.headers.get("content-disposition") || "";
   const match = disposition.match(/filename="([^"]+)"/);
-  const filename = match ? match[1] : "laporan-sla.csv";
+  const filename = match ? match[1] : fallbackName;
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
 
@@ -169,6 +310,68 @@ export async function downloadSlaReportCsv(params = {}) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+export async function downloadSlaReportCsv(params = {}) {
+  return downloadCsv("/api/itsm/reports/sla.csv", params, "laporan-sla.csv");
+}
+
+export async function downloadOperationsReportCsv(params = {}) {
+  return downloadCsv(
+    "/api/itsm/reports/operations.csv",
+    params,
+    "laporan-operasional.csv"
+  );
+}
+
+export async function fetchAssetOptions(tenantId = "") {
+  const query = tenantId
+    ? `?tenant=${encodeURIComponent(tenantId)}`
+    : "";
+  return pb.send(`/api/itsm/assets/options${query}`);
+}
+
+export async function fetchAsset(assetId) {
+  return pb.send(`/api/itsm/assets/${assetId}`);
+}
+
+export async function createAsset(payload) {
+  return pb.send("/api/itsm/assets", { method: "POST", body: payload });
+}
+
+export async function updateAsset(assetId, payload) {
+  return pb.send(`/api/itsm/assets/${assetId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export async function fetchTicketAssets(ticketId) {
+  return pb.send(`/api/itsm/tickets/${ticketId}/assets`);
+}
+
+export async function linkTicketAsset(ticketId, assetId, relation = "affected") {
+  return pb.send(`/api/itsm/tickets/${ticketId}/assets`, {
+    method: "POST",
+    body: { asset_id: assetId, relation },
+  });
+}
+
+export async function unlinkTicketAsset(ticketId, assetId) {
+  return pb.send(`/api/itsm/tickets/${ticketId}/assets/${assetId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchTicketCsat(ticketId) {
+  return pb.send(`/api/itsm/tickets/${ticketId}/csat`);
+}
+
+export async function submitTicketCsat(ticketId, payload) {
+  return pb.send(`/api/itsm/tickets/${ticketId}/csat`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function fetchProfile() {
@@ -216,6 +419,18 @@ export async function fetchAppMeta() {
   return pb.send("/api/itsm/app-meta");
 }
 
+// ---------------------------------------------------------------------------
+// Setup awal instalasi (first-run). Kedua route publik: dipakai sebelum ada akun.
+// ---------------------------------------------------------------------------
+
+export async function fetchSetupStatus() {
+  return pb.send("/api/itsm/setup/status");
+}
+
+export async function submitSetup(payload) {
+  return pb.send("/api/itsm/setup", { method: "POST", body: payload });
+}
+
 export async function fetchPlatformAudit(params = {}) {
   const query = new URLSearchParams();
 
@@ -238,8 +453,42 @@ export async function fetchPlatformAudit(params = {}) {
   return pb.send(`/api/itsm/platform/audit${text ? `?${text}` : ""}`);
 }
 
-export async function fetchPlatformTenants() {
-  return pb.send("/api/itsm/platform/tenants");
+export async function fetchTenantAudit(params = {}) {
+  const query = new URLSearchParams();
+
+  for (const key of [
+    "scope",
+    "action",
+    "actor",
+    "q",
+    "from",
+    "to",
+    "page",
+    "perPage",
+  ]) {
+    if (params[key]) query.set(key, String(params[key]));
+  }
+
+  const text = query.toString();
+  return pb.send(`/api/itsm/audit${text ? `?${text}` : ""}`);
+}
+
+// Query string untuk endpoint daftar berhalaman (page, perPage, q).
+function pagedQuery(params = {}) {
+  const query = new URLSearchParams();
+
+  if (params.page) query.set("page", String(params.page));
+  if (params.perPage) query.set("perPage", String(params.perPage));
+
+  const search = String(params.q || "").trim();
+  if (search) query.set("q", search);
+
+  const text = query.toString();
+  return text ? `?${text}` : "";
+}
+
+export async function fetchPlatformTenants(params = {}) {
+  return pb.send(`/api/itsm/platform/tenants${pagedQuery(params)}`);
 }
 
 export async function fetchPlatformTenant(tenantId) {
@@ -273,8 +522,8 @@ export async function createPlatformTenantUser(tenantId, payload) {
   });
 }
 
-export async function fetchTeam() {
-  return pb.send("/api/itsm/team");
+export async function fetchTeam(params = {}) {
+  return pb.send(`/api/itsm/team${pagedQuery(params)}`);
 }
 
 export async function createTeamMember(payload) {

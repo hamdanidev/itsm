@@ -285,6 +285,11 @@ function aggregate(rows, options) {
     }).sort(function (a, b) {
       return b.summary.total - a.summary.total || a.name.localeCompare(b.name);
     }),
+    services: groupRows(rows, function (row) {
+      return row.service || "Tanpa layanan";
+    }).sort(function (a, b) {
+      return b.summary.total - a.summary.total || a.name.localeCompare(b.name);
+    }),
     priorities: orderByPriority(
       groupRows(rows, function (row) {
         return row.priority;
@@ -471,7 +476,7 @@ function parseRange(query, nowMs) {
   };
 }
 
-function rowFromRecord(record, units, categories) {
+function rowFromRecord(record, units, categories, services) {
   var createdMs = toMs(record.get("created"));
   var firstResponseMs = toMs(record.get("first_response_at"));
   var resolvedMs = toMs(record.get("resolved_at"));
@@ -485,12 +490,16 @@ function rowFromRecord(record, units, categories) {
   });
 
   return {
+    id: record.id,
     ticketNo: String(record.get("ticket_no") || ""),
+    kbArticle: String(record.get("kb_article") || ""),
     type: String(record.get("type") || ""),
     priority: String(record.get("priority") || ""),
     status: String(record.get("status") || ""),
     unit: units[String(record.get("unit") || "")] || "Tanpa unit",
     category: categories[String(record.get("category") || "")] || "",
+    service:
+      services[String(record.get("service") || "")] || "Tanpa layanan",
     createdMs: createdMs,
     firstResponseMs: firstResponseMs,
     resolvedMs: resolvedMs,
@@ -536,9 +545,10 @@ function collectRows(app, tenantId, tenantName, options) {
 
   var units = collectNames(app, "units", tenantId);
   var categories = collectNames(app, "ticket_categories", tenantId);
+  var services = collectNames(app, "services", tenantId);
 
   for (var i = 0; i < tickets.length; i++) {
-    var row = rowFromRecord(tickets[i], units, categories);
+    var row = rowFromRecord(tickets[i], units, categories, services);
     row.tenantId = tenantId;
     row.tenant = tenantName || "";
     rows.push(row);
@@ -591,6 +601,245 @@ function buildMulti(app, tenants, options) {
   return { report: report, rows: rows };
 }
 
+// Laporan operasional bulanan: insiden per layanan, problem teratas, pemakaian
+// KB, CSAT, dan ringkasan SLA. Memakai baris tiket yang sama dengan laporan SLA
+// agar definisi compliance konsisten.
+function buildOperations(app, tenants, options) {
+  var rows = [];
+  var csatRows = [];
+  var problems = [];
+  var articlesPublished = 0;
+  var serviceNames = {};
+
+  for (var i = 0; i < tenants.length; i++) {
+    var tenantId = String(tenants[i].id);
+    var tenantRows = collectRows(app, tenantId, String(tenants[i].get("name") || ""), options);
+    rows = rows.concat(tenantRows);
+
+    var names = collectNames(app, "services", tenantId);
+    for (var key in names) {
+      if (Object.prototype.hasOwnProperty.call(names, key)) {
+        serviceNames[key] = names[key];
+      }
+    }
+
+    var csat = app.findRecordsByFilter(
+      "ticket_csat",
+      "tenant = {:tenant} && created >= {:from} && created <= {:to}",
+      "-created",
+      0,
+      0,
+      { tenant: tenantId, from: pbDate(options.fromMs), to: pbDate(options.toMs) }
+    );
+
+    for (var c = 0; c < csat.length; c++) {
+      var ticketService = "";
+      try {
+        var csatTicket = app.findRecordById("tickets", String(csat[c].get("ticket")));
+        ticketService = String(csatTicket.get("service") || "");
+      } catch (err) {
+        ticketService = "";
+      }
+
+      csatRows.push({
+        score: Number(csat[c].get("score")) || 0,
+        service: serviceNames[ticketService] || "Tanpa layanan",
+        serviceId: ticketService,
+        hasComment: String(csat[c].get("comment") || "") ? true : false,
+      });
+    }
+
+    var problemRecords = app.findRecordsByFilter(
+      "problems",
+      "tenant = {:tenant} && created >= {:from} && created <= {:to}",
+      "-created",
+      0,
+      0,
+      { tenant: tenantId, from: pbDate(options.fromMs), to: pbDate(options.toMs) }
+    );
+
+    for (var p = 0; p < problemRecords.length; p++) {
+      var links = app.findRecordsByFilter(
+        "problem_tickets",
+        "problem = {:problem}",
+        "",
+        0,
+        0,
+        { problem: problemRecords[p].id }
+      );
+
+      problems.push({
+        id: problemRecords[p].id,
+        problem_no: String(problemRecords[p].get("problem_no") || ""),
+        title: String(problemRecords[p].get("title") || ""),
+        status: String(problemRecords[p].get("status") || ""),
+        ticket_count: links.length,
+      });
+    }
+
+    var articles = app.findRecordsByFilter(
+      "knowledge_articles",
+      'tenant = {:tenant} && status = "published"',
+      "",
+      0,
+      0,
+      { tenant: tenantId }
+    );
+    articlesPublished += articles.length;
+  }
+
+  var incidents = {};
+  var incidentOrder = [];
+  for (var r = 0; r < rows.length; r++) {
+    if (rows[r].type !== "incident") continue;
+
+    var service = rows[r].service || "Tanpa layanan";
+    if (!incidents[service]) {
+      incidents[service] = { name: service, total: 0, resolved: 0, breached: 0 };
+      incidentOrder.push(service);
+    }
+
+    incidents[service].total += 1;
+    if (rows[r].resolvedMs > 0) incidents[service].resolved += 1;
+    if (rows[r].breached) incidents[service].breached += 1;
+  }
+
+  var incidentRows = incidentOrder
+    .map(function (name) {
+      var item = incidents[name];
+      item.compliance = compliance(item.total, item.breached);
+      return item;
+    })
+    .sort(function (a, b) {
+      return b.total - a.total || a.name.localeCompare(b.name);
+    });
+
+  var csatSum = 0;
+  for (var s = 0; s < csatRows.length; s++) csatSum += csatRows[s].score;
+
+  var csatByService = {};
+  for (var t = 0; t < csatRows.length; t++) {
+    var row = csatRows[t];
+    if (!csatByService[row.service]) {
+      csatByService[row.service] = { name: row.service, count: 0, sum: 0 };
+    }
+    csatByService[row.service].count += 1;
+    csatByService[row.service].sum += row.score;
+  }
+
+  var csatServiceRows = [];
+  for (var nameKey in csatByService) {
+    if (Object.prototype.hasOwnProperty.call(csatByService, nameKey)) {
+      var item = csatByService[nameKey];
+      csatServiceRows.push({
+        name: item.name,
+        count: item.count,
+        average: round1(item.sum / item.count),
+      });
+    }
+  }
+  csatServiceRows.sort(function (a, b) {
+    return b.count - a.count || a.name.localeCompare(b.name);
+  });
+
+  var ticketsWithKb = 0;
+  for (var k = 0; k < rows.length; k++) {
+    if (rows[k].kbArticle) ticketsWithKb += 1;
+  }
+
+  var topProblems = problems
+    .slice()
+    .sort(function (a, b) {
+      return b.ticket_count - a.ticket_count || a.problem_no.localeCompare(b.problem_no);
+    })
+    .slice(0, 5);
+
+  return {
+    range: {
+      from: dateText(options.fromMs),
+      to: dateText(options.toMs),
+      days: options.days,
+    },
+    sla: summarize(rows),
+    incidents: {
+      total: incidentRows.reduce(function (sum, item) {
+        return sum + item.total;
+      }, 0),
+      by_service: incidentRows,
+    },
+    csat: {
+      count: csatRows.length,
+      average: csatRows.length ? round1(csatSum / csatRows.length) : null,
+      by_service: csatServiceRows,
+    },
+    knowledge: {
+      articles_published: articlesPublished,
+      tickets_with_kb: ticketsWithKb,
+      link_rate: rows.length
+        ? round1((ticketsWithKb / rows.length) * 100)
+        : null,
+    },
+    top_problems: topProblems,
+  };
+}
+
+function operationsCsv(report) {
+  var lines = [["bagian", "label", "nilai"]];
+
+  function add(section, label, value) {
+    lines.push([section, label, value == null ? "" : value]);
+  }
+
+  add("sla", "total_tiket", report.sla.total);
+  add("sla", "selesai", report.sla.resolved);
+  add("sla", "breach", report.sla.breached);
+  add("sla", "compliance", report.sla.compliance);
+  add("incident", "total_insiden", report.incidents.total);
+
+  for (var i = 0; i < report.incidents.by_service.length; i++) {
+    var service = report.incidents.by_service[i];
+    add("insiden_per_layanan", service.name, service.total);
+  }
+
+  add("csat", "respons", report.csat.count);
+  add("csat", "rata_rata", report.csat.average);
+
+  for (var c = 0; c < report.csat.by_service.length; c++) {
+    add(
+      "csat_per_layanan",
+      report.csat.by_service[c].name,
+      report.csat.by_service[c].average
+    );
+  }
+
+  add("knowledge", "artikel_published", report.knowledge.articles_published);
+  add("knowledge", "tiket_dengan_kb", report.knowledge.tickets_with_kb);
+  add("knowledge", "kb_link_rate", report.knowledge.link_rate);
+
+  for (var p = 0; p < report.top_problems.length; p++) {
+    add(
+      "problem_teratas",
+      report.top_problems[p].problem_no +
+        " " +
+        report.top_problems[p].title,
+      report.top_problems[p].ticket_count
+    );
+  }
+
+  var output = [];
+  for (var l = 0; l < lines.length; l++) {
+    output.push(
+      lines[l]
+        .map(function (value) {
+          return csvCell(value);
+        })
+        .join(",")
+    );
+  }
+
+  return output.join("\n");
+}
+
 module.exports = {
   median: median,
   compliance: compliance,
@@ -602,6 +851,8 @@ module.exports = {
   toCsv: toCsv,
   build: build,
   buildMulti: buildMulti,
+  buildOperations: buildOperations,
+  operationsCsv: operationsCsv,
   parseRange: parseRange,
   queryText: queryText,
 };

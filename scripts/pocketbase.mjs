@@ -6,7 +6,10 @@
  *   npm run pb:serve
  *   npm run pb:superuser -- admin@itsm.local "PasswordKuat123!"
  *   npm run pb:migrate -- collections
+ *   npm run pb:setup-token
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   binaryPath,
   dataDir,
@@ -26,6 +29,7 @@ function usage() {
   node scripts/pocketbase.mjs serve [opsi...]          Jalankan PocketBase dev
   node scripts/pocketbase.mjs superuser create <email> <password>
   node scripts/pocketbase.mjs migrate <perintah...>    Migrasi collection
+  node scripts/pocketbase.mjs setup-token              Cetak kode setup awal
 
 Binary  : ${binaryPath()}
 Data    : ${dataDir}
@@ -60,6 +64,23 @@ async function main() {
         ["superuser", "create", rest[1], rest[2], `--dir=${dataDir}`],
         "superuser create"
       );
+      return;
+    }
+
+    case "setup-token": {
+      const file = path.join(dataDir, "setup_token");
+
+      try {
+        const token = readFileSync(file, "utf8").trim();
+        console.log(token);
+      } catch {
+        console.error(
+          `Kode setup tidak ditemukan di ${file}.\n` +
+            "Instalasi mungkin sudah disiapkan, atau server memakai SETUP_TOKEN dari environment.\n" +
+            "Kode juga dicetak di log server saat instalasi pertama kali dijalankan."
+        );
+        process.exitCode = 1;
+      }
       return;
     }
 

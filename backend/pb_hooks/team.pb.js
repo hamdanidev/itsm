@@ -8,6 +8,7 @@ routerAdd(
   (e) => {
     var guards = require(__hooks + "/lib/guards.js");
     var team = require(__hooks + "/lib/team.js");
+    var paging = require(__hooks + "/lib/paging.js");
 
     var auth = guards.requireAuth(e);
     guards.assertLead(auth);
@@ -15,9 +16,23 @@ routerAdd(
     var tenantId = String(auth.get("tenant") || "");
     if (!tenantId) throw new BadRequestError("Akun tidak memiliki tenant");
 
+    var query = e.requestInfo().query || {};
+    var size = paging.numbers(query);
+    var page = team.list(e.app, tenantId, {
+      page: size.page,
+      perPage: size.perPage,
+      q: paging.search(query),
+    });
+
     return e.json(200, {
-      items: team.list(e.app, tenantId),
+      items: page.items,
       roles: team.ROLES,
+      page: page.page,
+      perPage: page.perPage,
+      totalItems: page.totalItems,
+      totalPages: page.totalPages,
+      // Dipakai UI untuk menjaga tombol nonaktifkan IT Lead terakhir.
+      active_lead_count: team.activeLeads(e.app, tenantId).length,
     });
   },
   $apis.requireAuth()
@@ -62,6 +77,8 @@ routerAdd(
         changes: {
           email: String(record.get("email") || ""),
           role: String(record.get("role") || ""),
+          job_title: String(record.get("job_title") || ""),
+          team: String(record.get("team") || ""),
           unit: String(record.get("unit") || ""),
         },
         ip: meta.ip,

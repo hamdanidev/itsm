@@ -91,7 +91,7 @@ describe("undangan akun", () => {
     assert.match(email.subject, /Undangan akses/i);
     assert.ok(email.html.includes(created.password), "password awal ada di email");
     assert.match(email.html, /\/login/);
-    assert.match(email.html, /IT Support/);
+    assert.match(email.html, /Staff IT/);
     assert.ok(email.text.includes(created.password));
   });
 

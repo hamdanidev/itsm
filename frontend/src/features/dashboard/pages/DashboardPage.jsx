@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import PageHeader from "../../../components/ui/PageHeader";
 import EmptyState from "../../../components/ui/EmptyState";
+import { Skeleton } from "../../../components/ui/Skeleton";
 import { pb } from "../../../lib/pocketbase";
 import { getErrorMessage } from "../../../lib/api";
 import {
@@ -57,15 +58,9 @@ function DashboardSkeleton() {
       <div className="kpi-grid" aria-hidden="true">
         {Array.from({ length: 4 }).map((_, index) => (
           <div className="kpi-card" key={index}>
-            <span className="skeleton" style={{ width: "40%", height: 10 }} />
-            <span
-              className="skeleton"
-              style={{ width: 56, height: 28, marginTop: 12 }}
-            />
-            <span
-              className="skeleton"
-              style={{ width: "65%", height: 10, marginTop: 12 }}
-            />
+            <Skeleton width="40%" height={10} />
+            <Skeleton width={56} height={28} style={{ marginTop: 12 }} />
+            <Skeleton width="65%" height={10} style={{ marginTop: 12 }} />
           </div>
         ))}
       </div>
@@ -74,13 +69,13 @@ function DashboardSkeleton() {
         {[0, 1].map((panel) => (
           <section className="panel" key={panel}>
             <div className="panel-head">
-              <span className="skeleton" style={{ width: 140, height: 12 }} />
+              <Skeleton width={140} />
             </div>
             <div className="panel-body">
               {Array.from({ length: 4 }).map((_, index) => (
                 <div className="queue-row-skeleton" key={index}>
-                  <span className="skeleton" style={{ width: 90 }} />
-                  <span className="skeleton" style={{ width: "55%" }} />
+                  <Skeleton width={90} />
+                  <Skeleton width="55%" />
                 </div>
               ))}
             </div>
@@ -240,6 +235,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [resolvedCount, setResolvedCount] = useState(0);
+  const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -250,7 +246,7 @@ export default function DashboardPage() {
     try {
       // Hanya tiket aktif yang diambil penuh; tiket resolved bisa menumpuk
       // bertahun-tahun sehingga cukup dihitung lewat totalItems.
-      const [records, resolved] = await Promise.all([
+      const [records, resolved, activeIncidents] = await Promise.all([
         pb.collection("tickets").getFullList({
           filter: ACTIVE_FILTER,
           sort: "-created",
@@ -262,10 +258,19 @@ export default function DashboardPage() {
           .getList(1, 1, { filter: 'status = "resolved"', fields: "id" })
           .then((result) => result.totalItems)
           .catch(() => 0),
+        pb
+          .collection("major_incidents")
+          .getFullList({
+            filter: 'status != "resolved" && status != "closed"',
+            sort: "-started_at",
+            expand: "commander",
+          })
+          .catch(() => []),
       ]);
 
       setTickets(records);
       setResolvedCount(resolved);
+      setIncidents(activeIncidents);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -338,6 +343,31 @@ export default function DashboardPage() {
         )} pada tenant ini. Angka dihitung dari tiket yang belum ditutup.`}
       />
 
+      {incidents.length > 0 && (
+        <div className="incident-banner" role="status">
+          <i className="bi bi-exclamation-octagon" aria-hidden="true" />
+          <div className="incident-banner-copy">
+            <strong>
+              {incidents[0].incident_no} · {incidents[0].title}
+            </strong>
+            <span>
+              {incidents[0].expand?.commander?.name
+                ? `Komandan ${incidents[0].expand.commander.name}`
+                : "Komandan belum ditunjuk"}
+              {incidents.length > 1
+                ? ` · ${incidents.length - 1} insiden aktif lainnya`
+                : ""}
+            </span>
+          </div>
+          <Link
+            className="btn btn-sm btn-outline"
+            to={`/incidents/${incidents[0].id}`}
+          >
+            Buka insiden
+          </Link>
+        </div>
+      )}
+
       {error && (
         <div className="alert alert--error" role="alert">
           <i className="bi bi-exclamation-triangle" aria-hidden="true" />
@@ -392,7 +422,7 @@ export default function DashboardPage() {
               value={model.counts.breached}
               hint={
                 model.counts.breached
-                  ? "Perlu eskalasi ke IT Lead"
+                  ? "Perlu eskalasi ke Kepala IT"
                   : "Tidak ada SLA yang lewat"
               }
               tone={model.counts.breached ? "warning" : ""}
@@ -409,7 +439,7 @@ export default function DashboardPage() {
               icon="bi-patch-check"
               label="Menunggu approval"
               value={model.counts.waitingApproval}
-              hint={isLead(user) ? "Menunggu keputusan Anda" : "Menunggu IT Lead"}
+              hint={isLead(user) ? "Menunggu keputusan Anda" : "Menunggu Kepala IT"}
             />
           </div>
 

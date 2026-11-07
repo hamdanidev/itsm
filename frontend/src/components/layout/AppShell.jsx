@@ -3,21 +3,48 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { useAuth } from "../../app/providers/AuthProvider";
 import { useNotifications } from "../../app/providers/NotificationsProvider";
 import { useTenant } from "../../app/providers/TenantProvider";
+import { useTheme } from "../../app/providers/ThemeProvider";
 import { formatRelative, initials } from "../../lib/format";
-import { isLead, isPlatformStaff, isStaff, roleLabel } from "../../lib/permissions";
+import {
+  canViewReports,
+  isLead,
+  isPlatformStaff,
+  isStaff,
+  isViewer,
+  roleLabel,
+} from "../../lib/permissions";
 import { tenantLogoUrl } from "../../lib/branding";
 import { notificationIcon } from "../../features/notifications/notificationMeta";
 import BrandMark from "../ui/BrandMark";
 import Avatar from "../ui/Avatar";
+import ThemeToggle from "../ui/ThemeToggle";
 import TenantSwitcher from "./TenantSwitcher";
 
-function navClass({ isActive }) {
-  return `sidebar-link${isActive ? " is-active" : ""}`;
+// Pilihan lebar sidebar disimpan agar tidak berubah saat halaman di-refresh.
+const SIDEBAR_STORAGE_KEY = "itsm.sidebar.collapsed";
+
+const THEME_OPTIONS = [
+  ["auto", "Sistem"],
+  ["light", "Terang"],
+  ["dark", "Gelap"],
+];
+
+function readSidebarCollapsed() {
+  try {
+    return localStorage.getItem(SIDEBAR_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function navClass({ isActive }, extraActive = false) {
+  return `sidebar-link${isActive || extraActive ? " is-active" : ""}`;
 }
 
 export default function AppShell() {
   const { user, logout } = useAuth();
   const { tenant } = useTenant();
+  const { preference, resolved, setPreference } = useTheme();
   const {
     items: notifications,
     unread,
@@ -32,12 +59,29 @@ export default function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  // Label mengambang saat sidebar menyempit menjadi rail ikon.
+  const [navTip, setNavTip] = useState(null);
   const ticketDetailActive =
     /^\/tickets\/[^/]+$/.test(location.pathname) &&
     location.pathname !== "/tickets/new";
 
   useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, sidebarCollapsed ? "1" : "0");
+    } catch {
+      // localStorage bisa diblokir; pilihan tetap berlaku untuk sesi ini.
+    }
+
+    setNavTip(null);
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
     setNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    setNavTip(null);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -50,6 +94,7 @@ export default function AppShell() {
         setMenuOpen(false);
         setNotifOpen(false);
         setNavOpen(false);
+        setNavTip(null);
       }
     }
 
@@ -79,6 +124,37 @@ export default function AppShell() {
     };
   }, [menuOpen, notifOpen]);
 
+  function toggleSidebar() {
+    setSidebarCollapsed((value) => !value);
+  }
+
+  // Label mengambang hanya untuk rail ikon; teks asli tetap terbaca pembaca layar.
+  function showNavTip(link) {
+    // Breakpoint ini sama dengan media query sidebar ciut di app.css.
+    if (!sidebarCollapsed) return;
+    if (!window.matchMedia("(min-width: 1081px)").matches) return;
+
+    const label = link.querySelector(".sidebar-label");
+
+    if (!label) return;
+
+    const rect = link.getBoundingClientRect();
+
+    setNavTip({
+      text: label.textContent,
+      // Jaga tooltip tetap di dalam viewport saat daftar menu digulir.
+      top: Math.min(
+        Math.max(rect.top + rect.height / 2, 24),
+        window.innerHeight - 24
+      ),
+      left: rect.right + 10,
+    });
+  }
+
+  function clearNavTip() {
+    setNavTip(null);
+  }
+
   async function handleNotification(item) {
     setNotifOpen(false);
 
@@ -107,9 +183,117 @@ export default function AppShell() {
       ? `Kode ${tenant.code} · Layanan TI`
       : "Layanan TI rumah sakit";
 
+  const sidebarToggleLabel = sidebarCollapsed
+    ? "Tampilkan menu samping"
+    : "Sembunyikan menu samping";
+  const sidebarToggleIcon = sidebarCollapsed
+    ? "bi-chevron-double-right"
+    : "bi-chevron-double-left";
+
+  // Satu daftar navigasi untuk kedua peran; urutan mengikuti tampilan sebelumnya.
+  const navItems = [
+    {
+      key: "platform",
+      to: "/platform",
+      icon: "bi-buildings",
+      label: "Konsol Vendor",
+      visible: isPlatformStaff(user),
+    },
+    {
+      key: "dashboard",
+      to: "/dashboard",
+      icon: "bi-grid-1x2",
+      label: "Ringkasan",
+      visible: !isPlatformStaff(user) && isStaff(user),
+    },
+    {
+      key: "catalog",
+      to: "/catalog",
+      icon: "bi-grid",
+      label: "Katalog Layanan",
+      visible: !isPlatformStaff(user) && !isViewer(user),
+    },
+    {
+      key: "tickets",
+      to: "/tickets",
+      icon: "bi-ticket-detailed",
+      label: "Tiket",
+      visible: !isViewer(user),
+    },
+    {
+      key: "incidents",
+      to: "/incidents",
+      icon: "bi-exclamation-octagon",
+      label: "Insiden mayor",
+      visible: isStaff(user),
+    },
+    {
+      key: "problems",
+      to: "/problems",
+      icon: "bi-diagram-3",
+      label: "Problem",
+      visible: !isPlatformStaff(user) && isStaff(user),
+    },
+    {
+      key: "assets",
+      to: "/assets",
+      icon: "bi-hdd-stack",
+      label: "Aset & CI",
+      visible: !isPlatformStaff(user) && isStaff(user),
+    },
+    {
+      key: "knowledge",
+      to: "/knowledge",
+      icon: "bi-journal-text",
+      label: "Pengetahuan",
+      visible: !isPlatformStaff(user) && !isViewer(user),
+    },
+    {
+      key: "notifications",
+      to: "/notifications",
+      icon: "bi-bell",
+      label: "Notifikasi",
+      visible: !isViewer(user),
+      badge: unread,
+    },
+    {
+      key: "reports",
+      to: "/reports",
+      icon: "bi-bar-chart-line",
+      label: "Laporan",
+      visible: canViewReports(user),
+    },
+    {
+      key: "audit",
+      to: "/audit",
+      icon: "bi-clipboard-data",
+      label: "Audit",
+      visible: isPlatformStaff(user) || canViewReports(user),
+    },
+    {
+      key: "admin",
+      to: "/admin",
+      icon: "bi-sliders",
+      label: "Pengaturan",
+      visible: !isPlatformStaff(user) && isLead(user),
+    },
+  ].filter((item) => item.visible);
+
   return (
     <>
       <header className="topbar">
+        <button
+          className="icon-button sidebar-toggle"
+          type="button"
+          onClick={toggleSidebar}
+          aria-label={sidebarToggleLabel}
+          aria-expanded={!sidebarCollapsed}
+          aria-controls="app-sidebar"
+          title={sidebarToggleLabel}
+        >
+          <i className={`bi ${sidebarToggleIcon}`} aria-hidden="true" />
+        </button>
+
         <button
           className="icon-button nav-toggle"
           type="button"
@@ -132,7 +316,7 @@ export default function AppShell() {
         <div className="topbar-actions">
           <TenantSwitcher />
 
-          {!isPlatformStaff(user) && (
+          {!isPlatformStaff(user) && !isViewer(user) && (
             <Link
               className="btn btn-primary topbar-create"
               to="/tickets/new"
@@ -142,6 +326,8 @@ export default function AppShell() {
               <span>Buat tiket</span>
             </Link>
           )}
+
+          <ThemeToggle className="icon-button theme-quick" />
 
           <div className="notif-wrap" ref={notifRef}>
             <button
@@ -241,7 +427,10 @@ export default function AppShell() {
               <Avatar user={user} size={24} />
               <span className="user-copy">
                 <span className="user-name">{user?.name}</span>
-                <span className="user-role">{roleLabel(user)}</span>
+                <span className="user-role">
+                  {roleLabel(user)}
+                  {user?.job_title ? ` · ${user.job_title}` : ""}
+                </span>
               </span>
               <i
                 className={`bi ${menuOpen ? "bi-chevron-up" : "bi-chevron-down"}`}
@@ -263,6 +452,34 @@ export default function AppShell() {
                   <i className="bi bi-person-gear" aria-hidden="true" />
                   Profil saya
                 </Link>
+
+                <div className="menu-section">
+                  <span className="menu-section-label">
+                    <i
+                      className={`bi ${
+                        resolved === "dark" ? "bi-moon-stars" : "bi-sun"
+                      }`}
+                      aria-hidden="true"
+                    />
+                    Tema
+                  </span>
+                  <div className="theme-switch" role="group" aria-label="Pilih tema">
+                    {THEME_OPTIONS.map(([value, label]) => (
+                      <button
+                        key={value}
+                        className={`theme-option${
+                          preference === value ? " is-active" : ""
+                        }`}
+                        type="button"
+                        aria-pressed={preference === value}
+                        onClick={() => setPreference(value)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <button
                   className="menu-item is-danger"
                   type="button"
@@ -278,12 +495,20 @@ export default function AppShell() {
         </div>
       </header>
 
-      <div className="app-body">
+      <div
+        className={`app-body${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}
+      >
         <aside
           id="app-sidebar"
-          className={`sidebar${navOpen ? " is-open" : ""}`}
+          className={`sidebar${navOpen ? " is-open" : ""}${
+            sidebarCollapsed ? " is-collapsed" : ""
+          }`}
+          onScroll={clearNavTip}
         >
-          <div className="project-summary">
+          <div
+            className="project-summary"
+            title={sidebarCollapsed ? tenantName : undefined}
+          >
             <span
               className={`project-avatar${tenant?.logo ? " has-logo" : ""}`}
               aria-hidden="true"
@@ -309,93 +534,29 @@ export default function AppShell() {
               {isPlatformStaff(user) ? "Vendor" : "Ruang kerja"}
             </div>
 
-            {isPlatformStaff(user) && (
-              <NavLink className={navClass} to="/platform">
-                <i className="bi bi-buildings" aria-hidden="true" />
-                Konsol Vendor
-              </NavLink>
-            )}
-
-            {isPlatformStaff(user) && (
+            {navItems.map((item) => (
               <NavLink
+                key={item.key}
+                to={item.to}
+                end={item.key === "tickets"}
                 className={({ isActive }) =>
-                  `sidebar-link${isActive || ticketDetailActive ? " is-active" : ""}`
+                  navClass(
+                    { isActive },
+                    item.key === "tickets" && ticketDetailActive
+                  )
                 }
-                to="/tickets"
-                end
+                onMouseEnter={(event) => showNavTip(event.currentTarget)}
+                onMouseLeave={clearNavTip}
+                onFocus={(event) => showNavTip(event.currentTarget)}
+                onBlur={clearNavTip}
               >
-                <i className="bi bi-ticket-detailed" aria-hidden="true" />
-                Tiket
-              </NavLink>
-            )}
-
-            {isPlatformStaff(user) && (
-              <NavLink className={navClass} to="/notifications">
-                <i className="bi bi-bell" aria-hidden="true" />
-                Notifikasi
-                {unread > 0 && (
-                  <span className="sidebar-badge is-count">{unread}</span>
+                <i className={`bi ${item.icon}`} aria-hidden="true" />
+                <span className="sidebar-label">{item.label}</span>
+                {item.badge > 0 && (
+                  <span className="sidebar-badge is-count">{item.badge}</span>
                 )}
               </NavLink>
-            )}
-
-            {isPlatformStaff(user) && isLead(user) && (
-              <NavLink className={navClass} to="/reports">
-                <i className="bi bi-bar-chart-line" aria-hidden="true" />
-                Laporan
-              </NavLink>
-            )}
-
-            {isPlatformStaff(user) && (
-              <NavLink className={navClass} to="/audit">
-                <i className="bi bi-clipboard-data" aria-hidden="true" />
-                Audit
-              </NavLink>
-            )}
-
-            {!isPlatformStaff(user) && isStaff(user) && (
-              <NavLink className={navClass} to="/dashboard">
-                <i className="bi bi-grid-1x2" aria-hidden="true" />
-                Ringkasan
-              </NavLink>
-            )}
-
-            {!isPlatformStaff(user) && (
-              <NavLink
-                className={({ isActive }) =>
-                  `sidebar-link${isActive || ticketDetailActive ? " is-active" : ""}`
-                }
-                to="/tickets"
-                end
-              >
-                <i className="bi bi-ticket-detailed" aria-hidden="true" />
-                Tiket
-              </NavLink>
-            )}
-
-            {!isPlatformStaff(user) && (
-              <NavLink className={navClass} to="/notifications">
-                <i className="bi bi-bell" aria-hidden="true" />
-                Notifikasi
-                {unread > 0 && (
-                  <span className="sidebar-badge is-count">{unread}</span>
-                )}
-              </NavLink>
-            )}
-
-            {!isPlatformStaff(user) && isLead(user) && (
-              <NavLink className={navClass} to="/reports">
-                <i className="bi bi-bar-chart-line" aria-hidden="true" />
-                Laporan
-              </NavLink>
-            )}
-
-            {!isPlatformStaff(user) && isLead(user) && (
-              <NavLink className={navClass} to="/admin">
-                <i className="bi bi-sliders" aria-hidden="true" />
-                Pengaturan
-              </NavLink>
-            )}
+            ))}
           </nav>
 
           <div className="sidebar-footer">
@@ -425,6 +586,16 @@ export default function AppShell() {
           </div>
         </main>
       </div>
+
+      {navTip && (
+        <div
+          className="nav-tip"
+          role="tooltip"
+          style={{ top: navTip.top, left: navTip.left }}
+        >
+          {navTip.text}
+        </div>
+      )}
     </>
   );
 }

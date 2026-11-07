@@ -1,9 +1,11 @@
 var STAFF_ROLES = ["it_support", "it_lead"];
+var RESOLVER_ROLE = "resolver";
+var VIEWER_ROLE = "viewer";
 
 function requireAuth(e, options) {
   if (!e.auth) throw new UnauthorizedError("Authentication required");
 
-  // Akun dengan password awal (dibuat IT Lead) wajib mengganti password lebih
+  // Akun dengan password awal (dibuat Kepala IT) wajib mengganti password lebih
   // dulu. Hanya route ganti password sendiri yang boleh melewati gerbang ini.
   if (
     !(options && options.allowPendingPassword) &&
@@ -27,12 +29,90 @@ function isLead(auth) {
   return roleOf(auth) === "it_lead";
 }
 
+// Resolver = teknisi/spesialis (programmer, jaringan, hardware, DBA, admin
+// SIMRS). Bukan agent penuh: hanya tiket yang ditugaskan kepadanya.
+function isResolver(auth) {
+  return roleOf(auth) === RESOLVER_ROLE;
+}
+
+function isViewer(auth) {
+  return roleOf(auth) === VIEWER_ROLE;
+}
+
+function isStaffOrResolver(auth) {
+  return isStaff(auth) || isResolver(auth);
+}
+
 function assertStaff(auth) {
   if (!isStaff(auth)) throw new ForbiddenError("Staff role required");
 }
 
+function assertStaffOrResolver(auth) {
+  if (!isStaffOrResolver(auth)) {
+    throw new ForbiddenError("Staff or resolver role required");
+  }
+}
+
 function assertLead(auth) {
-  if (!isLead(auth)) throw new ForbiddenError("IT Lead role required");
+  if (!isLead(auth)) throw new ForbiddenError("Kepala IT role required");
+}
+
+function assertReportReader(auth) {
+  if (!isLead(auth) && !isViewer(auth)) {
+    throw new ForbiddenError("Report access required");
+  }
+}
+
+// Resolver hanya boleh mengerjakan tiket yang menjadi assignee-nya.
+function isAssignedResolver(auth, ticket) {
+  if (!isResolver(auth) || !ticket) return false;
+
+  try {
+    return String(ticket.get("assignee") || "") === String(auth.id || "");
+  } catch (err) {
+    return false;
+  }
+}
+
+function teamOf(auth) {
+  if (!auth) return "";
+
+  try {
+    return String(auth.get("team") || "");
+  } catch (err) {
+    return "";
+  }
+}
+
+// Resolver boleh membaca tiket timnya (termasuk yang belum di-assign).
+function isTeamResolver(auth, ticket) {
+  if (!isResolver(auth) || !ticket) return false;
+
+  var team = teamOf(auth);
+  if (!team) return false;
+
+  try {
+    return String(ticket.get("team") || "") === team;
+  } catch (err) {
+    return false;
+  }
+}
+
+// Resolver boleh mengambil tiket tim yang belum di-assign.
+function canClaimTeamTicket(auth, ticket) {
+  if (!isTeamResolver(auth, ticket)) return false;
+
+  try {
+    return !String(ticket.get("assignee") || "");
+  } catch (err) {
+    return false;
+  }
+}
+
+// Dipakai untuk komentar/lampiran internal dan transisi tiket: agent penuh
+// (Staff IT/Kepala IT) atau resolver yang memegang tiket tersebut.
+function canWorkAsStaff(auth, ticket) {
+  return isStaff(auth) || isAssignedResolver(auth, ticket);
 }
 
 // Scope akun platform (vendor). Orthogonal terhadap `role`: role menentukan
@@ -112,6 +192,7 @@ function canAccessTicket(e, ticket) {
   }
 
   if (STAFF_ROLES.indexOf(String(auth.get("role") || "")) >= 0) return true;
+  if (isTeamResolver(auth, ticket)) return true;
   if (String(ticket.get("requester") || "") === userId) return true;
   if (String(ticket.get("assignee") || "") === userId) return true;
 
@@ -157,8 +238,18 @@ module.exports = {
   roleOf: roleOf,
   isStaff: isStaff,
   isLead: isLead,
+  isResolver: isResolver,
+  isViewer: isViewer,
+  isStaffOrResolver: isStaffOrResolver,
   assertStaff: assertStaff,
+  assertStaffOrResolver: assertStaffOrResolver,
   assertLead: assertLead,
+  assertReportReader: assertReportReader,
+  isAssignedResolver: isAssignedResolver,
+  canWorkAsStaff: canWorkAsStaff,
+  teamOf: teamOf,
+  isTeamResolver: isTeamResolver,
+  canClaimTeamTicket: canClaimTeamTicket,
   isPlatformStaff: isPlatformStaff,
   isPlatformAdmin: isPlatformAdmin,
   assertPlatformStaff: assertPlatformStaff,

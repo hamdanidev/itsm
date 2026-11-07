@@ -22,8 +22,10 @@ routerAdd(
     if (["public", "internal"].indexOf(visibility) < 0) {
       throw new BadRequestError("Invalid comment visibility");
     }
-    if (visibility === "internal" && !guards.isStaff(auth)) {
-      throw new ForbiddenError("Only IT staff can post internal comments");
+    if (visibility === "internal" && !guards.canWorkAsStaff(auth, ticket)) {
+      throw new ForbiddenError(
+        "Hanya Staff IT atau Teknisi pemilik tiket yang dapat menulis komentar internal"
+      );
     }
 
     var comment;
@@ -47,7 +49,7 @@ routerAdd(
 
       if (
         visibility === "public" &&
-        guards.isStaff(auth) &&
+        guards.canWorkAsStaff(auth, current) &&
         !hasFirstResponse
       ) {
         current.set("first_response_at", now);

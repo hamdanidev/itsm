@@ -7,6 +7,7 @@ import { useAuth } from "../../../app/providers/AuthProvider";
 import { useTenant } from "../../../app/providers/TenantProvider";
 import { formatDate } from "../../../lib/format";
 import { isPlatformAdmin, tenantRoleLabel } from "../../../lib/permissions";
+import { formErrorText, useAppForm } from "../../../lib/formik";
 import {
   createTenantMaster,
   fetchTenantMaster,
@@ -131,10 +132,55 @@ export default function MasterDataPage() {
   const [notice, setNotice] = useState("");
 
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM.units);
-  const [formError, setFormError] = useState("");
-  const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
+
+  const formInitialValues = useMemo(() => {
+    if (modal?.record) return formFromRecord(modal.tab, modal.record);
+    return { ...EMPTY_FORM[modal?.tab || tab] };
+  }, [modal?.record?.id, modal?.tab, tab]);
+
+  const formik = useAppForm({
+    enableReinitialize: true,
+    initialValues: formInitialValues,
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+
+      const payload = { ...values };
+
+      if (modal.tab === "units" || modal.tab === "categories") {
+        payload.code = String(values.code || "").trim().toUpperCase();
+      }
+      if (modal.tab === "policies") {
+        payload.response_minutes = Number(values.response_minutes);
+        payload.approval_minutes = Number(values.approval_minutes);
+        payload.resolution_minutes = Number(values.resolution_minutes);
+        payload.version = Number(values.version);
+        payload.business_days = values.business_days;
+      }
+
+      try {
+        if (modal.record) {
+          await updateTenantMaster(id, modal.tab, modal.record.id, payload);
+        } else {
+          await createTenantMaster(id, modal.tab, payload);
+        }
+
+        setModal(null);
+        setNotice(
+          modal.record ? "Perubahan disimpan." : "Data baru ditambahkan."
+        );
+        formik.resetForm();
+        await load();
+      } catch (err) {
+        helpers.setStatus(getErrorMessage(err));
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const form = formik.values;
+  const formError = formErrorText(formik);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -178,55 +224,17 @@ export default function MasterDataPage() {
   }, [data, tab]);
 
   function setField(key, value) {
-    setForm((current) => ({ ...current, [key]: value }));
+    formik.setFieldValue(key, value);
   }
 
   function openCreate() {
-    setForm({ ...EMPTY_FORM[tab] });
-    setFormError("");
+    formik.setStatus("");
     setModal({ tab, record: null });
   }
 
   function openEdit(record) {
-    setForm(formFromRecord(tab, record));
-    setFormError("");
+    formik.setStatus("");
     setModal({ tab, record });
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setFormError("");
-
-    const payload = { ...form };
-
-    if (modal.tab === "units" || modal.tab === "categories") {
-      payload.code = String(form.code || "").trim().toUpperCase();
-    }
-    if (modal.tab === "policies") {
-      payload.response_minutes = Number(form.response_minutes);
-      payload.approval_minutes = Number(form.approval_minutes);
-      payload.resolution_minutes = Number(form.resolution_minutes);
-      payload.version = Number(form.version);
-      payload.business_days = form.business_days;
-    }
-
-    setSaving(true);
-
-    try {
-      if (modal.record) {
-        await updateTenantMaster(id, modal.tab, modal.record.id, payload);
-      } else {
-        await createTenantMaster(id, modal.tab, payload);
-      }
-
-      setModal(null);
-      setNotice(modal.record ? "Perubahan disimpan." : "Data baru ditambahkan.");
-      await load();
-    } catch (err) {
-      setFormError(getErrorMessage(err));
-    } finally {
-      setSaving(false);
-    }
   }
 
   async function toggleActive(record) {
@@ -249,13 +257,11 @@ export default function MasterDataPage() {
   }
 
   function toggleDay(day) {
-    setForm((current) => {
-      const days = current.business_days.includes(day)
-        ? current.business_days.filter((value) => value !== day)
-        : [...current.business_days, day].sort((a, b) => a - b);
+    const days = form.business_days.includes(day)
+      ? form.business_days.filter((value) => value !== day)
+      : [...form.business_days, day].sort((a, b) => a - b);
 
-      return { ...current, business_days: days };
-    });
+    formik.setFieldValue("business_days", days);
   }
 
   if (loading && !data) {
@@ -429,7 +435,7 @@ export default function MasterDataPage() {
         <Modal
           title={`${modal.record ? "Edit" : "Tambah"} ${KIND_LABELS[modal.tab].singular}`}
           description={`Berlaku untuk ${data.tenant.name}.`}
-          onClose={() => (saving ? null : setModal(null))}
+          onClose={() => (formik.isSubmitting ? null : setModal(null))}
           wide={modal.tab === "policies"}
           footer={
             <>
@@ -437,7 +443,7 @@ export default function MasterDataPage() {
                 className="btn btn-subtle"
                 type="button"
                 onClick={() => setModal(null)}
-                disabled={saving}
+                disabled={formik.isSubmitting}
               >
                 Batal
               </button>
@@ -445,9 +451,9 @@ export default function MasterDataPage() {
                 className="btn btn-primary"
                 type="submit"
                 form="master-form"
-                disabled={saving}
+                disabled={formik.isSubmitting}
               >
-                {saving ? (
+                {formik.isSubmitting ? (
                   <>
                     <span className="spinner" aria-hidden="true" />
                     Menyimpan...
@@ -459,7 +465,11 @@ export default function MasterDataPage() {
             </>
           }
         >
-          <form id="master-form" className="admin-form" onSubmit={handleSubmit}>
+          <form
+            id="master-form"
+            className="admin-form"
+            onSubmit={formik.handleSubmit}
+          >
             {formError && (
               <div className="alert alert--error" role="alert">
                 <i className="bi bi-exclamation-triangle" aria-hidden="true" />
@@ -721,7 +731,7 @@ function renderForm(kind, form, data, setField, toggleDay) {
             </select>
             <div className="hint">
               Approver tahap pertama untuk tiket unit ini. Bila kosong, approval
-              langsung ke IT Lead.
+              langsung ke Kepala IT.
             </div>
           </div>
         )}

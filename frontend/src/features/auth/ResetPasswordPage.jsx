@@ -2,54 +2,57 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { pb } from "../../lib/pocketbase";
 import { getErrorMessage } from "../../lib/api";
+import { formErrorText, useAppForm } from "../../lib/formik";
 import AuthBrand from "./AuthBrand";
+import ThemeToggle from "../../components/ui/ThemeToggle";
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const token = searchParams.get("token") || "";
 
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+
+  const formik = useAppForm({
+    initialValues: { password: "", confirm: "" },
+    validate: (values) => {
+      const errors = {};
+
+      if (values.password.length < 8) {
+        errors.password = "Password baru minimal 8 karakter.";
+      }
+      if (values.password !== values.confirm) {
+        errors.confirm = "Konfirmasi password tidak sama.";
+      }
+
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+
+      try {
+        await pb
+          .collection("users")
+          .confirmPasswordReset(token, values.password, values.confirm);
+        navigate("/login?reset=1", { replace: true });
+      } catch (err) {
+        const message = getErrorMessage(err);
+        helpers.setStatus(
+          /invalid|expired|token/i.test(message)
+            ? "Tautan reset tidak valid atau sudah kedaluwarsa. Minta tautan baru."
+            : message
+        );
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const error = formErrorText(formik);
 
   useEffect(() => {
     document.title = "Buat password baru · Healthcare ITSM";
   }, []);
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setError("");
-
-    if (password.length < 8) {
-      setError("Password baru minimal 8 karakter.");
-      return;
-    }
-    if (password !== confirm) {
-      setError("Konfirmasi password tidak sama.");
-      return;
-    }
-
-    setSubmitting(true);
-
-    try {
-      await pb
-        .collection("users")
-        .confirmPasswordReset(token, password, confirm);
-      navigate("/login?reset=1", { replace: true });
-    } catch (err) {
-      const message = getErrorMessage(err);
-      setError(
-        /invalid|expired|token/i.test(message)
-          ? "Tautan reset tidak valid atau sudah kedaluwarsa. Minta tautan baru."
-          : message
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   return (
     <div className="login-page">
@@ -85,7 +88,7 @@ export default function ResetPasswordPage() {
                 keluar setelah password diubah.
               </p>
 
-              <form className="login-form" onSubmit={handleSubmit}>
+              <form className="login-form" onSubmit={formik.handleSubmit}>
                 <div className="login-field">
                   <label className="form-label" htmlFor="reset-password">
                     Password baru
@@ -99,8 +102,7 @@ export default function ResetPasswordPage() {
                       autoComplete="new-password"
                       minLength={8}
                       autoFocus
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
+                      {...formik.getFieldProps("password")}
                       required
                     />
                     <button
@@ -134,8 +136,7 @@ export default function ResetPasswordPage() {
                     placeholder="Ulangi password"
                     autoComplete="new-password"
                     minLength={8}
-                    value={confirm}
-                    onChange={(event) => setConfirm(event.target.value)}
+                    {...formik.getFieldProps("confirm")}
                     required
                   />
                 </div>
@@ -143,9 +144,9 @@ export default function ResetPasswordPage() {
                 <button
                   className="btn btn-primary btn-block login-submit"
                   type="submit"
-                  disabled={submitting}
+                  disabled={formik.isSubmitting}
                 >
-                  {submitting ? (
+                  {formik.isSubmitting ? (
                     <>
                       <span className="spinner" aria-hidden="true" />
                       Menyimpan...
@@ -167,6 +168,7 @@ export default function ResetPasswordPage() {
 
       <footer className="login-footer">
         <span>© 2026 Healthcare ITSM</span>
+        <ThemeToggle className="login-theme" />
       </footer>
     </div>
   );

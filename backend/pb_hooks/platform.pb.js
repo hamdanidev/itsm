@@ -18,16 +18,26 @@
 
 routerAdd("GET", "/api/itsm/app-meta", (e) => {
   var tenancy = require(__hooks + "/lib/tenancy.js");
+  var setup = require(__hooks + "/lib/setup.js");
+  // "Acme" adalah nama bawaan PocketBase; jangan tampilkan sebagai brand.
+  var appName = String(e.app.settings().meta.appName || "").trim();
+  if (!appName || appName === "Acme") appName = "Healthcare ITSM";
+
   var payload = {
-    app: String(e.app.settings().meta.appName || "Healthcare ITSM"),
+    app: appName,
     mode: tenancy.current(),
     vendor_console: tenancy.isVendor(),
+    // Frontend memakai ini untuk mengalihkan semua halaman ke /setup selama
+    // instalasi belum punya akun.
+    setup_required: setup.setupRequired(e.app),
     tenant: null,
   };
 
   // Halaman login pada instalasi standalone menampilkan identitas rumah sakit.
   // Mode vendor tidak memilih satu tenant, jadi tetap memakai brand aplikasi.
-  if (!tenancy.isVendor()) {
+  // Selama setup awal belum selesai, identitas seed belum nyata sehingga brand
+  // aplikasi yang ditampilkan (bukan "Rumah Sakit Contoh").
+  if (!tenancy.isVendor() && !payload.setup_required) {
     var rows = e.app.findRecordsByFilter(
       "tenants",
       "is_active = true",
@@ -65,28 +75,63 @@ routerAdd(
   (e) => {
     var platform = require(__hooks + "/lib/platform.js");
     var tenancy = require(__hooks + "/lib/tenancy.js");
+    var paging = require(__hooks + "/lib/paging.js");
 
     platform.requirePlatform(e, false);
 
-    var records = e.app.findRecordsByFilter("tenants", 'id != ""', "name", 500, 0);
-    var items = [];
+    var query = e.requestInfo().query || {};
+    var size = paging.numbers(query);
+    var q = paging.search(query);
+
+    var filter = 'id != ""';
+    var params = {};
+
+    if (q) {
+      filter += " && (name ~ {:q} || code ~ {:q})";
+      params.q = q;
+    }
+
+    var totalItems = paging.count(e.app, "tenants", filter, params);
+
+    // Ringkasan tetap mencakup seluruh instalasi, bukan hanya halaman ini.
+    var all = e.app.findRecordsByFilter("tenants", 'id != ""', "name", 0, 0);
     var summary = { tenants: 0, active: 0, users: 0, open_tickets: 0 };
 
-    for (var i = 0; i < records.length; i++) {
-      var counts = platform.countsFor(e.app, records[i].id);
-      var item = platform.serializeTenant(records[i], counts);
+    for (var i = 0; i < all.length; i++) {
+      var counts = platform.countsFor(e.app, all[i].id);
 
-      items.push(item);
       summary.tenants += 1;
-      if (item.is_active) summary.active += 1;
+      if (all[i].get("is_active")) summary.active += 1;
       summary.users += counts.users;
       summary.open_tickets += counts.open_tickets;
     }
+
+    var records = e.app.findRecordsByFilter(
+      "tenants",
+      filter,
+      "name",
+      size.perPage,
+      (size.page - 1) * size.perPage,
+      params
+    );
+    var items = [];
+
+    for (var j = 0; j < records.length; j++) {
+      items.push(
+        platform.serializeTenant(records[j], platform.countsFor(e.app, records[j].id))
+      );
+    }
+
+    var meta = paging.meta(size.page, size.perPage, totalItems);
 
     return e.json(200, {
       mode: tenancy.current(),
       items: items,
       summary: summary,
+      page: meta.page,
+      perPage: meta.perPage,
+      totalItems: meta.totalItems,
+      totalPages: meta.totalPages,
     });
   },
   $apis.requireAuth()
@@ -125,9 +170,11 @@ routerAdd(
     if (rawAdmin.email || rawAdmin.password) {
       adminInput = platform.validateUserInput(
         {
-          name: rawAdmin.name || "IT Lead " + input.code,
+          name: rawAdmin.name || "Kepala IT " + input.code,
           email: rawAdmin.email,
           role: rawAdmin.role || "it_lead",
+          job_title: rawAdmin.job_title || "",
+          team: rawAdmin.team || "",
           password: rawAdmin.password,
         },
         false
@@ -380,6 +427,8 @@ routerAdd(
       changes: {
         email: input.email,
         role: input.role,
+        job_title: input.job_title || "",
+        team: input.team || "",
         unit: input.unit || "",
       },
     });

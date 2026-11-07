@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { changePassword, getErrorMessage } from "../../lib/api";
-import BrandMark from "../../components/ui/BrandMark";
+import { formErrorText, useAppForm } from "../../lib/formik";
+import ThemeToggle from "../../components/ui/ThemeToggle";
+import AuthBrand from "./AuthBrand";
 
 // Halaman wajib ganti password: muncul sekali setelah login memakai password
 // awal yang dibuat IT Lead. Setelah berhasil, sesi diakhiri dan pengguna masuk
@@ -9,58 +11,55 @@ import BrandMark from "../../components/ui/BrandMark";
 export default function ChangePasswordPage() {
   const { user, logout } = useAuth();
 
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [confirm, setConfirm] = useState("");
   const [show, setShow] = useState(false);
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setError("");
+  const formik = useAppForm({
+    initialValues: { current: "", next: "", confirm: "" },
+    validate: (values) => {
+      const errors = {};
 
-    if (next.length < 8) {
-      setError("Password baru minimal 8 karakter.");
-      return;
-    }
-    if (next !== confirm) {
-      setError("Konfirmasi password tidak sama.");
-      return;
-    }
-    if (next === current) {
-      setError("Password baru harus berbeda dari password awal.");
-      return;
-    }
+      if (!values.current) errors.current = "Password awal wajib diisi.";
+      if (values.next.length < 8) {
+        errors.next = "Password baru minimal 8 karakter.";
+      }
+      if (values.next !== values.confirm) {
+        errors.confirm = "Konfirmasi password tidak sama.";
+      }
+      if (values.next === values.current) {
+        errors.next = "Password baru harus berbeda dari password awal.";
+      }
 
-    setSaving(true);
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
 
-    try {
-      await changePassword({
-        current_password: current,
-        new_password: next,
-        new_password_confirm: confirm,
-      });
+      try {
+        await changePassword({
+          current_password: values.current,
+          new_password: values.next,
+          new_password_confirm: values.confirm,
+        });
 
-      // Password berubah memutar tokenKey, jadi sesi ini memang berakhir.
-      // Redirect keras (bukan navigasi SPA) dipakai agar guard auth tidak
-      // membawa state `from=/change-password` ke halaman login.
-      logout();
-      window.location.replace("/login?changed=1");
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setSaving(false);
-    }
-  }
+        // Password berubah memutar tokenKey, jadi sesi ini memang berakhir.
+        // Redirect keras (bukan navigasi SPA) dipakai agar guard auth tidak
+        // membawa state `from=/change-password` ke halaman login.
+        logout();
+        window.location.replace("/login?changed=1");
+      } catch (err) {
+        helpers.setStatus(getErrorMessage(err));
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const error = formErrorText(formik);
 
   return (
     <div className="login-page">
       <main className="login-main">
-        <div className="login-brand">
-          <BrandMark size={30} />
-          <span>Healthcare ITSM</span>
-        </div>
+        <AuthBrand />
 
         <section className="login-card" aria-labelledby="change-title">
           <h1 className="login-title" id="change-title">
@@ -77,7 +76,7 @@ export default function ChangePasswordPage() {
             </div>
           )}
 
-          <form className="login-form" onSubmit={handleSubmit}>
+          <form className="login-form" onSubmit={formik.handleSubmit}>
             <div className="login-field">
               <label className="form-label" htmlFor="current-password">
                 Password awal
@@ -87,8 +86,7 @@ export default function ChangePasswordPage() {
                 type="password"
                 className="input"
                 autoComplete="current-password"
-                value={current}
-                onChange={(event) => setCurrent(event.target.value)}
+                {...formik.getFieldProps("current")}
                 required
               />
             </div>
@@ -104,8 +102,7 @@ export default function ChangePasswordPage() {
                   className="input"
                   autoComplete="new-password"
                   minLength={8}
-                  value={next}
-                  onChange={(event) => setNext(event.target.value)}
+                  {...formik.getFieldProps("next")}
                   required
                 />
                 <button
@@ -134,8 +131,7 @@ export default function ChangePasswordPage() {
                 className="input"
                 autoComplete="new-password"
                 minLength={8}
-                value={confirm}
-                onChange={(event) => setConfirm(event.target.value)}
+                {...formik.getFieldProps("confirm")}
                 required
               />
             </div>
@@ -143,9 +139,9 @@ export default function ChangePasswordPage() {
             <button
               className="btn btn-primary btn-block login-submit"
               type="submit"
-              disabled={saving}
+              disabled={formik.isSubmitting}
             >
-              {saving ? (
+              {formik.isSubmitting ? (
                 <>
                   <span className="spinner" aria-hidden="true" />
                   Menyimpan...
@@ -161,6 +157,11 @@ export default function ChangePasswordPage() {
           </p>
         </section>
       </main>
+
+      <footer className="login-footer">
+        <span>© 2026 Healthcare ITSM</span>
+        <ThemeToggle className="login-theme" />
+      </footer>
     </div>
   );
 }

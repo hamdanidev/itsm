@@ -34,12 +34,36 @@ function requiresCab(ticket) {
   );
 }
 
-function plan(app, ticket) {
+// Mode approval per service item:
+// - none    : tidak ada approval (permintaan rutin seperti reset password)
+// - manager : manajer unit; bila tidak ada, fallback ke IT Lead
+// - lead    : IT Lead saja
+// - cab     : manajer unit -> IT Lead -> CAB (CAB hanya untuk CR high risk)
+// - default : perilaku lama, dipakai tiket tanpa service item
+function planForMode(app, ticket, mode) {
   var steps = [];
 
   if (String(ticket.get("type")) === "incident") return steps;
 
+  var normalized = String(mode || "default");
+
+  if (normalized === "none") return steps;
+
   var managerId = activeManager(app, String(ticket.get("unit") || ""));
+
+  if (normalized === "manager") {
+    if (managerId) {
+      steps.push({ step: 1, kind: "unit_manager", approver: managerId });
+    } else {
+      steps.push({ step: 1, kind: "it_lead", approver: "" });
+    }
+    return steps;
+  }
+
+  if (normalized === "lead") {
+    steps.push({ step: 1, kind: "it_lead", approver: "" });
+    return steps;
+  }
 
   if (managerId) {
     steps.push({ step: steps.length + 1, kind: "unit_manager", approver: managerId });
@@ -59,8 +83,16 @@ function plan(app, ticket) {
   return steps;
 }
 
-function createFlow(app, ticket, firstDueAt) {
-  var steps = plan(app, ticket);
+function plan(app, ticket) {
+  return planForMode(
+    app,
+    ticket,
+    String(ticket.get("approval_mode") || "default")
+  );
+}
+
+function createFlow(app, ticket, firstDueAt, mode) {
+  var steps = mode ? planForMode(app, ticket, mode) : plan(app, ticket);
   if (!steps.length) return [];
 
   var collection = app.findCollectionByNameOrId("ticket_approvals");
@@ -215,6 +247,7 @@ module.exports = {
   activeLeads: activeLeads,
   requiresCab: requiresCab,
   plan: plan,
+  planForMode: planForMode,
   createFlow: createFlow,
   listSteps: listSteps,
   firstPending: firstPending,

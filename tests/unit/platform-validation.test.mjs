@@ -65,6 +65,30 @@ test("validateTenantInput partial hanya menyentuh field yang dikirim", () => {
   });
 });
 
+test("validateUserInput menerima job_title dan membatasi panjangnya", () => {
+  assert.deepEqual(
+    platform.validateUserInput({ job_title: "Programmer" }, true),
+    { job_title: "Programmer" }
+  );
+
+  assert.throws(
+    () => platform.validateUserInput({ job_title: "x".repeat(81) }, true),
+    /Teks melebihi 80 karakter/
+  );
+});
+
+test("validateUserInput menerima tim yang dikenal", () => {
+  assert.deepEqual(
+    platform.validateUserInput({ team: "application" }, true),
+    { team: "application" }
+  );
+
+  assert.throws(
+    () => platform.validateUserInput({ team: "tim-asing" }, true),
+    /Tim tidak valid/
+  );
+});
+
 test("validateUserInput mewajibkan password saat membuat pengguna", () => {
   assert.throws(
     () =>

@@ -60,7 +60,60 @@ test("assertStaff dan assertLead melempar untuk peran yang salah", () => {
   assert.throws(() => guards.assertStaff(auth("requester")), /Staff role required/);
 
   assert.doesNotThrow(() => guards.assertLead(auth("it_lead")));
-  assert.throws(() => guards.assertLead(auth("it_support")), /IT Lead role required/);
+  assert.throws(() => guards.assertLead(auth("it_support")), /Kepala IT role required/);
+});
+
+test("resolver dan viewer dikenali terpisah dari staff", () => {
+  assert.equal(guards.isResolver(auth("resolver")), true);
+  assert.equal(guards.isResolver(auth("it_support")), false);
+  assert.equal(guards.isViewer(auth("viewer")), true);
+  assert.equal(guards.isViewer(auth("it_lead")), false);
+
+  assert.equal(guards.isStaffOrResolver(auth("resolver")), true);
+  assert.equal(guards.isStaffOrResolver(auth("it_support")), true);
+  assert.equal(guards.isStaffOrResolver(auth("requester")), false);
+
+  assert.doesNotThrow(() => guards.assertStaffOrResolver(auth("resolver")));
+  assert.throws(
+    () => guards.assertStaffOrResolver(auth("requester")),
+    /Staff or resolver role required/
+  );
+});
+
+test("viewer boleh membaca laporan, role lain tidak", () => {
+  assert.doesNotThrow(() => guards.assertReportReader(auth("it_lead")));
+  assert.doesNotThrow(() => guards.assertReportReader(auth("viewer")));
+  assert.throws(
+    () => guards.assertReportReader(auth("it_support")),
+    /Report access required/
+  );
+  assert.throws(
+    () => guards.assertReportReader(auth("requester")),
+    /Report access required/
+  );
+});
+
+test("resolver hanya bekerja pada tiket yang di-assign kepadanya", () => {
+  function actor(role, id) {
+    return {
+      id,
+      get: (key) => (key === "role" ? role : undefined),
+    };
+  }
+
+  function ticket(assignee) {
+    return {
+      get: (key) => (key === "assignee" ? assignee : undefined),
+    };
+  }
+
+  const resolver = actor("resolver", "u-resolver");
+  const staff = actor("it_support", "u-support");
+
+  assert.equal(guards.canWorkAsStaff(staff, ticket("")), true);
+  assert.equal(guards.canWorkAsStaff(resolver, ticket("u-resolver")), true);
+  assert.equal(guards.canWorkAsStaff(resolver, ticket("u-lain")), false);
+  assert.equal(guards.canWorkAsStaff(resolver, ticket("")), false);
 });
 
 function scopedAuth(role, isPlatform) {

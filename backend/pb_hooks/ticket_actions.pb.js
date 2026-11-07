@@ -11,10 +11,15 @@ routerAdd(
   (e) => {
     var guards = require(__hooks + "/lib/guards.js");
     var audit = require(__hooks + "/lib/audit.js");
-    var STAFF_ROLES = ["it_support", "it_lead"];
+    var ASSIGNEE_ROLES = ["it_support", "it_lead", "resolver"];
 
     var auth = guards.requireAuth(e);
-    guards.assertStaff(auth);
+    var staff = guards.isStaff(auth);
+    var resolver = guards.isResolver(auth);
+
+    if (!staff && !resolver) {
+      throw new ForbiddenError("Staff or resolver role required");
+    }
 
     var ticket = guards.findTicket(e, e.request.pathValue("id"));
     guards.assertTicketAccess(e, ticket);
@@ -23,9 +28,25 @@ routerAdd(
     var assigneeId = guards.cleanText(body.assignee, 32);
     var lead = guards.isLead(auth);
 
+    if (resolver) {
+      if (!assigneeId || assigneeId !== auth.id) {
+        throw new ForbiddenError(
+          "Teknisi hanya dapat mengambil tiket untuk dirinya sendiri"
+        );
+      }
+
+      var currentAssignee = String(ticket.get("assignee") || "");
+      if (currentAssignee && currentAssignee !== auth.id) {
+        throw new ForbiddenError("Tiket sudah ditugaskan ke staf lain");
+      }
+      if (!currentAssignee && !guards.canClaimTeamTicket(auth, ticket)) {
+        throw new ForbiddenError("Tiket bukan bagian dari antrean tim Anda");
+      }
+    }
+
     if (assigneeId && !lead && assigneeId !== auth.id) {
       throw new ForbiddenError(
-        "IT Support hanya dapat menugaskan tiket ke dirinya sendiri"
+        "Staff IT hanya dapat menugaskan tiket ke dirinya sendiri"
       );
     }
 
@@ -45,7 +66,7 @@ routerAdd(
       if (!assigneeId) {
         if (!lead) {
           throw new ForbiddenError(
-            "Hanya IT Lead yang dapat melepas assignment"
+            "Hanya Kepala IT yang dapat melepas assignment"
           );
         }
         if (status === "in_progress") {
@@ -80,8 +101,10 @@ routerAdd(
         if (!assignee.get("is_active")) {
           throw new BadRequestError("Assignee tidak aktif");
         }
-        if (STAFF_ROLES.indexOf(String(assignee.get("role"))) < 0) {
-          throw new BadRequestError("Assignee harus memiliki role staf IT");
+        if (ASSIGNEE_ROLES.indexOf(String(assignee.get("role"))) < 0) {
+          throw new BadRequestError(
+            "Assignee harus memiliki role Staff IT, Teknisi, atau Kepala IT"
+          );
         }
 
         current.set("assignee", assignee.id);
@@ -178,6 +201,7 @@ routerAdd(
     ];
 
     var auth = guards.requireAuth(e);
+    var constants = require(__hooks + "/lib/constants.js");
     var ticket = guards.findTicket(e, e.request.pathValue("id"));
     guards.assertTicketAccess(e, ticket);
 
@@ -201,12 +225,16 @@ routerAdd(
           "Hanya staff IT atau requester pemilik tiket yang dapat membuka kembali"
         );
       }
-    } else {
+    } else if (target === "closed") {
+      // Menutup tiket tetap milik agent penuh; resolver hanya menyelesaikan.
       guards.assertStaff(auth);
+    } else {
+      guards.assertStaffOrResolver(auth);
     }
 
     var summary = guards.cleanText(body.resolution_summary, 5000);
     var code = String(body.resolution_code || "");
+    var changeOutcome = String(body.change_outcome || "");
     var result;
     var reopenSla = "";
 
@@ -220,6 +248,15 @@ routerAdd(
         throw new BadRequestError("Kode resolusi tidak valid");
       }
       if (!code) code = "other";
+
+      if (
+        String(ticket.get("type")) === "change_request" &&
+        constants.CHANGE_OUTCOMES.indexOf(changeOutcome) < 0
+      ) {
+        throw new BadRequestError(
+          "Hasil perubahan wajib dipilih: successful, failed, rolled_back, atau partial"
+        );
+      }
     }
 
     $app.runInTransaction((txApp) => {
@@ -241,13 +278,18 @@ routerAdd(
         ) {
           throw new BadRequestError(
             String(current.get("approval_status")) === "rejected"
-              ? "Approval permintaan ditolak; IT Lead harus menyetujui ulang sebelum pekerjaan dimulai"
-              : "Permintaan menunggu approval IT Lead sebelum pekerjaan dapat dimulai"
+              ? "Approval permintaan ditolak; Kepala IT harus menyetujui ulang sebelum pekerjaan dimulai"
+              : "Permintaan menunggu approval Kepala IT sebelum pekerjaan dapat dimulai"
           );
         }
         if (assignee && assignee !== auth.id && !lead) {
           throw new ForbiddenError(
             "Tiket sedang ditugaskan ke staf lain"
+          );
+        }
+        if (!staff && !assignee && !guards.canClaimTeamTicket(auth, ticket)) {
+          throw new ForbiddenError(
+            "Tiket belum ditugaskan kepada Anda dan bukan bagian dari antrean tim Anda."
           );
         }
 
@@ -304,6 +346,13 @@ routerAdd(
           }
         }
 
+        if (
+          String(current.get("type")) === "change_request" &&
+          !String(current.get("actual_start") || "")
+        ) {
+          current.set("actual_start", now);
+        }
+
         current.set("status", "in_progress");
       } else if (target === "waiting") {
         if (["assigned", "in_progress"].indexOf(from) < 0) {
@@ -316,7 +365,7 @@ routerAdd(
           String(current.get("approval_status")) !== "approved"
         ) {
           throw new BadRequestError(
-            "Permintaan harus disetujui IT Lead sebelum menunggu requester"
+            "Permintaan harus disetujui Kepala IT sebelum menunggu requester"
           );
         }
         if (!assignee) {
@@ -326,7 +375,7 @@ routerAdd(
         }
         if (assignee !== auth.id && !lead) {
           throw new ForbiddenError(
-            "Hanya assignee atau IT Lead yang dapat menjeda tiket ini"
+            "Hanya assignee atau Kepala IT yang dapat menjeda tiket ini"
           );
         }
 
@@ -345,12 +394,12 @@ routerAdd(
           String(current.get("approval_status")) !== "approved"
         ) {
           throw new BadRequestError(
-            "Permintaan harus disetujui IT Lead sebelum diselesaikan"
+            "Permintaan harus disetujui Kepala IT sebelum diselesaikan"
           );
         }
         if (assignee && assignee !== auth.id && !lead) {
           throw new ForbiddenError(
-            "Hanya assignee atau IT Lead yang dapat menyelesaikan tiket ini"
+            "Hanya assignee atau Kepala IT yang dapat menyelesaikan tiket ini"
           );
         }
         if (!assignee && !lead) {
@@ -364,6 +413,14 @@ routerAdd(
         current.set("resolved_by", auth.id);
         current.set("resolution_summary", summary);
         current.set("resolution_code", code);
+
+        if (String(current.get("type")) === "change_request") {
+          current.set("change_outcome", changeOutcome);
+          current.set("actual_end", now);
+          if (!String(current.get("actual_start") || "")) {
+            current.set("actual_start", now);
+          }
+        }
       } else if (target === "closed") {
         if (from !== "resolved") {
           throw new BadRequestError(
@@ -395,6 +452,9 @@ routerAdd(
         current.set("resolved_by", "");
         current.set("resolution_summary", "");
         current.set("resolution_code", "");
+        current.set("change_outcome", "");
+        current.set("actual_start", "");
+        current.set("actual_end", "");
 
         // Reopen memulai siklus SLA penyelesaian baru: hitung ulang tenggat
         // dari sekarang memakai policy aktif, lalu bersihkan breach lama.
@@ -517,6 +577,8 @@ routerAdd(
           from: from,
           to: String(current.get("status")),
           resolution_code: target === "resolved" ? code : "",
+          change_outcome:
+            target === "resolved" ? String(current.get("change_outcome") || "") : "",
           sla_recomputed: reopenSla ? true : false,
           resolution_due_at: reopenSla,
         },
@@ -535,6 +597,9 @@ routerAdd(
       closed_at: String(result.get("closed_at") || ""),
       reopened_at: String(result.get("reopened_at") || ""),
       reopen_count: Number(result.get("reopen_count")) || 0,
+      change_outcome: String(result.get("change_outcome") || ""),
+      actual_start: String(result.get("actual_start") || ""),
+      actual_end: String(result.get("actual_end") || ""),
       resolution_due_at: String(result.get("resolution_due_at") || ""),
       next_due_at: String(result.get("next_due_at") || ""),
       sla_paused_minutes: Number(result.get("sla_paused_minutes")) || 0,
@@ -634,7 +699,7 @@ routerAdd(
         }
         if (!lead) {
           throw new ForbiddenError(
-            "Approval ditolak; hanya IT Lead yang dapat menyetujui ulang"
+            "Approval ditolak; hanya Kepala IT yang dapat menyetujui ulang"
           );
         }
         if (decision === "rejected") {
@@ -670,13 +735,13 @@ routerAdd(
 
         responseStep = Number(step.get("step")) || 0;
 
-        // Empat mata: tahap CAB harus diputuskan IT Lead yang berbeda dari
-        // tahap IT Lead sebelumnya.
+        // Empat mata: tahap CAB harus diputuskan Kepala IT yang berbeda dari
+        // tahap Kepala IT sebelumnya.
         if (stepKind === "cab") {
           var cabLeadStep = approvals.stepOfKind(steps, "it_lead");
           if (cabLeadStep && String(cabLeadStep.get("acted_by")) === auth.id) {
             throw new ForbiddenError(
-              "Tahap CAB harus diputuskan IT Lead yang berbeda"
+              "Tahap CAB harus diputuskan Kepala IT yang berbeda"
             );
           }
         }
@@ -713,7 +778,7 @@ routerAdd(
         if (delegateStepKind === "it_lead" || delegateStepKind === "cab") {
           if (String(target.get("role")) !== "it_lead") {
             throw new BadRequestError(
-              "Tahap ini hanya dapat didelegasikan ke IT Lead"
+              "Tahap ini hanya dapat didelegasikan ke Kepala IT"
             );
           }
         }
@@ -722,7 +787,7 @@ routerAdd(
           var cabStep = approvals.stepOfKind(steps, "it_lead");
           if (cabStep && String(cabStep.get("acted_by")) === target.id) {
             throw new BadRequestError(
-              "Tahap CAB harus diputuskan IT Lead yang berbeda"
+              "Tahap CAB harus diputuskan Kepala IT yang berbeda"
             );
           }
         }
@@ -795,7 +860,7 @@ routerAdd(
           step.set("note", note);
           txApp.save(step);
         } else {
-          // Override IT Lead untuk tiket yang sebelumnya ditolak.
+          // Override Kepala IT untuk tiket yang sebelumnya ditolak.
           for (var oi = 0; oi < steps.length; oi++) {
             if (String(steps[oi].get("status")) === "approved") continue;
             steps[oi].set("status", "approved");

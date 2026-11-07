@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import EmptyState from "../../../components/ui/EmptyState";
 import Modal from "../../../components/ui/Modal";
+import Pagination from "../../../components/ui/Pagination";
+import { TableSkeleton } from "../../../components/ui/Skeleton";
 import { formatDate } from "../../../lib/format";
 import { roleLabel } from "../../../lib/permissions";
+import { TEAM_OPTIONS, teamLabel } from "../../../lib/teams";
 import {
   createTeamMember,
   fetchMailStatus,
@@ -11,19 +14,37 @@ import {
   resetTeamPassword,
   updateTeamMember,
 } from "../../../lib/api";
+import { usePagedEndpoint, useDebouncedValue } from "../../../lib/pagedList";
+import { formErrorText, useAppForm } from "../../../lib/formik";
 
 const ROLE_OPTIONS = [
-  ["requester", "Requester"],
-  ["it_support", "IT Support"],
-  ["it_lead", "IT Lead"],
+  ["requester", "Pemohon"],
+  ["it_support", "Staff IT"],
+  ["resolver", "Teknisi"],
+  ["it_lead", "Kepala IT"],
+  ["viewer", "Pengamat"],
 ];
 
 const EMPTY_FORM = {
   name: "",
   email: "",
   role: "it_support",
+  job_title: "",
+  team: "",
   unit: "",
 };
+
+const JOB_TITLE_OPTIONS = [
+  "Programmer",
+  "Teknisi Jaringan",
+  "Teknisi Hardware",
+  "Admin SIMRS",
+  "DBA",
+  "Teknisi Alat Kesehatan",
+  "Operator SIMRS",
+  "Helpdesk",
+  "Staf Akreditasi",
+];
 
 function ActiveLozenge({ active }) {
   return (
@@ -36,16 +57,85 @@ function ActiveLozenge({ active }) {
 }
 
 export default function TeamTab({ units, currentUser }) {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [query, setQuery] = useState("");
+
+  const debouncedQuery = useDebouncedValue(query, 350);
+  const fetchPage = useCallback((params) => fetchTeam(params), []);
+  const list = usePagedEndpoint(fetchPage, debouncedQuery);
+
+  // Pencarian berubah -> kembali ke halaman pertama.
+  useEffect(() => {
+    list.setPage(1);
+  }, [debouncedQuery, list.setPage]);
+
+  const activeLeadCount = Number(list.raw?.active_lead_count ?? 0);
 
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [formError, setFormError] = useState("");
-  const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState("");
+
+  const formik = useAppForm({
+    initialValues: { ...EMPTY_FORM },
+    validate: (values) => {
+      const errors = {};
+      const name = values.name.trim();
+      const email = values.email.trim();
+
+      if (name.length < 2) errors.name = "Nama minimal 2 karakter.";
+      if (!modal?.record && !/^\S+@\S+\.\S+$/.test(email)) {
+        errors.email = "Email tidak valid.";
+      }
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+      const name = values.name.trim();
+      const email = values.email.trim();
+
+      try {
+        if (modal.record) {
+          await updateTeamMember(modal.record.id, {
+            name,
+            role: values.role,
+            job_title: values.job_title.trim(),
+            team: values.team,
+            unit: values.unit,
+          });
+          setNotice("Perubahan disimpan.");
+          setModal(null);
+        } else {
+          const created = await createTeamMember({
+            name,
+            email,
+            role: values.role,
+            job_title: values.job_title.trim() || undefined,
+            team: values.team || undefined,
+            unit: values.unit || undefined,
+          });
+
+          setModal(null);
+          setNotice("Anggota tim dibuat.");
+          setSecret({
+            title: "Password awal",
+            name: created.user.name,
+            email: created.user.email,
+            password: created.password,
+            delivery: created.email || null,
+          });
+        }
+
+        formik.resetForm();
+        await load();
+      } catch (err) {
+        helpers.setStatus(getErrorMessage(err));
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const formError = formErrorText(formik);
 
   const [secret, setSecret] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -53,23 +143,8 @@ export default function TeamTab({ units, currentUser }) {
   const [mail, setMail] = useState(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-
-    try {
-      const data = await fetchTeam();
-      setItems(data.items || []);
-    } catch (err) {
-      setError(getErrorMessage(err));
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+    list.reload();
+  }, [list.reload]);
 
   useEffect(() => {
     let active = true;
@@ -88,74 +163,22 @@ export default function TeamTab({ units, currentUser }) {
   }, []);
 
   function openCreate() {
-    setForm(EMPTY_FORM);
-    setFormError("");
+    formik.setStatus("");
+    formik.resetForm();
     setModal({ record: null });
   }
 
   function openEdit(record) {
-    setForm({
+    formik.setStatus("");
+    formik.setValues({
       name: record.name,
       email: record.email,
       role: record.role,
+      job_title: record.job_title || "",
+      team: record.team || "",
       unit: record.unit || "",
     });
-    setFormError("");
     setModal({ record });
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setFormError("");
-
-    const name = form.name.trim();
-    const email = form.email.trim();
-
-    if (name.length < 2) {
-      setFormError("Nama minimal 2 karakter.");
-      return;
-    }
-    if (!modal.record && !/^\S+@\S+\.\S+$/.test(email)) {
-      setFormError("Email tidak valid.");
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      if (modal.record) {
-        await updateTeamMember(modal.record.id, {
-          name,
-          role: form.role,
-          unit: form.unit,
-        });
-        setNotice("Perubahan disimpan.");
-        setModal(null);
-      } else {
-        const created = await createTeamMember({
-          name,
-          email,
-          role: form.role,
-          unit: form.unit || undefined,
-        });
-
-        setModal(null);
-        setNotice("Anggota tim dibuat.");
-        setSecret({
-          title: "Password awal",
-          name: created.user.name,
-          email: created.user.email,
-          password: created.password,
-          delivery: created.email || null,
-        });
-      }
-
-      await load();
-    } catch (err) {
-      setFormError(getErrorMessage(err));
-    } finally {
-      setSaving(false);
-    }
   }
 
   async function handleReset(record) {
@@ -219,9 +242,20 @@ export default function TeamTab({ units, currentUser }) {
 
   return (
     <>
-      <div className="list-toolbar">
+      <div className="filter-bar">
+        <div className="search-box">
+          <i className="bi bi-search" aria-hidden="true" />
+          <input
+            className="input"
+            type="search"
+            placeholder="Cari nama atau email anggota"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            aria-label="Cari anggota tim"
+          />
+        </div>
         <span className="list-count">
-          {loading ? "Memuat..." : `${items.length} anggota`}
+          {list.loading ? "Memuat..." : `${list.totalItems} anggota`}
         </span>
         <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
           <i className="bi bi-person-plus" aria-hidden="true" />
@@ -229,10 +263,10 @@ export default function TeamTab({ units, currentUser }) {
         </button>
       </div>
 
-      {error && (
+      {(error || list.error) && (
         <div className="alert alert--error" role="alert">
           <i className="bi bi-exclamation-triangle" aria-hidden="true" />
-          <div>{error}</div>
+          <div>{error || list.error}</div>
         </div>
       )}
 
@@ -244,50 +278,66 @@ export default function TeamTab({ units, currentUser }) {
       )}
 
       <div className="list-panel admin-panel">
-        {loading ? (
-          <div className="admin-loading">
-            <span className="spinner spinner--dark" role="status" />
-            Memuat tim...
-          </div>
-        ) : items.length === 0 ? (
+        {list.loading ? (
+          <TableSkeleton rows={5} />
+        ) : list.items.length === 0 ? (
           <EmptyState
             icon="bi-people"
-            title="Belum ada anggota tim"
-            description="Tambahkan staf IT pertama untuk rumah sakit ini."
+            title={
+              debouncedQuery.trim()
+                ? "Tidak ada anggota yang cocok"
+                : "Belum ada anggota tim"
+            }
+            description={
+              debouncedQuery.trim()
+                ? "Ubah kata kunci pencarian untuk melihat anggota lain."
+                : "Tambahkan staf IT pertama untuk rumah sakit ini."
+            }
             action={
-              <button className="btn btn-primary" type="button" onClick={openCreate}>
-                <i className="bi bi-person-plus" aria-hidden="true" />
-                Tambah anggota
-              </button>
+              debouncedQuery.trim() ? (
+                <button
+                  className="btn btn-outline"
+                  type="button"
+                  onClick={() => setQuery("")}
+                >
+                  Reset pencarian
+                </button>
+              ) : (
+                <button className="btn btn-primary" type="button" onClick={openCreate}>
+                  <i className="bi bi-person-plus" aria-hidden="true" />
+                  Tambah anggota
+                </button>
+              )
             }
           />
         ) : (
-          <div className="issue-table-wrap">
-            <table className="issue-table admin-table is-compact">
-              <thead>
-                <tr>
-                  <th>Nama</th>
-                  <th>Role</th>
-                  <th>Unit</th>
-                  <th className="col-status">Status</th>
-                  <th className="col-actions">Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((record) => {
-                  const self = record.id === currentUser?.id;
-                  const lastLead =
-                    record.role === "it_lead" &&
-                    record.is_active &&
-                    items.filter(
-                      (item) => item.role === "it_lead" && item.is_active
-                    ).length === 1;
+          <>
+            <div className="issue-table-wrap">
+              <table className="issue-table admin-table is-compact">
+                <thead>
+                  <tr>
+                    <th>Nama</th>
+                    <th>Role</th>
+                    <th>Jabatan</th>
+                    <th>Tim</th>
+                    <th>Unit</th>
+                    <th className="col-status">Status</th>
+                    <th className="col-actions">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.items.map((record) => {
+                    const self = record.id === currentUser?.id;
+                    const lastLead =
+                      record.role === "it_lead" &&
+                      record.is_active &&
+                      activeLeadCount === 1;
 
-                  return (
-                    <tr
-                      key={record.id}
-                      className={record.is_active ? "" : "is-inactive"}
-                    >
+                    return (
+                      <tr
+                        key={record.id}
+                        className={record.is_active ? "" : "is-inactive"}
+                      >
                       <td>
                         <span className="admin-name">{record.name}</span>
                         <div className="admin-sub">
@@ -296,6 +346,18 @@ export default function TeamTab({ units, currentUser }) {
                         </div>
                       </td>
                       <td>{roleLabel({ role: record.role })}</td>
+                      <td>
+                        {record.job_title || (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td>
+                        {record.team ? (
+                          teamLabel(record.team)
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
                       <td>
                         {record.unit_name || (
                           <span className="muted">Tanpa unit</span>
@@ -335,7 +397,7 @@ export default function TeamTab({ units, currentUser }) {
                               self && record.is_active
                                 ? "Tidak dapat menonaktifkan akun sendiri"
                                 : lastLead && record.is_active
-                                  ? "Tidak dapat menonaktifkan IT Lead aktif terakhir"
+                                  ? "Tidak dapat menonaktifkan Kepala IT aktif terakhir"
                                   : undefined
                             }
                             onClick={() => toggleActive(record)}
@@ -364,7 +426,18 @@ export default function TeamTab({ units, currentUser }) {
                 })}
               </tbody>
             </table>
-          </div>
+            </div>
+
+            <Pagination
+              page={list.page}
+              perPage={list.perPage}
+              totalItems={list.totalItems}
+              totalPages={list.totalPages}
+              onPageChange={list.setPage}
+              onPerPageChange={list.setPerPage}
+              label="anggota"
+            />
+          </>
         )}
       </div>
 
@@ -400,14 +473,14 @@ export default function TeamTab({ units, currentUser }) {
               ? "Perubahan berlaku langsung pada akun ini."
               : "Akun dibuat dengan password acak yang wajib diganti saat login pertama."
           }
-          onClose={() => (saving ? null : setModal(null))}
+          onClose={() => (formik.isSubmitting ? null : setModal(null))}
           footer={
             <>
               <button
                 className="btn btn-subtle"
                 type="button"
                 onClick={() => setModal(null)}
-                disabled={saving}
+                disabled={formik.isSubmitting}
               >
                 Batal
               </button>
@@ -415,9 +488,9 @@ export default function TeamTab({ units, currentUser }) {
                 className="btn btn-primary"
                 type="submit"
                 form="team-form"
-                disabled={saving}
+                disabled={formik.isSubmitting}
               >
-                {saving ? (
+                {formik.isSubmitting ? (
                   <>
                     <span className="spinner" aria-hidden="true" />
                     Menyimpan...
@@ -429,7 +502,7 @@ export default function TeamTab({ units, currentUser }) {
             </>
           }
         >
-          <form id="team-form" className="admin-form" onSubmit={handleSubmit}>
+          <form id="team-form" className="admin-form" onSubmit={formik.handleSubmit}>
             {formError && (
               <div className="alert alert--error" role="alert">
                 <i className="bi bi-exclamation-triangle" aria-hidden="true" />
@@ -444,11 +517,8 @@ export default function TeamTab({ units, currentUser }) {
               <input
                 id="team-name"
                 className="input"
-                value={form.name}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, name: event.target.value }))
-                }
                 maxLength={120}
+                {...formik.getFieldProps("name")}
                 required
               />
             </div>
@@ -461,10 +531,7 @@ export default function TeamTab({ units, currentUser }) {
                 id="team-email"
                 className="input"
                 type="email"
-                value={form.email}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, email: event.target.value }))
-                }
+                {...formik.getFieldProps("email")}
                 disabled={Boolean(modal.record)}
                 required
               />
@@ -481,10 +548,7 @@ export default function TeamTab({ units, currentUser }) {
                 <select
                   id="team-role"
                   className="select"
-                  value={form.role}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, role: event.target.value }))
-                  }
+                  {...formik.getFieldProps("role")}
                 >
                   {ROLE_OPTIONS.map(([value, label]) => (
                     <option key={value} value={value}>
@@ -501,10 +565,7 @@ export default function TeamTab({ units, currentUser }) {
                 <select
                   id="team-unit"
                   className="select"
-                  value={form.unit}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, unit: event.target.value }))
-                  }
+                  {...formik.getFieldProps("unit")}
                 >
                   <option value="">Tanpa unit</option>
                   {(units || [])
@@ -515,6 +576,49 @@ export default function TeamTab({ units, currentUser }) {
                       </option>
                     ))}
                 </select>
+              </div>
+            </div>
+
+            <div className="field-row" style={{ marginTop: 16 }}>
+              <label className="form-label" htmlFor="team-job-title">
+                Jabatan
+              </label>
+              <input
+                id="team-job-title"
+                className="input"
+                list="team-job-title-options"
+                maxLength={80}
+                placeholder="Programmer, Teknisi Jaringan, DBA, Admin SIMRS..."
+                {...formik.getFieldProps("job_title")}
+              />
+              <datalist id="team-job-title-options">
+                {JOB_TITLE_OPTIONS.map((title) => (
+                  <option key={title} value={title} />
+                ))}
+              </datalist>
+              <div className="hint">
+                Jabatan tidak mengubah hak akses; role tetap menentukan kewenangan.
+              </div>
+            </div>
+
+            <div className="field-row" style={{ marginTop: 16 }}>
+              <label className="form-label" htmlFor="team-division">
+                Tim
+              </label>
+              <select
+                id="team-division"
+                className="select"
+                {...formik.getFieldProps("team")}
+              >
+                <option value="">Tanpa tim</option>
+                {TEAM_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <div className="hint">
+                Teknisi melihat antrean tiket dari tim yang sama.
               </div>
             </div>
           </form>

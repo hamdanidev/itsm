@@ -1,32 +1,39 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getErrorMessage, requestPasswordReset } from "../../lib/api";
+import { formErrorText, useAppForm } from "../../lib/formik";
 import AuthBrand from "./AuthBrand";
+import ThemeToggle from "../../components/ui/ThemeToggle";
 
 export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState("");
+
+  const formik = useAppForm({
+    initialValues: { email: "" },
+    validate: (values) => {
+      const errors = {};
+      if (!values.email.trim()) errors.email = "Email wajib diisi.";
+      return errors;
+    },
+    onSubmit: async (values, helpers) => {
+      helpers.setStatus("");
+
+      try {
+        await requestPasswordReset(values.email.trim());
+        setSubmitted(true);
+      } catch (err) {
+        helpers.setStatus(getErrorMessage(err));
+      } finally {
+        helpers.setSubmitting(false);
+      }
+    },
+  });
+
+  const error = formErrorText(formik);
 
   useEffect(() => {
     document.title = "Lupa password · Healthcare ITSM";
   }, []);
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setError("");
-    setSubmitting(true);
-
-    try {
-      await requestPasswordReset(email.trim());
-      setSubmitted(true);
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   return (
     <div className="login-page">
@@ -67,7 +74,7 @@ export default function ForgotPasswordPage() {
                 membuat password baru.
               </p>
 
-              <form className="login-form" onSubmit={handleSubmit}>
+              <form className="login-form" onSubmit={formik.handleSubmit}>
                 <div className="login-field">
                   <label className="form-label" htmlFor="forgot-email">
                     Email
@@ -79,8 +86,7 @@ export default function ForgotPasswordPage() {
                     placeholder="nama@rs.example.com"
                     autoComplete="username"
                     autoFocus
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
+                    {...formik.getFieldProps("email")}
                     required
                   />
                 </div>
@@ -88,9 +94,9 @@ export default function ForgotPasswordPage() {
                 <button
                   className="btn btn-primary btn-block login-submit"
                   type="submit"
-                  disabled={submitting}
+                  disabled={formik.isSubmitting}
                 >
-                  {submitting ? (
+                  {formik.isSubmitting ? (
                     <>
                       <span className="spinner" aria-hidden="true" />
                       Mengirim...
@@ -111,6 +117,7 @@ export default function ForgotPasswordPage() {
 
       <footer className="login-footer">
         <span>© 2026 Healthcare ITSM</span>
+        <ThemeToggle className="login-theme" />
       </footer>
     </div>
   );

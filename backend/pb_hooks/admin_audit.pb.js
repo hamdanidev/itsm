@@ -4,6 +4,8 @@
 var ADMIN_COLLECTIONS = [
   "units",
   "ticket_categories",
+  "services",
+  "service_items",
   "sla_policies",
   "holidays",
 ];

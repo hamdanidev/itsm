@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageHeader from "../../../components/ui/PageHeader";
 import EmptyState from "../../../components/ui/EmptyState";
+import { TableSkeleton } from "../../../components/ui/Skeleton";
 import { useNotifications } from "../../../app/providers/NotificationsProvider";
 import { formatDateTime, formatRelative } from "../../../lib/format";
 import { notificationIcon } from "../notificationMeta";
@@ -82,10 +83,7 @@ export default function NotificationsPage() {
 
       <div className="list-panel">
         {loading && items.length === 0 ? (
-          <div className="admin-loading">
-            <span className="spinner spinner--dark" role="status" />
-            Memuat notifikasi...
-          </div>
+          <TableSkeleton rows={5} />
         ) : visible.length === 0 ? (
           <EmptyState
             icon="bi-bell-slash"

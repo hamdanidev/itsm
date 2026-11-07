@@ -15,6 +15,12 @@ const dayMonthFormatter = new Intl.DateTimeFormat("id-ID", {
   timeZone: "Asia/Jakarta",
 });
 
+const timeFormatter = new Intl.DateTimeFormat("id-ID", {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "Asia/Jakarta",
+});
+
 export function formatDateTime(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -34,6 +40,13 @@ export function formatDayMonth(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return dayMonthFormatter.format(date);
+}
+
+export function formatTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return timeFormatter.format(date);
 }
 
 export function formatRelative(value) {

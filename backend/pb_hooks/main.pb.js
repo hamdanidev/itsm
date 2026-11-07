@@ -16,6 +16,15 @@ onBootstrap((e) => {
     console.log("Failed to apply SMTP env", err);
   }
 
+  // Setup awal: bila instalasi belum punya akun, pastikan kode setup sudah ada
+  // dan tercetak di log server sejak boot (memudahkan deploy pertama).
+  try {
+    var setup = require(__hooks + "/lib/setup.js");
+    setup.ensureToken($app);
+  } catch (err) {
+    console.log("Failed to prepare setup token", err);
+  }
+
   console.log("Healthcare ITSM hooks loaded");
 });
 

@@ -7,7 +7,16 @@ var CODE_PATTERN = /^[A-Z0-9][A-Z0-9._-]{1,19}$/;
 var EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 var TIMEZONE_PATTERN = /^[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+)*$/;
 
-var ROLES = ["requester", "it_support", "it_lead"];
+var ROLES = ["requester", "it_support", "resolver", "it_lead", "viewer"];
+var TEAMS = [
+  "service_desk",
+  "application",
+  "network",
+  "hardware",
+  "database",
+  "biomedical",
+  "other",
+];
 var DEFAULT_TIMEZONE = "Asia/Jakarta";
 
 function text(value, max) {
@@ -100,9 +109,24 @@ function validateUserInput(body, options) {
   if (!opts.partial || input.role !== undefined) {
     var role = text(input.role, 20);
     if (ROLES.indexOf(role) < 0) {
-      throw new BadRequestError("Role harus requester, it_support, atau it_lead");
+      throw new BadRequestError(
+        "Role harus Pemohon, Staff IT, Teknisi, Kepala IT, atau Pengamat"
+      );
     }
     output.role = role;
+  }
+
+  if (!opts.partial || input.job_title !== undefined) {
+    output.job_title = text(input.job_title, 80);
+  }
+
+  if (!opts.partial || input.team !== undefined) {
+    var team = text(input.team, 20);
+
+    if (team && TEAMS.indexOf(team) < 0) {
+      throw new BadRequestError("Tim tidak valid");
+    }
+    output.team = team;
   }
 
   if (!opts.partial || input.password !== undefined) {
@@ -151,6 +175,8 @@ function serializeUser(record, unitName) {
     email: String(record.get("email") || ""),
     name: String(record.get("name") || ""),
     role: String(record.get("role") || ""),
+    job_title: String(record.get("job_title") || ""),
+    team: String(record.get("team") || ""),
     unit: String(record.get("unit") || ""),
     unit_name: String(unitName || ""),
     is_active: Boolean(record.get("is_active")),
@@ -261,6 +287,8 @@ function createTenantUser(app, tenantId, input) {
   record.set("verified", true);
   record.set("name", input.name);
   record.set("role", input.role);
+  if (input.job_title) record.set("job_title", input.job_title);
+  if (input.team) record.set("team", input.team);
   record.set("tenant", tenantId);
   record.set("is_active", input.is_active !== false);
   record.set("is_platform_staff", false);
@@ -341,6 +369,7 @@ function reportScope(app, auth, requestedTenantId, isPlatform) {
 
 module.exports = {
   ROLES: ROLES,
+  TEAMS: TEAMS,
   DEFAULT_TIMEZONE: DEFAULT_TIMEZONE,
   normalizeCode: normalizeCode,
   normalizeTimezone: normalizeTimezone,
