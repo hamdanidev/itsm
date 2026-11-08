@@ -1460,6 +1460,66 @@ test("pilihan tema gelap bertahan setelah muat ulang", async () => {
   }
 });
 
+test("label mengambang menu sidebar terbaca pada tema gelap", async () => {
+  const page = await login(
+    state.org.support.email,
+    "**/dashboard",
+    "tooltip-gelap"
+  );
+
+  try {
+    // Pilih tema gelap dari menu pengguna, seperti yang dilakukan pengguna.
+    await page.locator(".user-trigger").click();
+    await page.getByRole("button", { name: "Gelap", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+
+    assert.equal(
+      await page.evaluate(() => document.documentElement.dataset.theme),
+      "dark"
+    );
+
+    // Ciutkan sidebar ke rail ikon supaya label mengambang muncul saat hover.
+    await page.click(".sidebar-toggle");
+    await page.waitForTimeout(300);
+    await page.locator('.sidebar-link[href="/tickets"]').first().hover();
+    await page.waitForSelector(".nav-tip", { timeout: 10_000 });
+
+    // Kontras teks terhadap alas label mengambang harus lolos WCAG AA.
+    const tip = await page.evaluate(() => {
+      const element = document.querySelector(".nav-tip");
+      const style = getComputedStyle(element);
+      const channels = (value) =>
+        value.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
+      const luminance = (rgb) => {
+        const [r, g, b] = rgb.map((value) => {
+          const c = value / 255;
+          return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+
+      const text = luminance(channels(style.color));
+      const background = luminance(channels(style.backgroundColor));
+
+      return {
+        label: element.textContent.trim(),
+        contrast:
+          (Math.max(text, background) + 0.05) /
+          (Math.min(text, background) + 0.05),
+      };
+    });
+
+    assert.equal(tip.label, "Tiket");
+    assert.ok(
+      tip.contrast >= 4.5,
+      `kontras label mengambang ${tip.contrast.toFixed(2)}:1, minimal 4.5:1`
+    );
+  } finally {
+    await closePage(page);
+  }
+});
+
 test("tidak ada console error selama alur diuji", () => {
   assert.deepEqual(
     state.consoleErrors,

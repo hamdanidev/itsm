@@ -35,6 +35,10 @@
   --logo-tile: #ffffff;
 
   --on-accent: #ffffff;
+  /* Label mengambang (tooltip) butuh latar sendiri: --ink-strong berubah
+     menjadi terang di tema gelap sehingga tidak bisa dipakai sebagai alas. */
+  --tooltip-bg: #091e42;
+  --tooltip-text: #ffffff;
   --n10: #fafbfc;
   --n20: #f4f5f7;
   --n30: #ebecf0;
@@ -99,6 +103,9 @@
   --logo-tile: #ffffff;
 
   --on-accent: #ffffff;
+  /* Permukaan terangkat yang tetap gelap agar tooltip senada dengan sidebar. */
+  --tooltip-bg: #344155;
+  --tooltip-text: #f2f6fb;
   --n10: #1a2230;
   --n20: #202a39;
   --n30: #283343;
@@ -995,8 +1002,8 @@ button {
   z-index: 90;
   padding: 4px 8px;
   border-radius: var(--radius);
-  background: var(--ink-strong);
-  color: var(--on-accent);
+  background: var(--tooltip-bg);
+  color: var(--tooltip-text);
   font-size: 12px;
   font-weight: 500;
   line-height: 18px;
