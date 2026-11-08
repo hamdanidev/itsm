@@ -166,7 +166,11 @@ test("tampilan tersimpan menyaring tiket dan pilihan massal bisa di-assign", asy
   });
   await unassignedPill.click();
   await page.waitForURL(/assignee=unassigned/);
-  await page.waitForSelector(".issue-table tbody tr");
+  await page.waitForFunction(
+    () => document.querySelectorAll(".issue-table tbody tr").length === 2,
+    null,
+    { timeout: 20_000 }
+  );
 
   const rows = page.locator(".issue-table tbody tr");
   assert.equal(await rows.count(), 2, "hanya dua tiket yang belum di-assign");

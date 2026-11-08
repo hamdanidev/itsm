@@ -181,7 +181,8 @@ di `lib/setup.js`.
 
 ### `tenants`
 
-`name`, `code`, `timezone`, `is_active`, `logo`, `created`, `updated`.
+`name`, `code`, `timezone`, `is_active`, `logo`, `report_frequency`,
+`report_next_at`, `report_last_sent_at`, `created`, `updated`.
 
 Satu baris = satu organisasi/rumah sakit; menjadi batas isolasi seluruh data
 bisnis. Setiap akun rumah sakit memiliki tepat satu `tenant`, akun platform tidak
@@ -199,6 +200,13 @@ lewat file API; halaman login standalone memakai route publik
 `timezone` dipakai saat membuat kebijakan SLA default tenant baru, tetapi
 perhitungan SLA tetap memakai `sla_policies.timezone` atau default `Asia/Jakarta`
 dan cron di-hardcode ke `Asia/Jakarta`.
+
+`report_frequency` (`off/weekly/monthly`) mengatur laporan SLA terjadwal:
+`weekly` setiap Senin 07.00 WIB, `monthly` setiap tanggal 1 07.00 WIB.
+`report_next_at` adalah jadwal berikutnya dan `report_last_sent_at` waktu kirim
+terakhir. Cron `report_schedule_scan` mengirim ringkasan email ke seluruh
+Kepala IT aktif lalu menghitung ulang `report_next_at`. Hanya route
+`/api/itsm/reports/schedule` yang menulis field ini (Kepala IT).
 
 Rules:
 
@@ -487,8 +495,9 @@ Identitas: `ticket_no`, `tenant`, `type`, `title`, `description`, `status`,
 `source`, `impact`, `priority`, `priority_reason`, `requester`, `created_by`,
 `unit`, `category`, `service`, `service_item`, `requested_for`, `location`,
 `team`, `reporter_name`, `reporter_contact`, `patient_data_confirmed`,
-`intake_channel`, `intake_ref`, `public_token`, `approval_mode`, `problem`,
-`kb_article`, `major_incident`.
+`intake_channel`, `intake_ref`, `public_token`, `merged_into`, `merged_at`,
+`merged_by`, `merge_reason`, `approval_mode`, `problem`, `kb_article`,
+`major_incident`.
 
 - `service`/`service_item` menghubungkan tiket ke katalog. Boleh kosong untuk
   tiket lama atau tiket yang belum ditriage.
@@ -502,6 +511,11 @@ Identitas: `ticket_no`, `tenant`, `type`, `title`, `description`, `status`,
   (`/t/{token}`), unik dan hanya diberikan kepada pelapor. Token ini tidak
   memberi akses tulis ke tiket; CSAT tamu memakai route publik terpisah yang
   tetap memvalidasi status tiket.
+- `merged_into` menandai tiket sumber yang sudah digabung ke tiket tujuan.
+  Tiket seperti ini ditutup dengan `resolution_code=duplicate`, dan
+  `merged_at`/`merged_by`/`merge_reason` menyimpan jejak merge. `merged_into`
+  tidak boleh berantai: tiket tujuan harus masih aktif dan belum menjadi sumber
+  merge lain.
 - `team` adalah antrean tim pemilik tiket (select yang sama dengan
   `users.team` dan `services.team`). Tiket baru mewarisi `services.team`;
   triage dapat mengoreksinya. Teknisi melihat tiket timnya, termasuk yang
@@ -524,9 +538,15 @@ Workflow: `assignee`, `assigned_at`, `assigned_by`, `first_response_at`,
 `last_activity_at`.
 
 SLA: `sla_policy`, `sla_snapshot`, `response_due_at`, `approval_due_at`,
-`resolution_due_at`, `response_breach_at`, `approval_breach_at`,
+`resolution_due_at`, `response_warned_at`, `approval_warned_at`,
+`resolution_warned_at`, `response_breach_at`, `approval_breach_at`,
 `resolution_breach_at`, `escalation_level`, `escalated_at`, `next_due_at`,
 `sla_paused_at`, `sla_paused_minutes`.
+
+`*_warned_at` diisi cron `sla_breach_scan` saat tenggat tinggal ≤ 30 menit,
+sekali per fase. Penanda direset ketika tenggat berubah (triage, reopen, tahap
+approval berikutnya, atau lanjut dari `waiting`) agar siklus baru bisa
+diperingatkan lagi.
 
 `next_due_at` adalah satu-satunya tenggat SLA yang masih menjadi gerbang
 pekerjaan: `approval_due_at` selama SR/CR belum diputuskan, lalu
@@ -555,6 +575,12 @@ Rules:
 
 Semua penulisan lewat custom route `/api/itsm/*`. Route memeriksa role, tenant,
 akses record, field yang diizinkan, transisi status, dan menulis audit.
+
+Merge duplikat lewat `POST /api/itsm/tickets/{id}/merge`: tiket sumber harus
+sejenis, masih aktif, dan belum pernah digabung; tiket tujuan harus aktif dan
+belum menjadi sumber merge. Komentar, lampiran, tautan aset/problem/insiden,
+serta metadata yang kosong di tujuan dipindahkan. Approval pending di sumber
+ditolak dengan alasan merge. Kedua tiket mendapat audit `merge`.
 
 ### `ticket_comments`
 
@@ -647,7 +673,8 @@ sehingga user hanya menerima event miliknya.
 ### `email_outbox`
 
 Antrean email notifikasi: `tenant`, `user`, `ticket`, `to`, `recipient_name`,
-`subject`, `html`, `text`, `template` (`invitation/password_reset/notification`),
+`subject`, `html`, `text`, `template`
+(`invitation/password_reset/notification/guest_receipt/report`),
 `event` (tipe notifikasi asal), `status` (`queued/sent/failed`), `attempts`,
 `next_attempt_at`, `sent_at`, `last_error`, `created`, `updated`.
 
@@ -791,6 +818,7 @@ Jeda dan recompute:
 | POST | `/api/itsm/tickets` | Buat tiket |
 | POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee |
 | POST | `/api/itsm/tickets/{id}/transition` | Mulai, menunggu/lanjutkan, selesaikan, tutup, buka kembali |
+| POST | `/api/itsm/tickets/{id}/merge` | Gabungkan tiket duplikat ke tiket tujuan; staff IT |
 | POST | `/api/itsm/tickets/{id}/triage` | Koreksi prioritas/dampak/kategori/layanan/lokasi sebelum pekerjaan dimulai |
 | POST | `/api/itsm/problems` | Buat problem; opsional tautkan `ticket_id` |
 | PATCH | `/api/itsm/problems/{id}` | Ubah status/root cause/workaround/permanent fix |
@@ -810,6 +838,8 @@ Jeda dan recompute:
 | GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
 | GET | `/api/itsm/reports/sla` | Laporan SLA (JSON), Kepala IT atau Pengamat |
 | GET | `/api/itsm/reports/sla.csv` | Ekspor CSV per tiket, Kepala IT atau Pengamat |
+| GET/PATCH | `/api/itsm/reports/schedule` | Baca/ubah jadwal laporan; hanya Kepala IT |
+| POST | `/api/itsm/reports/schedule/run` | Kirim ringkasan laporan sekarang; hanya Kepala IT |
 | GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri (nama, telepon, nomor pegawai) |
 | POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus avatar |
 | POST | `/api/itsm/profile/password` | Ganti password dengan verifikasi password lama |
@@ -849,6 +879,8 @@ Jeda dan recompute:
 | GET | `/api/itsm/platform/audit` | Audit lintas tenant (filter RS, aktor, aksi, cakupan, tanggal, nomor tiket) |
 | POST | `/api/itsm/dev/seed/age` | **Development**: mundurkan/sebar waktu record untuk seed manual; superuser |
 | POST | `/api/itsm/dev/seed/reset` | **Development**: hapus data transaksional satu tenant untuk seed manual; superuser |
+| POST | `/api/itsm/dev/sla/scan` | **Development**: jalankan pemindaian pengingat pra-SLA sekarang; superuser |
+| POST | `/api/itsm/dev/reports/scan` | **Development**: jalankan pemindaian jadwal laporan sekarang; superuser |
 
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side, kecuali
 route publik `/api/itsm/public/intake/*` yang memvalidasi token titik, tenant
@@ -856,7 +888,7 @@ aktif, rate limit, honeypot, dan attestation data pasien, route
 `/api/itsm/public/tickets/*` yang hanya membuka satu tiket berdasarkan
 `public_token` dan tidak pernah mengirim komentar internal atau data pengguna,
 route `/api/itsm/setup/*` yang hanya hidup selama instalasi belum punya akun dan
-mewajibkan kode setup, serta route `/api/itsm/dev/seed/*` yang memakai
+mewajibkan kode setup, serta route `/api/itsm/dev/*` yang memakai
 `$apis.requireSuperuserAuth()`.
 Service/Change Request harus berstatus approval `approved` sebelum pekerjaan bisa
 dimulai, dijeda, atau diselesaikan; item katalog dengan `approval_mode = none`

@@ -1,6 +1,12 @@
 cronAdd("sla_breach_scan", "*/5 * * * *", () => {
   var audit = require(__hooks + "/lib/audit.js");
+  var slaWarn = require(__hooks + "/lib/sla_warn.js");
   var now = new DateTime().string();
+
+  // Kirim peringatan untuk tenggat yang tinggal <= 30 menit. Ini berjalan
+  // sebelum penandaan breach agar tiket yang baru saja melewati batas tidak
+  // mendapat dua pesan sekaligus.
+  slaWarn.scan($app);
 
   function scan(dueField, breachField, level, skipWaiting) {
     while (true) {
@@ -168,3 +174,19 @@ cronAdd("sla_breach_scan", "*/5 * * * *", () => {
 
   escalateOverdue();
 });
+
+routerAdd(
+  "POST",
+  "/api/itsm/dev/sla/scan",
+  (e) => {
+    var slaWarn = require(__hooks + "/lib/sla_warn.js");
+    var body = e.requestInfo().body || {};
+    var options = {};
+
+    if (body.now_ms) options.now_ms = Number(body.now_ms);
+    if (body.window_minutes) options.window_minutes = Number(body.window_minutes);
+
+    return e.json(200, slaWarn.scan(e.app, options));
+  },
+  $apis.requireSuperuserAuth()
+);

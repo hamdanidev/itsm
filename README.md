@@ -51,11 +51,13 @@ serta lupa password mandiri:
   draf komentar tersimpan lokal; modal penyelesaian dipakai bersama (siap untuk
   papan Kanban);
 - assignment, transisi status termasuk `waiting` dengan jeda SLA, recompute SLA
-  saat reopen, dan eskalasi berjenjang;
+  saat reopen, eskalasi berjenjang, pengingat pra-SLA sekali per fase, dan merge
+  tiket duplikat ke tiket tujuan;
 - approval berjenjang (manajer unit → IT Lead → CAB), delegasi approver, dan
   tenggat per tahap;
-- laporan SLA server-side dengan ekspor CSV per tiket, termasuk laporan
-  lintas rumah sakit untuk akun vendor;
+- laporan SLA server-side dengan ekspor CSV per tiket, cetak/PDF, jadwal
+  pengiriman email mingguan/bulanan, termasuk laporan lintas rumah sakit untuk
+  akun vendor;
 - profil pengguna: nama, telepon, nomor pegawai, avatar, ganti password, dan
   preferensi notifikasi email;
 - lupa password mandiri: tautan email bertoken, sekali pakai, dan sesi lama
@@ -237,7 +239,7 @@ seperti sistem yang sudah dipakai berbulan-bulan.
 
 Semua tulisan dibuat lewat route aplikasi biasa (bukan insert langsung), jadi
 SLA, audit log, notifikasi, dan aturan RBAC tetap berjalan. Backdate memakai
-route development khusus superuser (`/api/itsm/dev/seed/*`, lihat SCHEMA.md);
+route development khusus superuser (`/api/itsm/dev/*`, lihat SCHEMA.md);
 route itu tidak dipanggil frontend dan tidak menambah hak akses karena hanya
 menerima superuser PocketBase.
 
@@ -305,6 +307,9 @@ npm run seed -- --help
 - Upload lampiran; cek tombol unduh.
 - Login sebagai lead; buka audit log lewat API/Admin UI.
 - Tunggu/paksa cron `sla_breach_scan`; cek `response_breach_at` dan audit.
+- Sebelum breach, paksa `POST /api/itsm/dev/sla/scan` (superuser) lalu cek
+  `response_warned_at`/`resolution_warned_at` dan notifikasi
+  "SLA ... hampir lewat".
 - Login sebagai staff; buka `/dashboard`: kartu KPI, antrean "Tiket saya",
   "Belum di-assign", dan "Perlu perhatian" harus sesuai data tiket.
 - Klik "Lihat semua" pada antrean; filter, chip, dan pagination di daftar tiket
@@ -317,8 +322,8 @@ Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`
 | Perintah | Cakupan | Butuh |
 |---|---|---|
 | `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, scope platform, mode tenancy, validasi input konsol vendor, helper antrean dashboard, agregasi laporan | Node |
-| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, validasi intake, katalog layanan + approval mode + SLA per layanan, triage, on-behalf, outcome perubahan, problem management + known error, knowledge base (visibilitas, publish, pencarian, workaround), asset/CI + service CI + riwayat tiket, CSAT satu respons per tiket, laporan SLA + CSV + laporan operasional, lampiran terproteksi, profil & password, lupa password mandiri, tim rumah sakit, email transaksional, logo rumah sakit, konsol vendor, vendor sebagai resolver tiket, laporan & audit lintas RS, setup awal (kode setup, standalone, vendor, penutupan setelah akun pertama) | Node + binary PocketBase |
-| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA, profil, intake, katalog + intake layanan, triage prioritas, pengelolaan layanan di Pengaturan, problem known error dari tiket, penerbitan artikel + saran intake, lupa password, logo rumah sakit, konsol vendor (mode vendor), setup awal instalasi baru | Node + PocketBase + Chromium |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, pengingat pra-SLA, merge tiket duplikat, validasi intake, katalog layanan + approval mode + SLA per layanan, triage, on-behalf, outcome perubahan, problem management + known error, knowledge base (visibilitas, publish, pencarian, workaround), asset/CI + service CI + riwayat tiket, CSAT satu respons per tiket, laporan SLA + CSV + laporan operasional + jadwal laporan, lampiran terproteksi, profil & password, lupa password mandiri, tim rumah sakit, email transaksional, logo rumah sakit, konsol vendor, vendor sebagai resolver tiket, laporan & audit lintas RS, setup awal (kode setup, standalone, vendor, penutupan setelah akun pertama) | Node + binary PocketBase |
+| `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA + jadwal laporan, profil, intake, katalog + intake layanan, triage prioritas, merge tiket duplikat, pengelolaan layanan di Pengaturan, problem known error dari tiket, penerbitan artikel + saran intake, lupa password, logo rumah sakit, konsol vendor (mode vendor), setup awal instalasi baru | Node + PocketBase + Chromium |
 | `npm run test:all` | ketiganya | — |
 
 Cara kerjanya:
@@ -332,9 +337,9 @@ Cara kerjanya:
   (`frontend/vite.config.js`), jadi tidak perlu `npm run dev` lebih dulu dan
   tidak bentrok dengan dev server di 5173/8090. File e2e konsol vendor menyalakan
   instance PocketBase sendiri dalam mode vendor.
-- File e2e dijalankan maksimal empat sekaligus (`--test-concurrency=4`) karena
+- File e2e dijalankan maksimal dua sekaligus (`--test-concurrency=2`) karena
   setiap file menyalakan PocketBase, Vite, dan Chromium sendiri; paralelitas
-  penuh membuat mesin kecil kehabisan resource dan test jadi flaky.
+  lebih tinggi membuat mesin kecil kehabisan resource dan test jadi flaky.
 - Setiap file test membuat organisasinya sendiri (unit + manajer + requester +
   support + lead) sehingga file test aman berjalan paralel.
 - Binary PocketBase memakai `PB_VERSION` yang sama dengan dev dan diunduh sekali
@@ -397,6 +402,25 @@ sakit. Nilainya: `service_desk`, `application`, `network`, `hardware`,
 - Komentar/lampiran internal tiket tim baru terlihat setelah tiket diambil.
 - Teknisi tim lain tidak melihat atau mengambil tiket tersebut.
 - Staff IT dan Kepala IT tetap melihat seluruh tiket tenant.
+
+## Merge tiket duplikat
+
+Satu gangguan SIMRS sering dilaporkan dari beberapa unit. Staf IT dapat
+menggabungkan laporan duplikat lewat tombol **Gabungkan** di detail tiket:
+
+- Cari tiket tujuan berdasarkan nomor atau judul; tiket harus sejenis dan
+  berasal dari rumah sakit yang sama.
+- Komentar, lampiran, tautan aset/problem/insiden mayor, dan metadata yang
+  belum ada di tujuan dipindahkan ke tiket tujuan.
+- Tiket sumber ditutup dengan `resolution_code=duplicate` dan
+  `resolution_summary` berisi nomor tiket tujuan; `merged_into` menyimpan
+  tiket tujuan, `merged_at`/`merged_by`/`merge_reason` mencatat jejaknya.
+- Approval yang masih pending di tiket sumber ditolak dengan alasan merge.
+- Audit `merge` ditulis di kedua tiket; pemohon dan assignee tiket sumber
+  menerima notifikasi "Tiket digabung". Pemohon sumber juga ditambahkan ke
+  delegasi tiket tujuan agar tetap bisa mengikuti perkembangan.
+- Tidak ada rantai merge: tiket yang sudah menjadi sumber tidak dapat digabung
+  lagi, dan tiket tujuan harus masih aktif.
 
 ## Katalog layanan dan triage
 
@@ -658,12 +682,18 @@ berdasarkan kalender cuti, dan pencabutan delegasi sebelum tahap diputuskan.
 - Reopen memulai siklus SLA penyelesaian baru dari waktu reopen memakai policy
   aktif. Breach dan level eskalasi lama dibersihkan, tetapi riwayat breach tetap
   ada di audit log dan timeline.
+- **Pengingat pra-SLA**: scan 5 menit memeriksa tenggat respons, approval, dan
+  penyelesaian yang tinggal ≤ 30 menit. Satu peringatan per fase dikirim ke
+  assignee (atau Kepala IT bila belum ada assignee; approver aktif untuk fase
+  approval), tercatat sebagai audit `sla_warn`, dan tidak berulang karena
+  `*_warned_at`. Penanda direset saat triage, reopen, tahap approval berikutnya,
+  atau saat pekerjaan dilanjutkan dari `waiting`.
 - Eskalasi berjenjang oleh scan 5 menit:
   `1` = breach respons/approval, `2` = breach penyelesaian, `3` = breach
   penyelesaian yang belum ditangani 4 jam. Level 2+ tampil sebagai badge
   "Eskalasi Lx" di detail dan antrean dashboard, dan setiap kenaikan level
-  menulis event `escalate` ke timeline. Notifikasi baru sebatas in-app; email
-  dan WhatsApp belum ada.
+  menulis event `escalate` ke timeline. Notifikasi memakai in-app + email;
+  WhatsApp belum ada.
 
 ## Mode tenancy
 
@@ -828,6 +858,8 @@ rata-rata median per rumah sakit, jadi angka gabungan tetap benar.
 | Per prioritas / jenis | agregat yang sama per prioritas dan jenis tiket |
 | Breach terbaru | 20 tiket breach terakhir dengan level eskalasi dan status |
 | Unduh CSV | satu baris per tiket pada rentang terpilih |
+| Cetak / PDF | dialog cetak browser dengan sidebar, filter, dan tombol aksi disembunyikan |
+| Laporan terjadwal | ringkasan email mingguan (Senin 07.00 WIB) atau bulanan (tanggal 1, 07.00 WIB) ke seluruh Kepala IT aktif |
 
 Definisi angka:
 
@@ -844,6 +876,13 @@ Rentang default 90 hari terakhir, maksimal 366 hari; `from`/`to` memakai format
 (ISO week). CSV memakai pemisah koma, UTF-8 dengan BOM agar rapi di Excel, dan
 berisi kolom tiket, unit, kategori, tanggal WIB, menit respons/resolusi, status
 breach, level eskalasi, kode resolusi, dan jumlah reopen.
+
+Tombol **Cetak / PDF** membuka dialog cetak browser dengan sidebar, filter, dan
+tombol aksi disembunyikan; pengguna dapat memilih "Save as PDF". Jadwal laporan
+diatur oleh Kepala IT dari halaman Laporan: mingguan setiap Senin atau bulanan
+setiap tanggal 1, pukul 07.00 WIB. Cron mengirim ringkasan ke seluruh Kepala IT
+aktif, dengan tautan ke halaman laporan. Tombol **Kirim sekarang** memakai
+ringkasan yang sama untuk pengujian atau laporan manual.
 
 Contoh query:
 
@@ -1274,6 +1313,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | POST | `/api/itsm/intake-points/{id}/rotate` | Rotasi token titik QR; hanya IT Lead |
 | POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee (staff) |
 | POST | `/api/itsm/tickets/{id}/transition` | Mulai, menunggu/lanjutkan, selesaikan, tutup, buka kembali |
+| POST | `/api/itsm/tickets/{id}/merge` | Gabungkan tiket duplikat ke tiket tujuan; staff IT |
 | POST | `/api/itsm/tickets/{id}/triage` | Koreksi prioritas/klasifikasi/layanan sebelum pekerjaan dimulai |
 | POST | `/api/itsm/problems` | Buat problem; opsional tautkan tiket |
 | PATCH | `/api/itsm/problems/{id}` | Ubah status/root cause/workaround/permanent fix |
@@ -1297,6 +1337,8 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
 | GET | `/api/itsm/reports/sla` | Laporan SLA (JSON); Kepala IT atau Pengamat |
 | GET | `/api/itsm/reports/sla.csv` | Ekspor CSV per tiket; Kepala IT atau Pengamat |
+| GET/PATCH | `/api/itsm/reports/schedule` | Baca/ubah jadwal laporan; hanya Kepala IT |
+| POST | `/api/itsm/reports/schedule/run` | Kirim ringkasan laporan sekarang; hanya Kepala IT |
 | GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri |
 | POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus foto profil |
 | POST | `/api/itsm/profile/password` | Ganti password (verifikasi password lama) |
@@ -1338,8 +1380,22 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 49 unit test, 241 test API, dan 51
+- Suite otomatis lulus lokal (Windows): 49 unit test, 254 test API, dan 52
   skenario e2e — lihat bagian Testing.
+- Pengingat pra-SLA diverifikasi test API: tiket dengan tenggat ≤ 30 menit
+  mendapat satu notifikasi + email, audit `sla_warn`, dan penanda
+  `*_warned_at`; pemindaian ulang tidak mengirim duplikat, sedangkan tenggat
+  yang masih jauh tidak diberi peringatan.
+- Merge tiket diverifikasi test API + Playwright: tiket sumber ditutup sebagai
+  duplikat, komentar dan lampiran berpindah ke tujuan, audit `merge` tercatat
+  di kedua tiket, notifikasi terkirim, serta merge ke diri sendiri, jenis
+  berbeda, tiket selesai, lintas rumah sakit, dan sumber yang sudah digabung
+  ditolak.
+- Laporan terjadwal diverifikasi test API + Playwright: hanya Kepala IT yang
+  dapat membaca/mengubah jadwal, jadwal mingguan/bulanan menghitung `next_at`,
+  pengiriman manual dan cron mengantrekan email `report` ke Kepala IT, serta
+  menonaktifkan jadwal membersihkan `next_at`. Tombol Cetak/PDF memakai dialog
+  cetak browser dengan sidebar/filter disembunyikan.
 - Status tiket tamu + CSAT QR diverifikasi test API + Playwright: tiket QR
   mendapat token 32 karakter, halaman publik hanya memuat satu tiket, komentar
   internal tidak bocor, email konfirmasi masuk antrean, CSAT ditolak sebelum
@@ -1513,5 +1569,5 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 - SSO SIMRS dan provisioning akun tanpa Admin UI.
 - Hardening produksi: backup off-host terenkripsi + uji restore, alerting,
   pembatasan percobaan login, dan 2FA.
-- Laporan lanjutan: jadwal kirim otomatis lewat email, filter per unit, dan PDF
-  ringkas.
+- Laporan lanjutan: PDF native di server (cetak/PDF browser dan jadwal email
+  sudah tersedia), filter per unit, dan template laporan khusus direksi.

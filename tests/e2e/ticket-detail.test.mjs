@@ -183,6 +183,50 @@ test("bilah aksi lengket, panel SLA di atas, dan riwayat dikelompokkan per hari"
   await context.close();
 });
 
+test("detail tiket bisa menggabungkan tiket duplikat lewat modal", async () => {
+  const target = await createTicket(state.org.requester.client, {
+    title: "SIMRS lambat di pendaftaran",
+    description: "Pendaftaran pasien lambat sejak pagi di semua loket.",
+  });
+  const source = await createTicket(state.org.requester.client, {
+    title: "SIMRS macet di loket pendaftaran",
+    description: "Loket pendaftaran macet, kemungkinan masalah yang sama.",
+  });
+
+  const { context, page } = await login(state.org.support.email);
+
+  await page.goto(`${state.web.url}/tickets/${source.id}`, {
+    waitUntil: "networkidle",
+  });
+  await page.waitForSelector(".ticket-actions");
+
+  await page.getByRole("button", { name: "Gabungkan" }).click();
+  await page.waitForSelector(".incident-ticket-search");
+
+  await page
+    .locator('.incident-ticket-search input[type="search"]')
+    .fill(target.ticket_no);
+  await page.getByRole("button", { name: "Cari" }).click();
+  await page.waitForSelector(".incident-ticket-results li");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator(".incident-ticket-results button").first().click();
+
+  await page.waitForSelector(".alert--success", { timeout: 20_000 });
+  assert.match(
+    await page.locator(".alert--success").innerText(),
+    new RegExp(`digabung ke ${target.ticket_no}`)
+  );
+
+  const merged = await state.org.admin.list("tickets", {
+    filter: `ticket_no = "${source.ticket_no}"`,
+  });
+  assert.equal(merged.items[0].status, "closed");
+  assert.equal(merged.items[0].merged_into, target.id);
+
+  await context.close();
+});
+
 test("selesaikan tiket lewat modal bersama, lalu komentar internal dengan Ctrl+Enter", async () => {
   const { context, page } = await login(state.org.support.email);
 
@@ -247,7 +291,8 @@ test("selesaikan tiket lewat modal bersama, lalu komentar internal dengan Ctrl+E
   await page.waitForSelector("#comment");
   await page.waitForFunction(
     () => document.querySelector("#comment")?.textContent?.includes("Draf yang belum dikirim."),
-    { timeout: 10_000 }
+    null,
+    { timeout: 20_000 }
   );
 
   await context.close();

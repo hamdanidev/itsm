@@ -306,6 +306,7 @@ test("kirim laporan gangguan dengan lampiran sampai layar sukses", async () => {
   await page.locator(".public-copy").click();
   await page.waitForFunction(
     () => document.querySelector(".public-copy")?.textContent?.includes("Tersalin"),
+    null,
     { timeout: 5000 }
   );
 

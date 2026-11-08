@@ -153,6 +153,13 @@ export async function transitionTicket(ticketId, payload) {
   });
 }
 
+export async function mergeTicket(ticketId, payload) {
+  return pb.send(`/api/itsm/tickets/${ticketId}/merge`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
 export async function decideTicketApproval(ticketId, decision, note) {
   return pb.send(`/api/itsm/tickets/${ticketId}/approval`, {
     method: "POST",
@@ -300,6 +307,21 @@ export async function fetchSlaReport(params = {}) {
 export async function fetchOperationsReport(params = {}) {
   const query = reportQuery(params);
   return pb.send(`/api/itsm/reports/operations${query ? `?${query}` : ""}`);
+}
+
+export async function fetchReportSchedule() {
+  return pb.send("/api/itsm/reports/schedule");
+}
+
+export async function updateReportSchedule(frequency) {
+  return pb.send("/api/itsm/reports/schedule", {
+    method: "PATCH",
+    body: { frequency },
+  });
+}
+
+export async function runReportSchedule() {
+  return pb.send("/api/itsm/reports/schedule/run", { method: "POST" });
 }
 
 async function downloadCsv(path, params, fallbackName) {

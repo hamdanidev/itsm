@@ -3,14 +3,17 @@ import PageHeader from "../../../components/ui/PageHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useTenant } from "../../../app/providers/TenantProvider";
-import { isPlatformStaff } from "../../../lib/permissions";
+import { isPlatformStaff, isLead } from "../../../lib/permissions";
 import {
   downloadOperationsReportCsv,
   downloadSlaReportCsv,
   fetchIncidentStats,
   fetchOperationsReport,
+  fetchReportSchedule,
   fetchSlaReport,
   getErrorMessage,
+  runReportSchedule,
+  updateReportSchedule,
 } from "../../../lib/api";
 
 const PRIORITY_LABELS = {
@@ -423,6 +426,7 @@ export default function ReportsPage() {
   const { user } = useAuth();
   const { tenants } = useTenant();
   const isVendor = isPlatformStaff(user);
+  const canSchedule = isLead(user) && !isVendor;
 
   const [from, setFrom] = useState(() => daysAgo(89));
   const [to, setTo] = useState(() => wibDateString());
@@ -436,6 +440,11 @@ export default function ReportsPage() {
   const [downloading, setDownloading] = useState(false);
   const [operationsDownloading, setOperationsDownloading] = useState(false);
   const [error, setError] = useState("");
+  const [schedule, setSchedule] = useState(null);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleRunning, setScheduleRunning] = useState(false);
+  const [scheduleNotice, setScheduleNotice] = useState("");
+  const [scheduleError, setScheduleError] = useState("");
 
   const load = useCallback(async (params) => {
     setLoading(true);
@@ -460,6 +469,24 @@ export default function ReportsPage() {
   useEffect(() => {
     load({ from: daysAgo(89), to: wibDateString(), bucket: "month" });
   }, [load]);
+
+  useEffect(() => {
+    if (!canSchedule) return undefined;
+
+    let active = true;
+
+    fetchReportSchedule()
+      .then((data) => {
+        if (active) setSchedule(data);
+      })
+      .catch((err) => {
+        if (active) setScheduleError(getErrorMessage(err));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [canSchedule]);
 
   function apply(next = {}) {
     const params = {
@@ -511,6 +538,57 @@ export default function ReportsPage() {
     }
   }
 
+  function printReport() {
+    document.body.classList.add("print-report");
+    const cleanup = () => {
+      document.body.classList.remove("print-report");
+      window.removeEventListener("afterprint", cleanup);
+    };
+
+    window.addEventListener("afterprint", cleanup);
+    window.print();
+    window.setTimeout(cleanup, 1500);
+  }
+
+  async function saveSchedule(frequency) {
+    setScheduleSaving(true);
+    setScheduleNotice("");
+    setScheduleError("");
+
+    try {
+      const data = await updateReportSchedule(frequency);
+      setSchedule((current) => ({ ...current, ...data }));
+      setScheduleNotice("Jadwal laporan disimpan.");
+    } catch (err) {
+      setScheduleError(getErrorMessage(err));
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
+  async function runSchedule() {
+    setScheduleRunning(true);
+    setScheduleNotice("");
+    setScheduleError("");
+
+    try {
+      const result = await runReportSchedule();
+      setSchedule((current) => ({
+        ...current,
+        last_sent_at: new Date().toISOString(),
+      }));
+      setScheduleNotice(
+        result.sent
+          ? `Laporan dikirim ke ${result.sent} Kepala IT.`
+          : "Tidak ada email yang terkirim. Periksa konfigurasi SMTP atau penerima."
+      );
+    } catch (err) {
+      setScheduleError(getErrorMessage(err));
+    } finally {
+      setScheduleRunning(false);
+    }
+  }
+
   const summary = report?.summary;
   const isEmpty = Boolean(report) && report.summary.total === 0;
   const trendMax = Math.max(1, ...(report?.trend || []).map((item) => item.created));
@@ -528,19 +606,30 @@ export default function ReportsPage() {
             : "Compliance, tren, dan waktu penyelesaian tiket per unit, prioritas, dan jenis."
         }
         actions={
-          <button
-            className="btn btn-primary"
-            type="button"
-            onClick={downloadCsv}
-            disabled={downloading || loading}
-          >
-            {downloading ? (
-              <span className="spinner" aria-hidden="true" />
-            ) : (
-              <i className="bi bi-download" aria-hidden="true" />
-            )}
-            Unduh CSV
-          </button>
+          <>
+            <button
+              className="btn btn-outline"
+              type="button"
+              onClick={printReport}
+              disabled={loading}
+            >
+              <i className="bi bi-printer" aria-hidden="true" />
+              Cetak / PDF
+            </button>
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={downloadCsv}
+              disabled={downloading || loading}
+            >
+              {downloading ? (
+                <span className="spinner" aria-hidden="true" />
+              ) : (
+                <i className="bi bi-download" aria-hidden="true" />
+              )}
+              Unduh CSV
+            </button>
+          </>
         }
       />
 
@@ -921,6 +1010,90 @@ export default function ReportsPage() {
             </>
           )}
         </>
+      )}
+
+      {canSchedule && (
+        <section className="panel report-schedule">
+          <div className="panel-head">
+            <div className="panel-title">
+              <i className="bi bi-calendar-check" aria-hidden="true" />
+              Laporan terjadwal
+            </div>
+          </div>
+          <div className="panel-body">
+            <p className="report-schedule-intro">
+              Kirim ringkasan SLA otomatis ke seluruh Kepala IT aktif. Pilih
+              mingguan (Senin 07.00 WIB) atau bulanan (tanggal 1, 07.00 WIB).
+            </p>
+
+            <div className="report-schedule-controls">
+              <select
+                className="select"
+                value={schedule?.frequency || "off"}
+                onChange={(event) => {
+                  setSchedule((current) => ({
+                    ...current,
+                    frequency: event.target.value,
+                  }));
+                  setScheduleNotice("");
+                }}
+                aria-label="Frekuensi laporan"
+                disabled={scheduleSaving || scheduleRunning}
+              >
+                <option value="off">Nonaktif</option>
+                <option value="weekly">Mingguan · Senin</option>
+                <option value="monthly">Bulanan · tanggal 1</option>
+              </select>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => saveSchedule(schedule?.frequency || "off")}
+                disabled={scheduleSaving || scheduleRunning}
+              >
+                {scheduleSaving ? "Menyimpan..." : "Simpan jadwal"}
+              </button>
+              <button
+                className="btn btn-outline"
+                type="button"
+                onClick={runSchedule}
+                disabled={scheduleRunning || scheduleSaving}
+              >
+                {scheduleRunning ? "Mengirim..." : "Kirim sekarang"}
+              </button>
+            </div>
+
+            <div className="report-schedule-meta">
+              {schedule?.next_at && (
+                <span>
+                  Pengiriman berikutnya: <strong>{formatDate(schedule.next_at)}</strong>
+                </span>
+              )}
+              {schedule?.last_sent_at && (
+                <span>
+                  Terakhir dikirim: <strong>{formatDate(schedule.last_sent_at)}</strong>
+                </span>
+              )}
+              {schedule?.recipients != null && (
+                <span>
+                  Penerima: <strong>{schedule.recipients} Kepala IT</strong>
+                </span>
+              )}
+            </div>
+
+            {scheduleError && (
+              <div className="alert alert--error" role="alert">
+                <i className="bi bi-exclamation-triangle" aria-hidden="true" />
+                <div>{scheduleError}</div>
+              </div>
+            )}
+            {scheduleNotice && (
+              <div className="alert alert--success" role="status">
+                <i className="bi bi-check-circle" aria-hidden="true" />
+                <div>{scheduleNotice}</div>
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       <IncidentStatsSection stats={incidentStats} />

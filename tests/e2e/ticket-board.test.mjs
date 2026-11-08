@@ -146,6 +146,7 @@ async function openBoard(page) {
   // Tunggu fetch kolom selesai (skeleton hilang).
   await page.waitForFunction(
     () => document.querySelectorAll(".board-card").length > 0,
+    null,
     { timeout: 20_000 }
   );
 }

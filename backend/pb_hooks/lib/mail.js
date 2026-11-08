@@ -441,6 +441,123 @@ function sendPasswordResetLink(app, opts) {
   return result;
 }
 
+// Ringkasan laporan SLA terjadwal. PDF dibuat lewat dialog cetak browser;
+// email ini membawa angka utama dan tautan ke halaman laporan.
+function queueReportSummary(app, opts) {
+  if (!canSend(app)) return null;
+  if (!opts || !opts.to) return null;
+
+  var periodFrom = String(opts.period_from || "");
+  var periodTo = String(opts.period_to || "");
+
+  var summary = opts.summary || {};
+  var frequency =
+    opts.frequency === "weekly"
+      ? "mingguan"
+      : opts.frequency === "monthly"
+        ? "bulanan"
+        : "manual";
+  var compliance =
+    summary.compliance == null ? "—" : String(summary.compliance) + "%";
+  var medianResponse =
+    summary.median_response_minutes == null
+      ? "—"
+      : Math.round(summary.median_response_minutes) + " menit";
+  var medianResolution =
+    summary.median_resolution_minutes == null
+      ? "—"
+      : Math.round(summary.median_resolution_minutes) + " menit";
+
+  var units = "";
+  var list = opts.units || [];
+
+  for (var i = 0; i < list.length && i < 3; i++) {
+    units +=
+      (units ? "<br>" : "") +
+      escapeHtml(String(list[i].name || "Tanpa unit")) +
+      " · " +
+      String(Number(list[i].summary && list[i].summary.total) || 0) +
+      " tiket";
+  }
+
+  var rows = [
+    ["Periode", escapeHtml(periodFrom + " – " + periodTo)],
+    ["Total tiket", String(Number(summary.total) || 0)],
+    ["Selesai", String(Number(summary.resolved) || 0)],
+    ["Breach", String(Number(summary.breached) || 0)],
+    ["Compliance", escapeHtml(compliance)],
+    ["Median respons", escapeHtml(medianResponse)],
+    ["Median penyelesaian", escapeHtml(medianResolution)],
+  ];
+
+  if (units) rows.push(["Unit teratas", units]);
+
+  var url = appUrl(app) + "/reports";
+
+  var html = layout(app, {
+    title: "Laporan SLA " + frequency,
+    intro:
+      "Ringkasan " +
+      escapeHtml(String(opts.tenantName || appName(app))) +
+      " untuk periode " +
+      escapeHtml(periodFrom) +
+      " – " +
+      escapeHtml(periodTo) +
+      ".",
+    body:
+      detailsTable(rows) +
+      paragraph(
+        "Buka halaman Laporan untuk melihat tren, rincian per unit, dan " +
+          "mencetak atau menyimpan laporan sebagai PDF."
+      ),
+    ctaUrl: url,
+    ctaLabel: "Buka laporan",
+    footer:
+      "Email ini dikirim otomatis sesuai jadwal laporan rumah sakit. " +
+      "Ubah jadwal dari halaman Laporan.",
+  });
+
+  var text =
+    "Laporan SLA " +
+    frequency +
+    " — " +
+    String(opts.tenantName || appName(app)) +
+    "\nPeriode: " +
+    periodFrom +
+    " – " +
+    periodTo +
+    "\n\nTotal: " +
+    (Number(summary.total) || 0) +
+    "\nSelesai: " +
+    (Number(summary.resolved) || 0) +
+    "\nBreach: " +
+    (Number(summary.breached) || 0) +
+    "\nCompliance: " +
+    compliance +
+    "\nMedian respons: " +
+    medianResponse +
+    "\nMedian penyelesaian: " +
+    medianResolution +
+    "\n\nBuka laporan: " +
+    url;
+
+  return saveOutbox(
+    app,
+    {
+      tenantId: opts.tenantId,
+      userId: opts.userId,
+      to: opts.to,
+      recipientName: opts.recipientName,
+      subject: "Laporan SLA " + frequency + " — " + String(opts.tenantName || ""),
+      html: html,
+      text: text,
+      template: "report",
+      event: opts.frequency,
+    },
+    "queued"
+  );
+}
+
 // Konfirmasi tiket tamu dari QR: nomor tiket + tautan status bertoken.
 // Masuk antrean (bukan dikirim langsung) agar SMTP yang lambat tidak menahan
 // pembuatan tiket. Bila SMTP belum aktif, tidak ada yang diantrekan.
@@ -785,6 +902,7 @@ module.exports = {
   sendCredential: sendCredential,
   sendPasswordResetLink: sendPasswordResetLink,
   queueGuestReceipt: queueGuestReceipt,
+  queueReportSummary: queueReportSummary,
   enqueueNotification: enqueueNotification,
   dispatch: dispatch,
   status: status,

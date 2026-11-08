@@ -348,6 +348,8 @@ routerAdd(
             }
 
             current.set("sla_paused_at", "");
+            // Tenggat bergeser; peringatan lama tidak berlaku untuk jendela baru.
+            current.set("resolution_warned_at", "");
           }
         }
 
@@ -454,6 +456,9 @@ routerAdd(
         current.set("change_outcome", "");
         current.set("actual_start", "");
         current.set("actual_end", "");
+        current.set("response_warned_at", "");
+        current.set("approval_warned_at", "");
+        current.set("resolution_warned_at", "");
 
         // Reopen memulai siklus SLA penyelesaian baru: hitung ulang tenggat
         // dari sekarang memakai policy aktif, lalu bersihkan breach lama.

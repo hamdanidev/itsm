@@ -304,6 +304,9 @@ routerAdd(
       current.set("response_breach_at", "");
       current.set("approval_breach_at", "");
       current.set("resolution_breach_at", "");
+      current.set("response_warned_at", "");
+      current.set("approval_warned_at", "");
+      current.set("resolution_warned_at", "");
       current.set("escalation_level", 0);
       current.set("escalated_at", "");
 

@@ -12,7 +12,7 @@
 
 1. **Tidak ada kompetitor lokal yang benar-benar "ITSM rumah sakit".** Yang ada empat jenis: helpdesk/ESM generik (Integra, NISSA), omnichannel customer service (Qontak, Qiscus), ALM/ticketing (Oprex), dan proyek custom/SI.
 2. **Kita menang di kedalaman proses.** Problem/known error, change + CAB empat mata, major incident + PIR, audit append-only, approval berjenjang + delegasi, dan konsol vendor lintas RS tidak dimiliki pemain lokal yang saya temukan.
-3. **Kita kalah di lapisan adopsi.** Kanal masuk WhatsApp/email/Telegram, SSO/LDAP, formulir dinamis, auto-assignment, pengingat pra-SLA, PDF, API/webhook, mobile, dan AI/chatbot — semuanya sudah dipasarkan kompetitor lokal, semuanya belum ada di kita.
+3. **Kita kalah di lapisan adopsi.** Kanal masuk WhatsApp/email/Telegram, SSO/LDAP, formulir dinamis, auto-assignment, PDF native, API/webhook, mobile, dan AI/chatbot — semuanya sudah dipasarkan kompetitor lokal, semuanya belum ada di kita. Pengingat pra-SLA, merge tiket, cetak/PDF browser, dan laporan terjadwal sudah ditutup.
 4. **Hasil dua ujian berbeda.** Dengan bobot "adopsi", kita peringkat 3 (skor 2,94) di bawah Qontak/Qiscus (3,53) dan Integra (3,17), hanya unggul tipis dari NISSA (2,93). Dengan bobot "ITIL-first", kita peringkat 1 (3,62) di atas Integra (3,03). **Pembeli RS umumnya memberi ujian adopsi, bukan ujian ITIL.**
 5. **Deal-breaker-nya bukan fitur ITIL.** Tiga hal: **WhatsApp-first intake**, **SSO + bulk import**, dan **AI/self-service**. Dua silent killer: **paket implementasi** dan **bukti/referensi/harga**.
 6. **Rekomendasi arah:** menangkan ceruk RS tipe B/C dengan positioning "ITSM yang siap audit + WhatsApp-first", bangun lapisan adopsi sebelum menambah modul ITIL, dan jual lewat kanal SI/SIMRS partner. Jangan mengejar Qontak/Qiscus di omnichannel CX.
@@ -78,8 +78,8 @@ Severity: **P0** = menghambat kemenangan deal/ adopsi; **P1** = mempersempit gap
 | A3 | Telegram/chat channel | Tidak ada | NISSA, Integra | Kanal murah yang sudah dipakai tim IT | P1 |
 | A4 | Formulir dinamis per layanan/item | Form tetap; katalog hanya dropdown | Integra: "formulir dinamis tiap jenis layanan" | Permintaan akses, perangkat, dan aplikasi butuh field berbeda | **P0** |
 | A5 | Auto-assignment berbasis kategori/unit/beban | Manual assign / teknisi "ambil tiket" | Integra: auto-assignment ke unit/PIC | Tiket menumpuk di antrean tanpa pemilik | P1 |
-| A6 | Merge tiket duplikat | Hanya tautkan ke problem | Integra: penggabungan tiket duplikat | Satu gangguan SIMRS menjadi 30 tiket | P1 |
-| A7 | Pengingat sebelum SLA breach | Hanya scan saat sudah breach | Integra: pengingat sebelum SLA terlampaui | Tim baru bereaksi setelah terlambat | P1 |
+| A6 | Merge tiket duplikat | Tiket sumber ditutup sebagai duplikat; komentar/lampiran/tautan dipindahkan ke tujuan | Integra: penggabungan tiket duplikat | Satu gangguan SIMRS menjadi 30 tiket | P1 (selesai) |
+| A7 | Pengingat sebelum SLA breach | Satu peringatan per fase saat tenggat ≤ 30 menit, untuk respons/approval/penyelesaian | Integra: pengingat sebelum SLA terlampaui | Tim bereaksi sebelum terlambat | P1 (selesai) |
 | A8 | Bulk import pengguna (CSV/AD sync) | Tambah anggota satu per satu | Umumnya onboarding dibantu vendor/SSO | RS 500–2.000 staf tidak akan input manual | **P0** |
 | A9 | Mobile app / PWA + push | Web responsif, tanpa manifest/PWA | Qontak punya mobile app; Qiscus menyediakan SDK in-app chat | Perawat/dokter butuh 2 klik dari ponsel | P1 |
 
@@ -116,7 +116,7 @@ Severity: **P0** = menghambat kemenangan deal/ adopsi; **P1** = mempersempit gap
 | D1 | HA/scalability (bukan SQLite satu instance) | Satu instance, SQLite, tanpa replika/queue | SaaS terkelola (Qontak/Qiscus) dan arsitektur vendor | RS besar/multi-cabang berisiko | P1 |
 | D2 | Backup off-host terenkripsi + uji restore | Backup harian lokal, off-host manual | SaaS: tanggung jawab vendor | Syarat audit dan UU PDP | P1 |
 | D3 | ISO 27001 / paket UU PDP (DPA, retensi, breach notice) | Belum ada | Qiscus menampilkan badge sertifikasi; Oprex menarasikan UU PDP + server Indonesia | Gate procurement enterprise | **P0 (komersial)** |
-| D4 | Ekspor PDF + laporan terjadwal | CSV saja | Integra: Excel/PDF | Laporan ke direksi/Komite Mutu butuh PDF | P1 |
+| D4 | Ekspor PDF + laporan terjadwal | Cetak/PDF lewat browser + ringkasan email mingguan/bulanan | Integra: Excel/PDF | Laporan ke direksi/Komite Mutu butuh PDF | P1 (sebagian) |
 | D5 | Dashboard/report builder kustom | Halaman laporan tetap | Integra dashboard per unit; Qiscus analytics | Pertanyaan "bisa tambah kolom ini?" | P2 |
 | D6 | Internasionalisasi/aksesibilitas | Bahasa Indonesia saja | ID/EN (Qiscus, Oprex) | RS dengan staf asing/ekspatriat | P2 |
 
@@ -229,7 +229,7 @@ Bahan keputusan, belum dieksekusi. Urutan berdasarkan "menutup deal-breaker lebi
 | **P0** | AI knowledge search + chatbot deflection | B5, B6 | Ekspektasi pasar 2026 + beban helpdesk |
 | **P0** | Formulir dinamis + auto-assignment | A4, A5 | Katalog baru berguna jika form dan routing mengikuti |
 | **P0 (komersial)** | Paket UU PDP/ISO + DPA + security pack | D3 | Gate procurement |
-| **P1** | Pengingat pra-SLA, merge tiket, PDF, laporan terjadwal | A6, A7, D4 | Cepat, murah, langsung terasa |
+| **P1** | PDF native di server (cetak/PDF browser dan laporan terjadwal sudah ada) | D4 | Cetak/PDF browser sudah bisa dipakai; PDF native untuk arsip otomatis |
 | **P1** | API key + webhook + integrasi monitoring/SIMRS | B3, B4 | Diferensiasi yang tidak dimiliki helpdesk lokal |
 | **P1** | PWA/mobile + push | A9 | Adopsi lapangan |
 | **P1** | Aset: QR, maintenance/kalibrasi alkes, CMDB impact | C3, C4 | Ceruk RS yang belum digarap siapa pun |

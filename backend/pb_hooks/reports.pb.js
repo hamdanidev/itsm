@@ -171,3 +171,138 @@ routerAdd(
   },
   $apis.requireAuth()
 );
+
+// ---------------------------------------------------------------------------
+// Jadwal laporan SLA
+// ---------------------------------------------------------------------------
+
+routerAdd(
+  "GET",
+  "/api/itsm/reports/schedule",
+  (e) => {
+    var guards = require(__hooks + "/lib/guards.js");
+    var notify = require(__hooks + "/lib/notify.js");
+
+    var auth = guards.requireAuth(e);
+    guards.assertLead(auth);
+
+    var tenantId = String(auth.get("tenant") || "");
+    if (!tenantId) {
+      throw new BadRequestError(
+        "Jadwal laporan hanya tersedia untuk akun rumah sakit"
+      );
+    }
+
+    var tenant = e.app.findRecordById("tenants", tenantId);
+    var recipients = notify.activeLeads(e.app, tenantId);
+
+    return e.json(200, {
+      frequency: String(tenant.get("report_frequency") || "off"),
+      next_at: String(tenant.get("report_next_at") || ""),
+      last_sent_at: String(tenant.get("report_last_sent_at") || ""),
+      recipients: recipients.length,
+    });
+  },
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "PATCH",
+  "/api/itsm/reports/schedule",
+  (e) => {
+    var guards = require(__hooks + "/lib/guards.js");
+    var reportSchedule = require(__hooks + "/lib/report_schedule.js");
+    var audit = require(__hooks + "/lib/audit.js");
+
+    var auth = guards.requireAuth(e);
+    guards.assertLead(auth);
+
+    var tenantId = String(auth.get("tenant") || "");
+    if (!tenantId) {
+      throw new BadRequestError(
+        "Jadwal laporan hanya tersedia untuk akun rumah sakit"
+      );
+    }
+
+    var body = e.requestInfo().body || {};
+    var frequency = String(body.frequency || "off");
+
+    if (["off", "weekly", "monthly"].indexOf(frequency) < 0) {
+      throw new BadRequestError("Frekuensi laporan tidak valid");
+    }
+
+    var tenant = e.app.findRecordById("tenants", tenantId);
+    var nextAt =
+      frequency === "off" ? "" : reportSchedule.nextRun(frequency, Date.now());
+
+    tenant.set("report_frequency", frequency);
+    tenant.set("report_next_at", nextAt);
+    e.app.save(tenant);
+
+    var meta = audit.requestMeta(e);
+    audit.write(e.app, {
+      tenant: tenantId,
+      actor: auth,
+      action: "report_schedule",
+      collection_name: "tenants",
+      record_id: tenant.id,
+      changes: { frequency: frequency, next_at: nextAt },
+      ip: meta.ip,
+      user_agent: meta.user_agent,
+    });
+
+    return e.json(200, {
+      frequency: frequency,
+      next_at: nextAt,
+      last_sent_at: String(tenant.get("report_last_sent_at") || ""),
+    });
+  },
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "POST",
+  "/api/itsm/reports/schedule/run",
+  (e) => {
+    var guards = require(__hooks + "/lib/guards.js");
+    var reportSchedule = require(__hooks + "/lib/report_schedule.js");
+    var audit = require(__hooks + "/lib/audit.js");
+
+    var auth = guards.requireAuth(e);
+    guards.assertLead(auth);
+
+    var tenantId = String(auth.get("tenant") || "");
+    if (!tenantId) {
+      throw new BadRequestError(
+        "Jadwal laporan hanya tersedia untuk akun rumah sakit"
+      );
+    }
+
+    var tenant = e.app.findRecordById("tenants", tenantId);
+    var result = reportSchedule.sendTenant(e.app, tenant, "manual");
+    var now = new Date().toISOString();
+
+    tenant.set("report_last_sent_at", now);
+    e.app.save(tenant);
+
+    var meta = audit.requestMeta(e);
+    audit.write(e.app, {
+      tenant: tenantId,
+      actor: auth,
+      action: "report_schedule",
+      collection_name: "tenants",
+      record_id: tenant.id,
+      changes: {
+        manual: true,
+        recipients: result.recipients,
+        sent: result.sent,
+        range: result.range,
+      },
+      ip: meta.ip,
+      user_agent: meta.user_agent,
+    });
+
+    return e.json(200, result);
+  },
+  $apis.requireAuth()
+);

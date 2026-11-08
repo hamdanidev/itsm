@@ -199,6 +199,8 @@ function activateNext(app, ticket, steps) {
   app.save(next);
 
   ticket.set("approval_due_at", due.approval.toISOString());
+  // Tahap baru mendapat jendela peringatan sendiri.
+  ticket.set("approval_warned_at", "");
 
   if (["resolved", "closed", "in_progress"].indexOf(String(ticket.get("status"))) < 0) {
     ticket.set("next_due_at", due.approval.toISOString());

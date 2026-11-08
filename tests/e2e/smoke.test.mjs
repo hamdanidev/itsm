@@ -339,6 +339,40 @@ test("IT Lead membuka laporan SLA dan mengunduh CSV", async () => {
       download.suggestedFilename(),
       /^laporan-sla-\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-\d{2}\.csv$/
     );
+
+    // Jadwal laporan dan kirim manual dari panel yang sama.
+    await page.selectOption(".report-schedule select", "weekly");
+    await page.getByRole("button", { name: "Simpan jadwal" }).click();
+    await page.waitForSelector(".report-schedule .alert--success", {
+      timeout: 20_000,
+    });
+
+    await page.getByRole("button", { name: "Kirim sekarang" }).click();
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector(".report-schedule .alert--success")
+          ?.textContent?.includes("Laporan dikirim"),
+      null,
+      { timeout: 20_000 }
+    );
+
+    // Mode cetak menyembunyikan navigasi dan filter agar hasil PDF bersih.
+    await page.emulateMedia({ media: "print" });
+    await page.evaluate(() => document.body.classList.add("print-report"));
+    assert.equal(
+      await page.locator(".sidebar").evaluate((node) => getComputedStyle(node).display),
+      "none"
+    );
+    assert.equal(
+      await page
+        .locator(".filter-bar")
+        .first()
+        .evaluate((node) => getComputedStyle(node).display),
+      "none"
+    );
+    await page.evaluate(() => document.body.classList.remove("print-report"));
+    await page.emulateMedia({ media: "screen" });
   } finally {
     await closePage(page);
   }
@@ -804,6 +838,7 @@ test("requester mengajukan permintaan dari katalog layanan", async () => {
     await page.waitForURL(/\/tickets\/new\?/, { timeout: 20_000 });
     await page.waitForFunction(
       () => Boolean(document.querySelector("#serviceItem")?.value),
+      null,
       { timeout: 20_000 }
     );
 

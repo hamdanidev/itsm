@@ -27,7 +27,7 @@
     "test": "npm run test:unit && npm run test:api",
     "test:unit": "node --test \"tests/unit/*.test.mjs\"",
     "test:api": "node tests/run-api.mjs",
-    "test:e2e": "node --test --test-concurrency=4 \"tests/e2e/*.test.mjs\"",
+    "test:e2e": "node --test --test-concurrency=2 \"tests/e2e/*.test.mjs\"",
     "test:all": "npm test && npm run test:e2e"
   },
   "devDependencies": {

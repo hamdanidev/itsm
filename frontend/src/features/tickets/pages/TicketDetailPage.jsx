@@ -15,6 +15,7 @@ import {
   fetchTicketCsat,
   linkProblem,
   linkTicketAsset,
+  mergeTicket,
   submitTicketCsat,
   triageTicket,
   unlinkTicketAsset,
@@ -255,6 +256,14 @@ function eventMeta(event) {
             ? "menambahkan lampiran internal"
             : "menambahkan lampiran",
       };
+    case "sla_warn":
+      return {
+        icon: "bi-alarm",
+        tone: "is-status",
+        text: `Pengingat SLA · ${
+          SLA_FIELD_LABELS[changes.field] || changes.field || "tenggat"
+        }${changes.minutes ? ` · ${changes.minutes} menit lagi` : ""}`,
+      };
     case "sla_breach":
       return {
         icon: "bi-exclamation-triangle",
@@ -494,6 +503,14 @@ export default function TicketDetailPage() {
   const [problemOptions, setProblemOptions] = useState([]);
   const [linkProblemLoading, setLinkProblemLoading] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeQuery, setMergeQuery] = useState("");
+  const [mergeNote, setMergeNote] = useState("");
+  const [mergeResults, setMergeResults] = useState([]);
+  const [mergeSearching, setMergeSearching] = useState(false);
+  const [mergeBusy, setMergeBusy] = useState("");
+  const [mergeError, setMergeError] = useState("");
 
   // Draf komentar per tiket: tulisan panjang tidak hilang saat refresh/pindah.
   const commentDraftKey = `ticket-comment-draft:${id}`;
@@ -1091,6 +1108,81 @@ export default function TicketDetailPage() {
     setKnowledgeOpen(true);
   }
 
+  function openMerge() {
+    setActionError("");
+    setActionNotice("");
+    setMergeError("");
+    setMergeQuery("");
+    setMergeNote("");
+    setMergeResults([]);
+    setMergeOpen(true);
+    searchMergeTargets("");
+  }
+
+  async function searchMergeTargets(value = mergeQuery) {
+    if (!ticket) return;
+
+    setMergeSearching(true);
+    setMergeError("");
+
+    try {
+      const clauses = [
+        `tenant = "${escapeFilterValue(ticket.tenant)}"`,
+        `id != "${ticket.id}"`,
+        `type = "${escapeFilterValue(ticket.type)}"`,
+        'status != "resolved"',
+        'status != "closed"',
+        'merged_into = ""',
+      ];
+      const query = String(value || "").trim();
+
+      if (query) {
+        const safe = escapeFilterValue(query);
+        clauses.push(`(ticket_no ~ "${safe}" || title ~ "${safe}")`);
+      }
+
+      const result = await pb.collection("tickets").getList(1, 10, {
+        filter: clauses.join(" && "),
+        sort: "-created",
+      });
+
+      setMergeResults(result.items);
+    } catch (err) {
+      setMergeError(getErrorMessage(err));
+    } finally {
+      setMergeSearching(false);
+    }
+  }
+
+  async function handleMerge(target) {
+    const confirmed = window.confirm(
+      `Gabungkan ${ticket.ticket_no} ke ${target.ticket_no}? ` +
+        "Tiket ini akan ditutup sebagai duplikat dan komentar serta lampirannya dipindahkan."
+    );
+
+    if (!confirmed) return;
+
+    setMergeBusy(target.id);
+    setMergeError("");
+
+    try {
+      const result = await mergeTicket(ticket.id, {
+        target: target.id,
+        note: mergeNote.trim(),
+      });
+
+      setMergeOpen(false);
+      setActionNotice(
+        `Tiket ${ticket.ticket_no} digabung ke ${result.target.ticket_no}.`
+      );
+      await refresh();
+    } catch (err) {
+      setMergeError(getErrorMessage(err));
+    } finally {
+      setMergeBusy("");
+    }
+  }
+
   function openApproval(decision) {
     setActionError("");
     setActionNotice("");
@@ -1300,6 +1392,10 @@ export default function TicketDetailPage() {
     (staff || ticket.requester === user?.id);
   const canAssign = staff && !["resolved", "closed"].includes(status);
   const canTriage = staff && ["open", "assigned"].includes(status);
+  const canMerge =
+    staff &&
+    !["resolved", "closed"].includes(status) &&
+    !ticket.merged_into;
   const currentApproval = approvalSteps.find(
     (step) => step.status === "pending"
   );
@@ -1574,6 +1670,18 @@ export default function TicketDetailPage() {
               </button>
             )}
 
+            {canMerge && (
+              <button
+                className="btn btn-subtle"
+                type="button"
+                onClick={openMerge}
+                disabled={Boolean(busyAction)}
+              >
+                <i className="bi bi-box-arrow-in-down" aria-hidden="true" />
+                Gabungkan
+              </button>
+            )}
+
             {!canClaim &&
               !canStart &&
               !canResolve &&
@@ -1582,7 +1690,8 @@ export default function TicketDetailPage() {
               !canApprove &&
               !canWait &&
               !canResume &&
-              !canTriage && (
+              !canTriage &&
+              !canMerge && (
                 <span className="ticket-action-hint">
                   {status === "waiting"
                     ? "Menunggu informasi dari requester. SLA penyelesaian dijeda."
@@ -1694,6 +1803,17 @@ export default function TicketDetailPage() {
         <div className="alert alert--success" role="status">
           <i className="bi bi-check-circle" aria-hidden="true" />
           <div>{actionNotice}</div>
+        </div>
+      )}
+
+      {ticket.merged_into && (
+        <div className="alert alert--info" role="status">
+          <i className="bi bi-box-arrow-in-down" aria-hidden="true" />
+          <div>
+            Tiket ini digabung ke{" "}
+            <Link to={`/tickets/${ticket.merged_into}`}>tiket tujuan</Link>.
+            {ticket.merge_reason ? ` ${ticket.merge_reason}` : ""}
+          </div>
         </div>
       )}
 
@@ -2898,6 +3018,100 @@ export default function TicketDetailPage() {
               </div>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {mergeOpen && (
+        <Modal
+          title="Gabungkan tiket duplikat"
+          description={`${ticket.ticket_no} akan ditutup sebagai duplikat. Komentar, lampiran, dan tautan dipindahkan ke tiket tujuan.`}
+          onClose={() => {
+            if (!mergeBusy) setMergeOpen(false);
+          }}
+          wide
+          footer={
+            <button
+              className="btn btn-subtle"
+              type="button"
+              onClick={() => setMergeOpen(false)}
+              disabled={Boolean(mergeBusy)}
+            >
+              Tutup
+            </button>
+          }
+        >
+          {mergeError && (
+            <div className="alert alert--error" role="alert">
+              <i className="bi bi-exclamation-triangle" aria-hidden="true" />
+              <div>{mergeError}</div>
+            </div>
+          )}
+
+          <div className="incident-ticket-search">
+            <input
+              className="input"
+              type="search"
+              placeholder="Cari nomor tiket atau judul tujuan..."
+              value={mergeQuery}
+              onChange={(event) => setMergeQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  searchMergeTargets();
+                }
+              }}
+            />
+            <button
+              className="btn btn-outline"
+              type="button"
+              onClick={() => searchMergeTargets()}
+              disabled={mergeSearching}
+            >
+              {mergeSearching ? "Mencari..." : "Cari"}
+            </button>
+          </div>
+
+          <div className="field-row" style={{ marginTop: 12 }}>
+            <label className="form-label" htmlFor="ticket-merge-note">
+              Catatan merge (opsional)
+            </label>
+            <input
+              id="ticket-merge-note"
+              className="input"
+              type="text"
+              maxLength={500}
+              value={mergeNote}
+              onChange={(event) => setMergeNote(event.target.value)}
+              placeholder="Contoh: laporan yang sama dari unit lain"
+            />
+          </div>
+
+          {mergeResults.length === 0 ? (
+            <div className="report-empty">
+              {mergeSearching
+                ? "Mencari tiket..."
+                : "Belum ada tiket tujuan yang cocok."}
+            </div>
+          ) : (
+            <ul className="incident-ticket-results">
+              {mergeResults.map((item) => (
+                <li key={item.id}>
+                  <div>
+                    <span className="issue-key">{item.ticket_no}</span>
+                    <span className="issue-summary">{item.title}</span>
+                  </div>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    type="button"
+                    disabled={Boolean(mergeBusy)}
+                    onClick={() => handleMerge(item)}
+                  >
+                    {mergeBusy === item.id ? "Menggabungkan..." : "Gabungkan"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </Modal>
       )}
 

@@ -7582,3 +7582,83 @@ button {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* --------------------------------------------------------------------------
+   Laporan terjadwal + cetak/PDF
+   -------------------------------------------------------------------------- */
+
+.report-schedule {
+  margin-top: 20px;
+}
+
+.report-schedule-intro {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.report-schedule-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-schedule-controls .select {
+  max-width: 240px;
+}
+
+.report-schedule-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.report-schedule-meta strong {
+  color: var(--ink);
+}
+
+@media print {
+  body.print-report .topbar,
+  body.print-report .sidebar,
+  body.print-report .nav-backdrop,
+  body.print-report .filter-bar,
+  body.print-report .page-actions,
+  body.print-report .report-schedule,
+  body.print-report .dash-note {
+    display: none !important;
+  }
+
+  body.print-report,
+  body.print-report .main,
+  body.print-report .page {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  body.print-report .app-body {
+    display: block !important;
+  }
+
+  body.print-report .panel {
+    break-inside: avoid;
+    border-color: #ddd !important;
+    box-shadow: none !important;
+  }
+
+  body.print-report .report-grid {
+    display: block !important;
+  }
+
+  body.print-report a {
+    color: #000 !important;
+    text-decoration: none !important;
+  }
+}
