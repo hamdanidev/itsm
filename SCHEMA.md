@@ -441,10 +441,13 @@ Rules sama dengan `problems`.
 
 ### `ticket_csat`
 
-`tenant`, `ticket`, `score` (1–5), `comment`, `submitted_by`.
-Unique `ticket` — satu respons per tiket. Hanya requester tiket yang dapat
-mengirim, dan hanya saat tiket `resolved`/`closed`. List/View/Create/Update/
-Delete `null`; semua akses lewat route `/api/itsm/tickets/{id}/csat`.
+`tenant`, `ticket`, `score` (1–5), `comment`, `submitted_by`, `source`
+(`portal`/`guest`), `submitted_by_name`. Unique `ticket` — satu respons per
+tiket. CSAT portal hanya dapat dikirim requester tiket saat `resolved`/`closed`;
+CSAT tamu dikirim lewat tautan status bertoken dan tidak memakai akun
+(`submitted_by` kosong). List/View/Create/Update/Delete `null`; semua akses
+lewat route `/api/itsm/tickets/{id}/csat` atau
+`/api/itsm/public/tickets/{token}/csat`.
 
 ### `sla_policies`
 
@@ -484,8 +487,8 @@ Identitas: `ticket_no`, `tenant`, `type`, `title`, `description`, `status`,
 `source`, `impact`, `priority`, `priority_reason`, `requester`, `created_by`,
 `unit`, `category`, `service`, `service_item`, `requested_for`, `location`,
 `team`, `reporter_name`, `reporter_contact`, `patient_data_confirmed`,
-`intake_channel`, `intake_ref`, `approval_mode`, `problem`, `kb_article`,
-`major_incident`.
+`intake_channel`, `intake_ref`, `public_token`, `approval_mode`, `problem`,
+`kb_article`, `major_incident`.
 
 - `service`/`service_item` menghubungkan tiket ke katalog. Boleh kosong untuk
   tiket lama atau tiket yang belum ditriage.
@@ -495,6 +498,10 @@ Identitas: `ticket_no`, `tenant`, `type`, `title`, `description`, `status`,
 - `intake_channel` mencatat kanal masuk (`web/qr/email/telegram/whatsapp/manual`);
   `intake_ref` menyimpan ID titik QR atau referensi pesan kanal. Tiket dari QR
   publik punya `requester` kosong, `source=web`, dan `unit` dari titik QR.
+- `public_token` adalah rahasia 32 karakter untuk tautan status tamu
+  (`/t/{token}`), unik dan hanya diberikan kepada pelapor. Token ini tidak
+  memberi akses tulis ke tiket; CSAT tamu memakai route publik terpisah yang
+  tetap memvalidasi status tiket.
 - `team` adalah antrean tim pemilik tiket (select yang sama dengan
   `users.team` dan `services.team`). Tiket baru mewarisi `services.team`;
   triage dapat mengoreksinya. Teknisi melihat tiket timnya, termasuk yang
@@ -509,7 +516,7 @@ Identitas: `ticket_no`, `tenant`, `type`, `title`, `description`, `status`,
 - Aset/CI terdampak disimpan di `asset_tickets` (many-to-many), bukan sebagai
   field tunggal di tiket. Satu tiket dapat memiliki beberapa aset.
 - CSAT disimpan di `ticket_csat`, satu respons per tiket, diisi requester
-  setelah tiket selesai/ditutup.
+  (portal) atau pelapor tamu lewat tautan status setelah tiket selesai/ditutup.
 
 Workflow: `assignee`, `assigned_at`, `assigned_by`, `first_response_at`,
 `first_response_by`, `resolved_at`, `resolved_by`, `resolution_summary`,
@@ -812,6 +819,9 @@ Jeda dan recompute:
 | GET | `/api/itsm/public/intake/{token}` | Meta form QR publik: tenant, titik, layanan/item, dampak (tanpa auth) |
 | POST | `/api/itsm/public/intake/{token}` | Buat tiket tamu dari QR (multipart: `payload` + `files`, tanpa auth) |
 | GET | `/api/itsm/public/intake/{token}/logo` | Logo tenant untuk halaman QR (tanpa auth, berbasis token) |
+| GET | `/api/itsm/public/tickets/{token}` | Status satu tiket tamu + pembaruan publik (tanpa auth) |
+| POST | `/api/itsm/public/tickets/{token}/csat` | CSAT tamu setelah tiket selesai/ditutup (tanpa auth) |
+| GET | `/api/itsm/public/tickets/{token}/logo` | Logo tenant untuk halaman status (tanpa auth) |
 | GET | `/api/itsm/intake-points` | Daftar titik QR tenant; hanya IT Lead |
 | POST | `/api/itsm/intake-points` | Buat titik QR + token; hanya IT Lead |
 | PATCH | `/api/itsm/intake-points/{id}` | Ubah nama/unit/lokasi/batas/status titik; hanya IT Lead |
@@ -843,7 +853,9 @@ Jeda dan recompute:
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side, kecuali
 route publik `/api/itsm/public/intake/*` yang memvalidasi token titik, tenant
 aktif, rate limit, honeypot, dan attestation data pasien, route
-`/api/itsm/setup/*` yang hanya hidup selama instalasi belum punya akun dan
+`/api/itsm/public/tickets/*` yang hanya membuka satu tiket berdasarkan
+`public_token` dan tidak pernah mengirim komentar internal atau data pengguna,
+route `/api/itsm/setup/*` yang hanya hidup selama instalasi belum punya akun dan
 mewajibkan kode setup, serta route `/api/itsm/dev/seed/*` yang memakai
 `$apis.requireSuperuserAuth()`.
 Service/Change Request harus berstatus approval `approved` sebelum pekerjaan bisa

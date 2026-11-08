@@ -1,6 +1,6 @@
 # Desain: Intake Web + QR dan Email-in
 
-- **Status:** QR v1 sudah diimplementasikan 7 November 2026 (form publik, titik QR, lampiran); email-in belum.
+- **Status:** QR v1 sudah diimplementasikan 7 November 2026 (form publik, titik QR, lampiran). Tindak lanjut QR v2 (status tiket bertoken, CSAT tamu, email konfirmasi) sudah diimplementasikan 8 November 2026; email-in belum.
 - **Tanggal:** 6 November 2026.
 - **Konteks:** kanal masuk dengan hambatan terendah sebelum WhatsApp API. Melengkapi [analisis gap](GAP-KOMPETITOR-LOKAL.md) dan [desain form/routing](DESIGN-FORM-DINAMIS-AUTO-ASSIGN.md).
 - **Basis skema:** `tickets.requester` **tidak wajib**, `tickets.unit` **wajib**, `reporter_name`/`reporter_contact` sudah ada, `source` saat ini `web/whatsapp/email/phone`, lampiran sudah terproteksi, SMTP keluar sudah ada.
@@ -70,7 +70,7 @@ Konsekuensi mode tamu:
 
 - `tickets.requester` kosong; `reporter_name` dan `reporter_contact` diisi.
 - Notifikasi ke pemohon memakai email/kontak, bukan akun.
-- CSAT belum bisa; fase berikutnya memakai tautan bertoken.
+- CSAT memakai tautan status bertoken dan dikirim setelah tiket selesai.
 - Laporan tetap bisa memisahkan kanal lewat `intake_channel`.
 
 ## A.3 Token QR
@@ -186,7 +186,7 @@ Lampiran dikirim multipart (maks 3 file, 5 MB/file).
 
 ## A.6 Setelah tiket dibuat
 
-- **Pemohon tamu:** menerima email ucapan terima kasih berisi nomor tiket dan tautan status bertoken (fase 2) atau cukup nomor tiket di layar.
+- **Pemohon tamu:** menerima nomor tiket di layar dan email konfirmasi berisi tautan status bertoken; tautan yang sama dipakai untuk CSAT setelah tiket selesai.
 - **Staf login:** menerima notifikasi in-app seperti biasa; CSAT berjalan.
 - **Tiket:** tetap masuk alur yang sama — triage, assignment, SLA, komentar, resolusi.
 - **Tindak lanjut:** jika butuh informasi, staf membalas ke `reporter_contact` (email) atau mencatat di komentar.

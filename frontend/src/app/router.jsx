@@ -9,6 +9,7 @@ import ForgotPasswordPage from "../features/auth/ForgotPasswordPage";
 import ResetPasswordPage from "../features/auth/ResetPasswordPage";
 import ChangePasswordPage from "../features/auth/ChangePasswordPage";
 import PublicIntakePage from "../features/intake/pages/PublicIntakePage";
+import PublicTicketPage from "../features/intake/pages/PublicTicketPage";
 import DashboardPage from "../features/dashboard/pages/DashboardPage";
 import CatalogPage from "../features/catalog/pages/CatalogPage";
 import ProblemsPage from "../features/problems/pages/ProblemsPage";
@@ -161,7 +162,9 @@ export default function AppRoutes() {
   const { ready, setupRequired } = useMeta();
   const location = useLocation();
   const isExempt =
-    location.pathname === "/setup" || location.pathname.startsWith("/i/");
+    location.pathname === "/setup" ||
+    location.pathname.startsWith("/i/") ||
+    location.pathname.startsWith("/t/");
 
   if (!ready) return <FullPageLoader />;
   if (setupRequired && !isExempt) return <Navigate to="/setup" replace />;
@@ -173,6 +176,7 @@ export default function AppRoutes() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/i/:token" element={<PublicIntakePage />} />
+      <Route path="/t/:token" element={<PublicTicketPage />} />
       <Route
         path="/change-password"
         element={

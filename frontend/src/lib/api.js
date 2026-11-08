@@ -84,6 +84,28 @@ export async function submitPublicIntake(token, payload, files = []) {
   return parseResponse(response);
 }
 
+// Status tiket publik lewat tautan bertoken (tanpa login).
+export async function fetchPublicTicket(token) {
+  const response = await fetch(
+    `${pb.baseURL}/api/itsm/public/tickets/${encodeURIComponent(token)}`
+  );
+
+  return parseResponse(response);
+}
+
+export async function submitPublicTicketCsat(token, payload) {
+  const response = await fetch(
+    `${pb.baseURL}/api/itsm/public/tickets/${encodeURIComponent(token)}/csat`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  return parseResponse(response);
+}
+
 export async function fetchIntakePoints() {
   return pb.send("/api/itsm/intake-points");
 }

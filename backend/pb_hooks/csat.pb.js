@@ -86,6 +86,8 @@ routerAdd(
       result.set("score", score);
       result.set("comment", comment);
       result.set("submitted_by", auth.id);
+      result.set("source", "portal");
+      result.set("submitted_by_name", String(auth.get("name") || ""));
       txApp.save(result);
 
       var meta = audit.requestMeta(e);

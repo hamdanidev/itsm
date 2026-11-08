@@ -121,6 +121,7 @@ routerAdd("POST", "/api/itsm/public/intake/{token}", (e) => {
   var audit = require(__hooks + "/lib/audit.js");
   var notify = require(__hooks + "/lib/notify.js");
   var approvals = require(__hooks + "/lib/approvals.js");
+  var mail = require(__hooks + "/lib/mail.js");
 
   var token = e.request.pathValue("token");
   var payload = intakeLib.parsePayload(e);
@@ -234,6 +235,7 @@ routerAdd("POST", "/api/itsm/public/intake/{token}", (e) => {
 
   var priority = sla.priorityFromImpact(impact);
   var ticketNo = intakeLib.ticketNumber(type);
+  var publicToken = intakeLib.newToken();
   var ticket;
   var due;
   var selectedService = null;
@@ -364,6 +366,7 @@ routerAdd("POST", "/api/itsm/public/intake/{token}", (e) => {
     ticket.set("last_activity_at", new Date().toISOString());
     ticket.set("reporter_name", reporterName);
     ticket.set("reporter_contact", reporterContact);
+    ticket.set("public_token", publicToken);
 
     if (selectedService) ticket.set("service", selectedService.id);
     if (selectedItem) ticket.set("service_item", selectedItem.id);
@@ -465,8 +468,35 @@ routerAdd("POST", "/api/itsm/public/intake/{token}", (e) => {
     });
   });
 
+  // Email konfirmasi hanya untuk kontak berupa email. Kegagalan antrean tidak
+  // boleh membatalkan tiket yang sudah tersimpan.
+  var receiptEmail = false;
+
+  if (reporterContact.indexOf("@") >= 0) {
+    try {
+      receiptEmail = Boolean(
+        mail.queueGuestReceipt(e.app, {
+          tenantId: tenantId,
+          ticketId: ticket.id,
+          to: reporterContact,
+          recipientName: reporterName,
+          ticketNo: ticketNo,
+          title: title,
+          team:
+            constants.TEAM_LABELS[String(ticket.get("team") || "")] ||
+            "Tim IT rumah sakit",
+          token: publicToken,
+        })
+      );
+    } catch (err) {
+      receiptEmail = false;
+    }
+  }
+
   return e.json(201, {
     ticket_no: ticketNo,
+    public_token: publicToken,
+    receipt_email: receiptEmail,
     status: "open",
     priority: priority,
     team: String(ticket.get("team") || ""),

@@ -2491,6 +2491,9 @@ export default function TicketDetailPage() {
                       ))}
                       <strong>{csat.score}/5</strong>
                     </div>
+                    {!csat.submitted_by && (
+                      <div className="muted">Dinilai oleh pelapor tamu.</div>
+                    )}
                     {csat.comment && (
                       <div className="rich-text rich-text--plain">
                         {csat.comment}

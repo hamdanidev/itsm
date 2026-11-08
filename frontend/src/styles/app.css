@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Healthcare ITSM — Atlassian/Jira-inspired design system
+   Healthcare ITSM â€” Atlassian/Jira-inspired design system
    Flat surfaces, thin neutral borders, dense 14px type, blue #0052CC accents.
 
    Warna diatur lewat token supaya tema terang/gelap memakai aturan yang sama.
@@ -1130,7 +1130,7 @@ button {
 
 
 /* --------------------------------------------------------------------------
-   Filter bar — dipakai semua halaman daftar dan laporan
+   Filter bar â€” dipakai semua halaman daftar dan laporan
    -------------------------------------------------------------------------- */
 
 .filter-bar {
@@ -5939,7 +5939,7 @@ button {
 }
 
 /* --------------------------------------------------------------------------
-   Tema gelap — penyesuaian yang tidak cukup lewat token
+   Tema gelap â€” penyesuaian yang tidak cukup lewat token
    -------------------------------------------------------------------------- */
 
 [data-theme="dark"] .login-page {
@@ -6462,7 +6462,373 @@ button {
 }
 
 /* --------------------------------------------------------------------------
-   Admin — intake points / QR
+   Public ticket status (tautan bertoken)
+   -------------------------------------------------------------------------- */
+
+.public-ticket-card {
+  max-width: 720px;
+}
+
+.public-ticket-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.public-ticket-number {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.public-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+}
+
+.public-status i {
+  font-size: 6px;
+}
+
+.public-status--open,
+.public-status--assigned {
+  color: var(--text);
+  background: var(--n40);
+}
+
+.public-status--in_progress,
+.public-status--reopened {
+  color: var(--blue-pressed);
+  background: var(--blue-subtle);
+}
+
+.public-status--waiting {
+  color: var(--warning-text);
+  background: var(--yellow-bg);
+}
+
+.public-status--resolved {
+  color: var(--green);
+  background: var(--green-bg);
+}
+
+.public-status--closed {
+  color: var(--muted);
+  background: var(--n30);
+}
+
+.public-ticket-title {
+  margin: 0 0 6px;
+  color: var(--ink);
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.public-ticket-hint {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.public-ticket-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 24px;
+  margin: 0 0 20px;
+}
+
+.public-ticket-meta > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--n30);
+}
+
+.public-ticket-meta dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.public-ticket-meta dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.public-resolution {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: var(--green-bg);
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.public-resolution-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.public-resolution p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.public-updates {
+  margin-bottom: 20px;
+}
+
+.public-update-list {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.public-update {
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--n30);
+  border-radius: 8px;
+}
+
+.public-update--status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--n10);
+}
+
+.public-update--status > i {
+  margin-top: 2px;
+  color: var(--blue);
+}
+
+.public-update--status strong {
+  display: block;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.public-update time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.public-update-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.public-update-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.public-update-head i {
+  color: var(--blue);
+}
+
+.public-update .rich-text {
+  margin: 0;
+  font-size: 13px;
+}
+
+.public-csat {
+  padding-top: 18px;
+  border-top: 1px solid var(--n30);
+}
+
+.public-csat-stars {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 0;
+  font-size: 20px;
+  color: var(--warning-text);
+}
+
+.public-csat-stars strong {
+  margin-left: 6px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.public-csat-stars--input {
+  margin: 4px 0 14px;
+}
+
+.public-csat textarea.form-input {
+  display: block;
+  width: 100%;
+  min-height: 84px;
+  margin-bottom: 12px;
+  resize: vertical;
+}
+
+.public-csat form .btn {
+  margin-top: 4px;
+}
+
+.public-csat-star {
+  padding: 2px;
+  color: var(--warning-text);
+  opacity: 0.35;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 26px;
+  line-height: 1;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.public-csat-star:hover {
+  opacity: 0.7;
+  transform: translateY(-1px);
+}
+
+.public-csat-star.is-on {
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.public-csat-star:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.public-csat-thanks {
+  margin-top: 8px;
+}
+
+.public-csat-comment {
+  padding: 10px 12px;
+  color: var(--ink);
+  font-size: 13px;
+  background: var(--n10);
+  border-radius: 6px;
+  white-space: pre-wrap;
+}
+
+.public-success-status {
+  margin: 18px 0 4px;
+  padding: 14px 16px;
+  text-align: left;
+  background: var(--blue-subtle);
+  border-radius: 8px;
+}
+
+.public-success-status-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: var(--blue-pressed);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.public-success-status .muted {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.public-success-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.public-success-icon--warn {
+  color: var(--warning-text);
+  background: var(--yellow-bg);
+}
+
+.public-ticket-skeleton {
+  display: grid;
+  gap: 12px;
+}
+
+.public-ticket-skeleton-line,
+.public-ticket-skeleton-block {
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--n10) 25%,
+    var(--n20) 37%,
+    var(--n10) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+.public-ticket-skeleton-line {
+  width: 42%;
+  height: 14px;
+}
+
+.public-ticket-skeleton-line--title {
+  width: 78%;
+  height: 24px;
+}
+
+.public-ticket-skeleton-block {
+  height: 180px;
+}
+
+@media (max-width: 560px) {
+  .public-ticket-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .public-ticket-title {
+    font-size: 18px;
+  }
+
+  .public-success-status-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .public-success-status-actions .btn {
+    justify-content: center;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Admin â€” intake points / QR
    -------------------------------------------------------------------------- */
 
 .qr-grid {

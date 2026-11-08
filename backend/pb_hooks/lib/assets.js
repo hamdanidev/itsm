@@ -245,6 +245,8 @@ function csatResponse(record) {
     score: Number(record.get("score")) || 0,
     comment: String(record.get("comment") || ""),
     submitted_by: String(record.get("submitted_by") || ""),
+    submitted_by_name: String(record.get("submitted_by_name") || ""),
+    source: String(record.get("source") || "portal"),
     created: String(record.get("created") || ""),
   };
 }

@@ -61,6 +61,71 @@ async function publicPost(token, payload, files = []) {
   return { status: response.status, data };
 }
 
+async function publicStatus(publicToken) {
+  const response = await fetch(
+    `${base}/api/itsm/public/tickets/${publicToken}`
+  );
+
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  return { status: response.status, data };
+}
+
+async function publicCsat(publicToken, payload) {
+  const response = await fetch(
+    `${base}/api/itsm/public/tickets/${publicToken}/csat`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  return { status: response.status, data };
+}
+
+async function createGuestTicket(overrides = {}) {
+  const meta = (await publicGet(point.token)).data;
+  const created = await publicPost(point.token, payloadFor(meta, overrides));
+
+  assert.equal(created.status, 201, JSON.stringify(created.data));
+
+  const list = await org.admin.list("tickets", {
+    filter: `ticket_no="${created.data.ticket_no}"`,
+    perPage: 1,
+  });
+
+  return { created: created.data, ticket: list.items[0] };
+}
+
+async function resolveTicket(ticketId) {
+  await org.support.client.json("POST", `/api/itsm/tickets/${ticketId}/assign`, {
+    body: { assignee: org.support.user.id },
+  });
+  await org.support.client.json("POST", `/api/itsm/tickets/${ticketId}/transition`, {
+    body: { status: "in_progress" },
+  });
+  await org.support.client.json("POST", `/api/itsm/tickets/${ticketId}/transition`, {
+    body: {
+      status: "resolved",
+      resolution_summary: "Koneksi ke server SIMRS dipulihkan dan diuji ulang.",
+      resolution_code: "fixed",
+    },
+  });
+}
+
 function payloadFor(meta, overrides = {}) {
   return {
     type: "incident",
@@ -229,5 +294,125 @@ describe("intake publik QR", () => {
     assert.notEqual(rotated.point.token, rotating.token);
     assert.equal((await publicGet(rotating.token)).status, 404);
     assert.equal((await publicGet(rotated.point.token)).status, 200);
+  });
+
+  it("tiket tamu mendapat tautan status bertoken dan email konfirmasi", async () => {
+    const { created, ticket } = await createGuestTicket();
+
+    assert.match(created.public_token, /^[a-z2-9]{32}$/);
+    assert.equal(created.receipt_email, true);
+
+    const status = await publicStatus(created.public_token);
+
+    assert.equal(status.status, 200);
+    assert.equal(status.data.ticket.ticket_no, created.ticket_no);
+    assert.equal(status.data.ticket.status, "open");
+    assert.equal(status.data.can_submit_csat, false);
+    assert.equal(status.data.csat, null);
+
+    const serialized = JSON.stringify(status.data);
+    for (const field of [
+      "requester",
+      "assignee",
+      "reporter_contact",
+      "description",
+      "intake_ref",
+      "public_token",
+    ]) {
+      assert.equal(
+        serialized.includes(`"${field}"`),
+        false,
+        `status publik tidak boleh memuat ${field}`
+      );
+    }
+
+    const outbox = await org.admin.list("email_outbox", {
+      filter: `ticket="${ticket.id}" && template="guest_receipt"`,
+      perPage: 5,
+    });
+
+    assert.equal(outbox.items.length, 1, "email konfirmasi harus masuk antrean");
+    assert.equal(outbox.items[0].status, "queued");
+    assert.equal(outbox.items[0].to, "rina@rs.id");
+    assert.match(outbox.items[0].text, /\/t\/[a-z2-9]{32}/);
+  });
+
+  it("status publik hanya menampilkan pembaruan publik", async () => {
+    const { created, ticket } = await createGuestTicket();
+
+    await org.support.client.json("POST", `/api/itsm/tickets/${ticket.id}/comments`, {
+      body: {
+        body: "Catatan internal: jangan tampil ke pelapor.",
+        visibility: "internal",
+      },
+    });
+    await org.support.client.json("POST", `/api/itsm/tickets/${ticket.id}/comments`, {
+      body: {
+        body: "Tim IT sedang memeriksa laporan Anda.",
+        visibility: "public",
+      },
+    });
+
+    const status = await publicStatus(created.public_token);
+    const serialized = JSON.stringify(status.data);
+
+    assert.equal(status.status, 200);
+    assert.equal(
+      serialized.includes("Catatan internal: jangan tampil"),
+      false,
+      "komentar internal tidak boleh bocor"
+    );
+    assert.equal(
+      serialized.includes("Tim IT sedang memeriksa laporan Anda."),
+      true,
+      "komentar publik harus tampil"
+    );
+  });
+
+  it("CSAT tamu hanya bisa dikirim sekali setelah tiket selesai", async () => {
+    const { created, ticket } = await createGuestTicket();
+
+    const early = await publicCsat(created.public_token, { score: 5 });
+    assert.equal(early.status, 400);
+    assert.match(String(early.data.message), /selesai|ditutup/i);
+
+    await resolveTicket(ticket.id);
+
+    const afterResolve = await publicStatus(created.public_token);
+    assert.equal(afterResolve.data.ticket.status, "resolved");
+    assert.equal(afterResolve.data.can_submit_csat, true);
+    assert.match(
+      afterResolve.data.ticket.resolution_summary,
+      /Koneksi ke server SIMRS/
+    );
+
+    const submitted = await publicCsat(created.public_token, {
+      score: 4,
+      comment: "Respons cepat, komunikasi jelas.",
+    });
+
+    assert.equal(submitted.status, 201, JSON.stringify(submitted.data));
+    assert.equal(submitted.data.score, 4);
+    assert.equal(submitted.data.source, "guest");
+
+    const duplicate = await publicCsat(created.public_token, { score: 5 });
+    assert.equal(duplicate.status, 400);
+    assert.match(String(duplicate.data.message), /sudah dikirim/i);
+
+    const status = await publicStatus(created.public_token);
+    assert.equal(status.data.csat.score, 4);
+    assert.equal(status.data.can_submit_csat, false);
+
+    const audits = await org.admin.list("audit_logs", {
+      filter: `ticket="${ticket.id}" && action="csat"`,
+      perPage: 5,
+    });
+    assert.equal(audits.items.length, 1);
+    assert.equal(audits.items[0].actor_role, "guest");
+  });
+
+  it("tautan status yang tidak dikenal ditolak", async () => {
+    const result = await publicStatus("tidak-ada-token-status-tiket");
+    assert.equal(result.status, 404);
   });
 });

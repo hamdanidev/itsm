@@ -19,6 +19,9 @@ serta lupa password mandiri:
   dikirim sejak awal, dengan rate limit dan attestation data pasien; langkah
   form bisa dibuka kembali lewat indikator, ada progres langkah, dan nomor tiket
   di layar sukses bisa disalin beserta ringkasan laporan;
+- **status tiket tamu lewat tautan bertoken** (`/t/{token}`): pelapor QR dapat
+  melihat status, pembaruan publik, ringkasan penyelesaian, dan mengisi CSAT
+  tanpa akun; tautan juga dikirim ke email pelapor bila diisi;
 - katalog layanan dan item permintaan: approval mode per item, SLA per layanan,
   serta intake yang bisa mencatat sumber telepon/email/WhatsApp dan pemohon
   atas nama (on-behalf);
@@ -459,13 +462,21 @@ tanpa login, dan tiket langsung masuk ke antrean tim yang tepat.
   pengunggah.
 - **Alur tiket:** `source=web`, `intake_channel=qr`, `intake_ref` = titik QR.
   SLA, approval, dan penugasan berjalan sama seperti tiket lain.
+- **Status & CSAT tamu:** setiap tiket QR mendapat `public_token` acak. Pelapor
+  dapat membuka `/t/{token}` tanpa login untuk melihat status, komentar publik,
+  target SLA, dan ringkasan penyelesaian. Setelah tiket `resolved`/`closed`,
+  halaman yang sama menampilkan form CSAT satu kali. Komentar internal, daftar
+  pengguna, aset, dan audit mentah tidak pernah dikirim ke halaman publik.
+- **Email konfirmasi:** bila kontak pelapor berupa email, sistem mengantrekan
+  email berisi nomor tiket dan tautan status. Kegagalan antrean tidak membatalkan
+  tiket. Kontak WhatsApp/telepon tetap mendapat tautan di layar sukses.
 - **Pengamanan:** rate limit per titik (default 20/jam), honeypot, token yang
   dapat dicabut, attestation data pasien wajib, serta validasi tipe/ukuran
   lampiran. Batas per IP tidak dipakai karena di produksi semua request melewati
   reverse proxy yang sama.
-- **Batasan:** pelapor tamu belum bisa membuka status tiket atau mengisi CSAT;
-  keduanya memerlukan tautan bertoken (fase berikutnya). Change Request tidak
-  dapat diajukan dari kanal publik.
+- **Batasan:** tautan status hanya membuka satu tiket dan tidak dapat dipakai
+  untuk menulis komentar. Change Request tetap tidak dapat diajukan dari kanal
+  publik.
 
 ## Lampiran saat membuat tiket
 
@@ -1255,6 +1266,9 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | GET | `/api/itsm/public/intake/{token}` | Meta form QR publik (tanpa auth) |
 | POST | `/api/itsm/public/intake/{token}` | Buat tiket tamu dari QR; `payload` + `files` (tanpa auth) |
 | GET | `/api/itsm/public/intake/{token}/logo` | Logo tenant untuk halaman QR (tanpa auth) |
+| GET | `/api/itsm/public/tickets/{token}` | Status tiket tamu + pembaruan publik (tanpa auth) |
+| POST | `/api/itsm/public/tickets/{token}/csat` | CSAT tamu setelah tiket selesai/ditutup (tanpa auth) |
+| GET | `/api/itsm/public/tickets/{token}/logo` | Logo tenant untuk halaman status (tanpa auth) |
 | GET/POST | `/api/itsm/intake-points` | Daftar / buat titik QR; hanya IT Lead |
 | PATCH | `/api/itsm/intake-points/{id}` | Ubah titik QR; hanya IT Lead |
 | POST | `/api/itsm/intake-points/{id}/rotate` | Rotasi token titik QR; hanya IT Lead |
@@ -1324,8 +1338,12 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Verifikasi lokal yang sudah dilakukan
 
-- Suite otomatis lulus lokal (Windows): 49 unit test, 225 test API, dan 32
+- Suite otomatis lulus lokal (Windows): 49 unit test, 241 test API, dan 51
   skenario e2e — lihat bagian Testing.
+- Status tiket tamu + CSAT QR diverifikasi test API + Playwright: tiket QR
+  mendapat token 32 karakter, halaman publik hanya memuat satu tiket, komentar
+  internal tidak bocor, email konfirmasi masuk antrean, CSAT ditolak sebelum
+  tiket selesai, hanya satu respons, dan audit mencatat `actor_role=guest`.
 - Rich editor diverifikasi Playwright: toolbar tebal menghasilkan format,
   HTML berbahaya (`script`, atribut `onclick`) dibuang sebelum disimpan, dan
   script tidak dieksekusi saat artikel dirender.

@@ -68,6 +68,7 @@ export default function PublicIntakePage() {
   const [confirmed, setConfirmed] = useState(false);
   const [files, setFiles] = useState([]);
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -117,8 +118,7 @@ export default function PublicIntakePage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [step, created]);
 
-  async function copyTicketNumber() {
-    const text = String(created?.ticket_no || "");
+  async function copyText(text) {
     if (!text) return;
 
     try {
@@ -134,9 +134,29 @@ export default function PublicIntakePage() {
       document.execCommand("copy");
       document.body.removeChild(area);
     }
+  }
 
+  async function copyTicketNumber() {
+    const text = String(created?.ticket_no || "");
+    if (!text) return;
+
+    await copyText(text);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 2500);
+  }
+
+  function statusUrl() {
+    const token = String(created?.public_token || "");
+    return token ? `${window.location.origin}/t/${token}` : "";
+  }
+
+  async function copyStatusLink() {
+    const url = statusUrl();
+    if (!url) return;
+
+    await copyText(url);
+    setLinkCopied(true);
+    window.setTimeout(() => setLinkCopied(false), 2500);
   }
 
   function setValue(key, value) {
@@ -288,6 +308,8 @@ export default function PublicIntakePage() {
     setConfirmed(false);
     setFiles([]);
     setError("");
+    setCopied(false);
+    setLinkCopied(false);
     startedAt.current = Date.now();
   }
 
@@ -425,10 +447,42 @@ export default function PublicIntakePage() {
               )}
             </dl>
 
+            {created.public_token && (
+              <div className="public-success-status">
+                <div className="public-success-status-title">
+                  <i className="bi bi-broadcast" aria-hidden="true" />
+                  Pantau status tiket
+                </div>
+                <p className="muted">
+                  {created.receipt_email
+                    ? "Tautan status juga akan dikirim ke email Anda. Simpan atau buka sekarang untuk melihat perkembangan."
+                    : "Simpan tautan ini untuk melihat perkembangan tiket dan mengisi penilaian setelah selesai."}
+                </p>
+                <div className="public-success-status-actions">
+                  <a className="btn btn-primary" href={statusUrl()}>
+                    Buka status tiket
+                  </a>
+                  <button
+                    type="button"
+                    className="btn btn-subtle"
+                    onClick={copyStatusLink}
+                  >
+                    <i
+                      className={`bi ${
+                        linkCopied ? "bi-check2" : "bi-link-45deg"
+                      }`}
+                      aria-hidden="true"
+                    />
+                    {linkCopied ? "Tersalin" : "Salin tautan"}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="public-actions">
               <button
                 type="button"
-                className="btn btn-primary"
+                className="btn btn-subtle"
                 onClick={resetForm}
               >
                 Buat tiket lain

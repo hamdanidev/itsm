@@ -309,6 +309,16 @@ test("kirim laporan gangguan dengan lampiran sampai layar sukses", async () => {
     { timeout: 5000 }
   );
 
+  // Tautan status bertoken bisa dibuka tanpa login dan menampilkan tiket yang
+  // baru dibuat.
+  await page.getByRole("link", { name: "Buka status tiket" }).click();
+  await page.waitForSelector(".public-ticket-title");
+  assert.match(
+    await page.locator(".public-ticket-number").innerText(),
+    new RegExp(ticketNo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  );
+  assert.match(await page.locator(".public-status").innerText(), /Diterima/);
+
   const tickets = await state.org.admin.list("tickets", {
     filter: `ticket_no="${ticketNo}"`,
     perPage: 1,

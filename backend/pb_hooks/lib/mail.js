@@ -441,6 +441,75 @@ function sendPasswordResetLink(app, opts) {
   return result;
 }
 
+// Konfirmasi tiket tamu dari QR: nomor tiket + tautan status bertoken.
+// Masuk antrean (bukan dikirim langsung) agar SMTP yang lambat tidak menahan
+// pembuatan tiket. Bila SMTP belum aktif, tidak ada yang diantrekan.
+function queueGuestReceipt(app, opts) {
+  if (!canSend(app)) return null;
+
+  var token = String((opts && opts.token) || "").trim();
+  if (!token) return null;
+
+  var url = appUrl(app) + "/t/" + encodeURIComponent(token);
+  var ticketNo = String(opts.ticketNo || "");
+  var title = String(opts.title || "");
+  var team = String(opts.team || "");
+
+  var html = layout(app, {
+    title: "Tiket " + ticketNo + " sudah dibuat",
+    intro:
+      "Halo " +
+      escapeHtml(String(opts.recipientName || "Bapak/Ibu")) +
+      ", laporan Anda sudah masuk ke antrean tim IT.",
+    body:
+      detailsTable([
+        ["Nomor tiket", escapeHtml(ticketNo)],
+        ["Judul", escapeHtml(title || "—")],
+        ["Tim tujuan", escapeHtml(team || "Tim IT rumah sakit")],
+      ]) +
+      paragraph(
+        "Simpan tautan di bawah untuk melihat status, perkembangan, dan " +
+          "mengisi penilaian setelah tiket selesai."
+      ),
+    ctaUrl: url,
+    ctaLabel: "Lihat status tiket",
+    footer:
+      "Tautan ini hanya berlaku untuk tiket tersebut. Jangan teruskan ke " +
+      "orang lain. Bila tombol tidak berfungsi, salin tautan berikut: " +
+      escapeHtml(url),
+  });
+
+  var text =
+    "Tiket " +
+    ticketNo +
+    " sudah dibuat\n\n" +
+    "Halo " +
+    String(opts.recipientName || "Bapak/Ibu") +
+    ",\n" +
+    (title ? title + "\n" : "") +
+    "Tim tujuan: " +
+    (team || "Tim IT rumah sakit") +
+    "\n\nLihat status tiket: " +
+    url +
+    "\n\nTautan ini hanya berlaku untuk tiket tersebut.";
+
+  return saveOutbox(
+    app,
+    {
+      tenantId: opts.tenantId,
+      ticketId: opts.ticketId,
+      to: opts.to,
+      recipientName: opts.recipientName,
+      subject: "Tiket " + ticketNo + " sudah dibuat",
+      html: html,
+      text: text,
+      template: "guest_receipt",
+      event: "created",
+    },
+    "queued"
+  );
+}
+
 function notificationContent(app, opts) {  var ticketNo = "";
   var ticketTitle = "";
   var tenantName = "";
@@ -715,6 +784,7 @@ module.exports = {
   canSend: canSend,
   sendCredential: sendCredential,
   sendPasswordResetLink: sendPasswordResetLink,
+  queueGuestReceipt: queueGuestReceipt,
   enqueueNotification: enqueueNotification,
   dispatch: dispatch,
   status: status,
