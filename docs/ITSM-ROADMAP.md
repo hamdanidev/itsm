@@ -5,13 +5,16 @@ Dokumen acuan untuk mengubah produk dari **service desk yang matang** menjadi
 produk dari implementasi, sehingga schema dan UI bisa dibangun bertahap tanpa
 mengubah arah.
 
-- Status: Increment A, B, C, dan D selesai; fokus berikutnya adalah perluasan
-  laporan/PIR dan hardening produksi.
+- Status: Increment A, B, C, dan D selesai; P0 zona waktu per rumah sakit
+  selesai (2026-11-09). Fokus berikutnya bukan modul baru, melainkan
+  **kesiapan dijual untuk pilot RS swasta** (Bagian 10).
 - Basis: audit repo per 2026-11-02 (13 koleksi, 15 migrasi, 44 unit test + 163
   API test lulus); setelah Increment A+B+C menjadi 22 koleksi, 20 migrasi, 44
   unit test + 191 API test + 31 e2e lulus; setelah Increment D menjadi 25
   koleksi, 21 migrasi, 44 unit + 199 API + 33 e2e lulus (termasuk uji pagination
-  daftar Tim dan Konsol Vendor dan uji tema gelap).
+  daftar Tim dan Konsol Vendor dan uji tema gelap). Per 2026-11-09: 30 migrasi,
+  70 unit test + 268 API test + 54 e2e lulus (zona waktu, jadwal laporan per
+  zona, pengaturan zona oleh Kepala IT, dan perbaikan sesi).
 - Prinsip: satu alur nilai yang tuntas lebih baik daripada delapan modul
   setengah jadi.
 
@@ -110,6 +113,29 @@ Increment D sudah diimplementasikan pada 2026-11-03:
 
 Belum termasuk D: PIR otomatis membuat problem/KB, template PIR per layanan,
 dan broadcast WhatsApp untuk insiden kritis.
+
+### P0 zona waktu per rumah sakit (2026-11-09)
+
+Sebelumnya seluruh perhitungan memakai offset tetap +07:00, sehingga RS di
+WITA/WIT dan luar negeri mendapat tenggat SLA yang salah tanpa error.
+
+- [x] `lib/timezone.js`: konversi sadar DST (backend Goja `Timezone`/`DateTime`
+      dan `Intl` untuk test), batas hari lokal, dan validasi nama zona IANA.
+- [x] SLA, approval, dan reopen memakai zona policy atau tenant; hari libur
+      dibaca sebagai tanggal kalender.
+- [x] Laporan (rentang, bucket, CSV `*_local`) dan jadwal laporan mengikuti zona
+      tenant; `?timezone=` divalidasi.
+- [x] Basis data IANA dibundel (`backend/zoneinfo.zip`, `ZONEINFO`) agar hasil
+      sama di Windows, Linux, dan Docker; bootstrap memperingatkan bila zona
+      tidak termuat.
+- [x] Zona bisa diubah Kepala IT di Pengaturan (standalone) atau vendor lewat
+      Konsol Vendor; policy SLA dan jadwal laporan ikut diselaraskan, ber-audit.
+- [x] Frontend memakai zona tenant untuk semua format tanggal.
+- [x] Test: 70 unit + 268 API + 54 e2e lulus.
+
+Catatan: bahasa UI dan email masih `id-ID` hardcoded, dan seed tenant baru masih
+memakai unit BPJS/SIMRS + hari libur RI. Itu bagian dari P1 internasionalisasi,
+bukan penghambat pilot RS Indonesia.
 
 ---
 
@@ -553,19 +579,118 @@ Unique `(incident, ticket)`; `tickets.major_incident` menyimpan insiden utama.
 
 ## 9. Backlog P2
 
+Daftar ini adalah kandidat jangka menengah, **bukan urutan eksekusi**. Urutan
+yang berlaku untuk tahap komersial ada di Bagian 10 (kesiapan jual → pilot →
+P0 adopsi); beberapa butir di bawah sudah naik/turun prioritas di sana.
+
 - Major incident: deklarasi, incident commander, layanan terdampak, broadcast,
-  downtime SOP, PIR.
+  downtime SOP, PIR. *(sudah selesai — Increment D)*
 - Change calendar, blackout window (jam poli), emergency change, PIR.
 - OLA/UC: target antar tim internal dan kontrak vendor.
-- Email-in dan WhatsApp intake.
-- SSO/AD, 2FA, scoping vendor per rumah sakit.
+- Email-in dan WhatsApp intake. *(menjadi P0 adopsi, Bagian 10.3)*
+- SSO/AD, 2FA, scoping vendor per rumah sakit. *(2FA masuk Sprint 0, SSO menunggu RS dengan AD)*
 - Monitoring/event intake (Zabbix/Prometheus/SIMRS health).
 - Release, availability, capacity management.
 - AI assistant setelah KB punya artikel yang cukup.
 
 ---
 
-## 10. Metrik keberhasilan
+## 10. Fokus berikutnya — kesiapan dijual (pilot RS swasta)
+
+**Keputusan arah (2026-11-09).** Target penjualan pertama adalah **rumah sakit
+swasta tipe B/C**: 1–5 lokasi, tim IT 3–15 orang, sudah memakai SIMRS, dan
+sedang atau akan akreditasi. RS pemerintah/tender dan multi-negara **tidak**
+dikejar pada tahap ini.
+
+Alasannya ada di [`GAP-KOMPETITOR-LOKAL.md`](./GAP-KOMPETITOR-LOKAL.md):
+kedalaman ITIL sudah memadai, tetapi "kesiapan dijual" belum. Penghambat deal RS
+swasta bukan modul baru — melainkan implementasi, kepercayaan operasional, dan
+kelengkapan komersial. Karena itu urutan kerja di bawah **bukan** penambahan
+fitur ITIL.
+
+### 10.1 Sprint 0 — kesiapan jual (target ±1 minggu)
+
+| # | Pekerjaan | Menghambat apa | Ukuran selesai |
+|---|---|---|---|
+| S0-1 | **Bulk import pengguna (CSV)** di Pengaturan → Tim | Onboarding RS 300–800 staf berhenti; input manual tidak realistis | Unggah CSV (nama, email, role, unit, tim); validasi per baris; ringkasan sukses/gagal; duplikat ditolak; audit `import`; test API + e2e |
+| S0-2 | **2FA (TOTP) + pembatasan percobaan login** | Kuesioner keamanan RS dan syarat offboarding | Enroll/nonaktifkan 2FA, kode pemulihan, reset oleh IT Lead; lockout setelah N percobaan; audit login gagal |
+| S0-3 | **Runbook operasi + uji restore** | Pertanyaan "kalau server mati, siapa yang bantu?" | `docs/OPERATIONS.md`: install, upgrade, backup, restore, monitoring, rotasi log; catatan uji restore bertanggal |
+| S0-4 | **Tenant demo + reset** | Demo memakai data uji acak, bukan data realistis | `npm run demo:reset` idempoten: 1 tenant demo, 8 unit, katalog, ±60 tiket beragam status, 3 insiden mayor, CSAT |
+| S0-5 | **Paket dokumen jual** | Penawaran terlihat amatir tanpa ini | One-pager, skrip demo 20 menit, proposal pilot, daftar harga, security & data pack, SLA support, template NDA/DPA |
+| S0-6 | **Monitoring & alert dasar** | Uptime tidak terpantau selama pilot | Healthcheck eksternal, alert down/disk penuh, rotasi dan retensi log terdokumentasi |
+
+**Definisi selesai Sprint 0:** satu RS bisa di-onboard tanpa menyentuh database,
+satu demo berjalan dari data bersih dalam < 5 menit, dan semua pertanyaan standar
+keamanan/operasional punya jawaban tertulis.
+
+### 10.2 Sprint 1 — pilot berbayar 30 hari
+
+- Cakupan: satu unit (biasanya IGD, rawat inap, atau SIMRS), 10–25 pengguna.
+- Harga: Rp 2–5 juta, dikreditkan ke kontrak tahunan bila lanjut.
+- Metrik yang disepakati di awal (ambil dari laporan aplikasi, bukan klaim):
+
+| Metrik | Target pilot |
+|---|---|
+| Tiket unit masuk lewat sistem | ≥ 70% dari gangguan yang tercatat |
+| Median respons | turun ≥ 30% dari baseline RS |
+| SLA compliance | ≥ 85% |
+| CSAT | ≥ 4,0 dari 5 |
+| Laporan SLA pertama terkirim otomatis | ada (mingguan/bulanan) |
+
+- Keluaran: laporan pilot 1 halaman + testimoni tertulis + keputusan lanjut/tidak.
+- **Jangan janjikan** WhatsApp API, SSO/AD, atau AI selama pilot. Untuk keberatan
+  kanal, tawarkan intake QR tanpa login yang sudah ada.
+
+### 10.3 Setelah pilot — P0 adopsi (urutan eksekusi)
+
+Urutan ini sengaja berbeda dari daftar gap: yang paling murah dan paling sering
+diminta dikerjakan lebih dulu.
+
+| Urutan | Inisiatif | Alasan urutan |
+|---|---|---|
+| 1 | **Email-in (IMAP/forwarding) → tiket** | Paling murah, tanpa biaya per pesan, dan banyak keluhan unit datang lewat email grup |
+| 2 | **Formulir dinamis per layanan/item** | Katalog baru berguna bila field permintaan mengikuti layanan |
+| 3 | **Auto-assignment** berbasis kategori/unit/beban | Tiket menumpuk tanpa pemilik; dibutuhkan saat volume pilot naik |
+| 4 | **SSO (OIDC/LDAP) + sinkronisasi AD** | Baru wajib saat ada RS dengan AD dan 500+ staf; bulk import (S0-1) menutup kebutuhan mendesak |
+| 5 | **WhatsApp gateway resmi** | Butuh provider berbayar dan kebijakan data; tunda sampai ada RS yang mau membiayainya |
+| 6 | **AI KB search / deflection** | Baru berguna setelah KB terisi; jangan dijanjikan sebelum ada artikel nyata |
+
+### 10.4 Yang sengaja tidak dikerjakan sekarang
+
+Multi-negara (i18n, residensi data, billing), HA/multi-region, ESM multi-unit,
+ALM, omnichannel CX (Instagram/TikTok/CRM), dan modul ITIL tambahan (release,
+capacity, availability, financial). Alasan dan urutannya ada di
+[`GAP-KOMPETITOR-LOKAL.md`](./GAP-KOMPETITOR-LOKAL.md) Bagian 11.
+
+### 10.5 Gate keputusan
+
+1. Jangan ikut tender pemerintah sebelum SSO, paket DPA/UU PDP, dan minimal dua
+   referensi pelanggan ada.
+2. Jangan menandatangani kontrak yang menjanjikan WhatsApp/SSO/AI sebelum
+   fiturnya ada.
+3. Jangan menambah modul ITIL baru sebelum Sprint 0 selesai.
+4. Jangan buka pilot kedua sebelum laporan pilot pertama selesai — dua pilot
+   serentak oleh satu orang adalah cara tercepat kehilangan keduanya.
+
+### 10.6 Mulai dari mana (untuk sesi berikutnya)
+
+1. **S0-1 bulk import pengguna** — satu route + modal di tab Tim + test API/e2e.
+   Ini item dengan rasio "membuka deal / usaha" tertinggi.
+2. **S0-2 2FA + pembatasan login** — migrasi kolom, route enroll/verifikasi,
+   layar keamanan di profil.
+3. **S0-3 runbook + S0-6 monitoring** — dokumen dan konfigurasi, tanpa UI.
+4. **S0-4 tenant demo + `npm run demo:reset`** — skrip di `scripts/`, memakai
+   seed dev yang sudah ada.
+5. **S0-5 dokumen jual** — berkas di `docs/` (one-pager, skrip demo, proposal
+   pilot, harga, security pack).
+
+Aturan per item: satu commit, test menyertai, dan perbarui README/SCHEMA bila
+route atau perilaku berubah. Jangan mengerjakan S0-5 lebih dulu: tanpa bulk
+import dan 2FA, pilot akan gagal saat implementasi.
+
+---
+
+## 11. Metrik keberhasilan
 
 | Metrik | Definisi | Target awal |
 |---|---|---|
@@ -580,7 +705,7 @@ Unique `(incident, ticket)`; `tickets.major_incident` menyimpan insiden utama.
 
 ---
 
-## 11. Keputusan terbuka
+## 12. Keputusan terbuka
 
 1. Apakah vendor boleh menulis katalog layanan dari konsol vendor? (A: belum;
    B: evaluasi bersama kebutuhan operasional vendor.)
@@ -591,10 +716,20 @@ Unique `(incident, ticket)`; `tickets.major_incident` menyimpan insiden utama.
 4. Apakah CSV laporan perlu kolom `service`? (A: belum, agar kompatibel; ubah
    bersama versi laporan berikutnya.)
 5. Apakah `service owner` cukup satu user, atau perlu tim? (A: satu user.)
+6. **Model harga:** per RS per tahun dengan paket implementasi (hipotesis awal
+   Rp 18–48 juta/tahun + implementasi Rp 5–15 juta). Wajib divalidasi ke 5 RS
+   sebelum dipakai di penawaran resmi.
+7. **Kanal WhatsApp:** gateway resmi berbayar vs bertahan dengan QR/email-in.
+   Diputuskan setelah ada RS yang bersedia membiayai kanal tersebut.
+8. **Hosting:** on-prem di server RS (kekuatan data residency) vs SaaS terkelola
+   di Indonesia. Pilot pertama disarankan on-prem agar tidak menambah beban
+   operasional satu orang.
+9. **Badan usaha & faktur:** perlu PT/CV, faktur/PPN, dan kontrak standar sebelum
+   RS swasta dapat membayar. Ini pekerjaan administratif, bukan teknis.
 
 ---
 
-## 12. Referensi
+## 13. Referensi
 
 - [README.md](../README.md) — fitur dan operasi saat ini.
 - [SCHEMA.md](../SCHEMA.md) — schema dan custom route.

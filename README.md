@@ -1593,16 +1593,22 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 
 ## Scope berikutnya
 
+Urutan eksekusi yang berlaku ada di
+[Roadmap Bagian 10](docs/ITSM-ROADMAP.md#10-fokus-berikutnya--kesiapan-dijual-pilot-rs-swasta):
+kesiapan jual (bulk import pengguna, 2FA + pembatasan login, runbook operasi,
+tenant demo, dokumen jual) → pilot RS swasta → P0 adopsi (email-in, formulir
+dinamis, auto-assignment, SSO, WhatsApp, AI).
+
+- Bulk import pengguna (CSV) di Pengaturan → Tim.
+- 2FA (TOTP), pembatasan percobaan login, dan alerting uptime.
+- Runbook operasi + uji restore terdokumentasi; backup off-host terenkripsi.
+- Tenant demo + `npm run demo:reset` untuk demo dan pilot.
+- Email-in (IMAP) dan formulir dinamis per item layanan.
 - Laporan problem aging, repeat incident rate, KB usage/deflection, dan PIR
   khusus perubahan (PIR insiden mayor sudah tersedia).
 - PIR insiden mayor otomatis membuat problem/KB dengan aksi perbaikan dan
   pemiliknya.
-- Dynamic form dan checklist fulfillment per item layanan; penulisan katalog
-  dari konsol vendor.
-- Verifikasi email saat pemilik akun ingin mengganti alamat email.
-- WhatsApp untuk notifikasi kritis; email sudah tersedia lewat SMTP.
-- SSO SIMRS dan provisioning akun tanpa Admin UI.
-- Hardening produksi: backup off-host terenkripsi + uji restore, alerting,
-  pembatasan percobaan login, dan 2FA.
+- WhatsApp untuk notifikasi kritis dan intake; email sudah tersedia lewat SMTP.
+- SSO SIMRS (OIDC/LDAP) dan provisioning akun tanpa Admin UI.
 - Laporan lanjutan: PDF native di server (cetak/PDF browser dan jadwal email
   sudah tersedia), filter per unit, dan template laporan khusus direksi.
