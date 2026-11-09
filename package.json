@@ -16,6 +16,7 @@
     "pb:superuser": "node scripts/pocketbase.mjs superuser create",
     "pb:migrate": "node scripts/pocketbase.mjs migrate",
     "pb:setup-token": "node scripts/pocketbase.mjs setup-token",
+    "pb:zoneinfo": "node scripts/zoneinfo.mjs",
     "seed": "node scripts/seed.mjs",
     "seed:tiny": "node scripts/seed.mjs --profile tiny",
     "seed:small": "node scripts/seed.mjs --profile small",

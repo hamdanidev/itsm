@@ -265,7 +265,8 @@ routerAdd(
         type,
         nextPriority,
         policy,
-        sla.loadHolidays(txApp, tenantId)
+        sla.loadHolidays(txApp, tenantId),
+        sla.tenantTimezone(txApp, tenantId)
       );
 
       var approvalStatus = String(current.get("approval_status") || "");

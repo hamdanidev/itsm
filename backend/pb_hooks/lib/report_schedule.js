@@ -2,67 +2,75 @@
 //
 // Jadwal disimpan di `tenants.report_frequency`:
 //   off      -> tidak ada pengiriman
-//   weekly   -> Senin 07:00 WIB
-//   monthly  -> tanggal 1 07:00 WIB
+//   weekly   -> Senin 07:00 waktu lokal tenant
+//   monthly  -> tanggal 1 07:00 waktu lokal tenant
 //
-// Cron memanggil `runDue()`. Route "Kirim sekarang" memanggil `sendTenant()`.
+// "07:00" adalah jam dinding tenant, bukan WIB: rumah sakit di WITA/WIT atau
+// negara lain menerima laporan pada pagi hari mereka sendiri. Cron memanggil
+// `runDue()`; route "Kirim sekarang" memanggil `sendTenant()`.
 // PDF tidak dibuat di server; halaman Laporan menyediakan Cetak/PDF lewat
 // dialog cetak browser.
 
-var WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+var timezone = require(__hooks + "/lib/timezone.js");
+
 var DAY_MS = 24 * 60 * 60 * 1000;
+var SEND_HOUR = 7;
 
-function pad(value) {
-  return value < 10 ? "0" + value : String(value);
+function tenantZone(tenant) {
+  return timezone.resolveZone(tenant && tenant.get("timezone"));
 }
 
-function wibDate(ms) {
-  var date = new Date(ms + WIB_OFFSET_MS);
-
-  return (
-    date.getUTCFullYear() +
-    "-" +
-    pad(date.getUTCMonth() + 1) +
-    "-" +
-    pad(date.getUTCDate())
-  );
-}
-
-function wibPointMs(year, month, day, hour) {
-  // month 0-based; Date.UTC menormalkan overflow bulan/tanggal.
-  return Date.UTC(year, month, day, hour - 7, 0, 0, 0);
-}
-
-function nextRun(frequency, fromMs) {
+function nextRun(frequency, fromMs, zoneName) {
   if (frequency !== "weekly" && frequency !== "monthly") return "";
 
+  var zone = timezone.resolveZone(zoneName);
   var now = fromMs || Date.now();
-  var wib = new Date(now + WIB_OFFSET_MS);
+  var parts = timezone.localParts(now, zone);
 
   if (frequency === "weekly") {
-    var dayOfWeek = wib.getUTCDay(); // 0=Sunday, 1=Monday
-    var daysAhead = (1 - dayOfWeek + 7) % 7;
-    var candidate = wibPointMs(
-      wib.getUTCFullYear(),
-      wib.getUTCMonth(),
-      wib.getUTCDate() + daysAhead,
-      7
+    // 1 = Senin (ISO), jadi jarak ke Senin berikutnya dihitung dari situ.
+    var daysAhead = (1 - parts.weekday + 7) % 7;
+    var candidate = timezone.fromLocal(
+      parts.year,
+      parts.month,
+      parts.day + daysAhead,
+      SEND_HOUR,
+      0,
+      zone
     );
 
-    if (candidate <= now) candidate += 7 * DAY_MS;
+    if (candidate <= now) {
+      candidate = timezone.fromLocal(
+        parts.year,
+        parts.month,
+        parts.day + daysAhead + 7,
+        SEND_HOUR,
+        0,
+        zone
+      );
+    }
 
     return new Date(candidate).toISOString();
   }
 
-  var monthly = wibPointMs(
-    wib.getUTCFullYear(),
-    wib.getUTCMonth(),
+  var monthly = timezone.fromLocal(
+    parts.year,
+    parts.month,
     1,
-    7
+    SEND_HOUR,
+    0,
+    zone
   );
 
   if (monthly <= now) {
-    monthly = wibPointMs(wib.getUTCFullYear(), wib.getUTCMonth() + 1, 1, 7);
+    monthly = timezone.fromLocal(
+      parts.year,
+      parts.month + 1,
+      1,
+      SEND_HOUR,
+      0,
+      zone
+    );
   }
 
   return new Date(monthly).toISOString();
@@ -74,16 +82,23 @@ function sendTenant(app, tenant, frequencyOverride) {
   var mail = require(__hooks + "/lib/mail.js");
 
   var now = Date.now();
+  var zone = tenantZone(tenant);
+  var parts = timezone.localParts(now, zone);
   var frequency = String(
     frequencyOverride || tenant.get("report_frequency") || "manual"
   );
+
   var range = reporting.parseRange(
     {
-      from: wibDate(now - 29 * DAY_MS),
-      to: wibDate(now),
+      from: timezone.dateKey(
+        timezone.fromLocal(parts.year, parts.month, parts.day - 29, 0, 0, zone),
+        zone
+      ),
+      to: timezone.dateKey(now, zone),
       bucket: "week",
     },
-    now
+    now,
+    zone
   );
 
   if (range.error) throw new BadRequestError(range.error);
@@ -116,6 +131,7 @@ function sendTenant(app, tenant, frequencyOverride) {
     tenant: tenantId,
     tenant_name: String(tenant.get("name") || ""),
     range: { from: range.from, to: range.to },
+    timezone: zone,
     recipients: recipients.length,
     sent: sent,
     summary: summary,
@@ -148,7 +164,7 @@ function runDue(app) {
       result.sent += sent.sent;
 
       tenant.set("report_last_sent_at", now);
-      tenant.set("report_next_at", nextRun(frequency, nowMs));
+      tenant.set("report_next_at", nextRun(frequency, nowMs, tenantZone(tenant)));
       app.save(tenant);
 
       audit.write(app, {

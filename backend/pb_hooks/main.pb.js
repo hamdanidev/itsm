@@ -1,10 +1,35 @@
 onBootstrap((e) => {
   e.next();
 
+  // Zona cron bersifat tingkat instalasi. Semua job berjalan tiap menit atau
+  // tiap 5 menit, jadi hanya `daily_backup` (02:00) yang terpengaruh.
   try {
     $app.cron().setTimezone(new Timezone("Asia/Jakarta"));
   } catch (err) {
     console.log("Failed to set cron timezone", err);
+  }
+
+  // Perhitungan SLA memakai zona tenant. Pastikan basis data zona IANA benar-
+  // benar termuat: tanpa itu Go hanya mengenal UTC dan tenggat SLA menjadi
+  // salah tanpa error apa pun.
+  try {
+    var tzCheck = require(__hooks + "/lib/timezone.js").selfCheck();
+
+    if (!tzCheck.ok) {
+      console.log(
+        "PERINGATAN: basis data zona waktu tidak tersedia (backend " +
+          tzCheck.backend +
+          ", '" +
+          tzCheck.default_zone +
+          "' terbaca sebagai '" +
+          tzCheck.resolved +
+          "', ZONEINFO=" +
+          (tzCheck.zoneinfo || "kosong") +
+          "). SLA akan dihitung dalam UTC. Set ZONEINFO ke backend/zoneinfo.zip."
+      );
+    }
+  } catch (err) {
+    console.log("Failed to verify timezone data", err);
   }
 
   // Konfigurasi SMTP dari environment (Mailtrap di dev, relay di produksi).

@@ -116,6 +116,7 @@ export async function seedOrg({
   label = uniqueLabel("org"),
   withManager = true,
   isolatedTenant = false,
+  timezone = "Asia/Jakarta",
 } = {}) {
   const { url } = readEnv();
   const admin = await adminClient();
@@ -129,7 +130,7 @@ export async function seedOrg({
       code: `T${(Date.now().toString(36) + Math.random().toString(36).slice(2, 6))
         .toUpperCase()
         .slice(0, 12)}`,
-      timezone: "Asia/Jakarta",
+      timezone,
       is_active: true,
     });
 

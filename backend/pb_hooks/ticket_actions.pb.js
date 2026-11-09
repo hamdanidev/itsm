@@ -473,12 +473,14 @@ routerAdd(
           }
         }
 
+        var reopenTenantId = String(current.get("tenant") || "");
         var due = sla.computeDue(
           new Date(now),
           String(current.get("type")),
           String(current.get("priority")),
           policy,
-          sla.loadHolidays(txApp, String(current.get("tenant") || ""))
+          sla.loadHolidays(txApp, reopenTenantId),
+          sla.tenantTimezone(txApp, reopenTenantId)
         );
 
         if (due.resolution) {

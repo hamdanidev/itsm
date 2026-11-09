@@ -186,6 +186,7 @@ function serialize(app, ticket, tenant, token) {
   return {
     tenant: {
       name: asText(tenant.get("name")),
+      timezone: asText(tenant.get("timezone")),
       logo_url: logo
         ? "/api/itsm/public/tickets/" + encodeURIComponent(token) + "/logo"
         : "",

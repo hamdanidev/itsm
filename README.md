@@ -36,7 +36,8 @@ serta lupa password mandiri:
 - daftar tiket dengan pagination/filter/URL state dan dashboard antrean kerja;
 - daftar tiket lanjutan: tampilan tersimpan (Aktif, Tiket saya, Belum di-assign,
   SLA lewat, Menunggu approval), pilih massal + assign/mulai, aksi cepat per
-  baris, kolom tim/SLA, dan kepadatan tabel yang tersimpan;
+  baris, kolom tim/SLA, kepadatan tabel yang tersimpan, dan mode Daftar/Papan
+  terakhir yang diingat;
 - form buat tiket tiga langkah (klasifikasi → detail → tinjau & kirim) dengan
   validasi per langkah, ringkasan sebelum submit, dan navigasi kembali tanpa
   kehilangan isian;
@@ -103,11 +104,13 @@ healthcare-itsm/
 ├── backend/
 │   ├── pb_migrations/         # schema + seed (committed)
 │   ├── pb_hooks/              # Goja hooks/routes (committed)
+│   ├── zoneinfo.zip           # basis data zona IANA untuk ZONEINFO
 │   ├── pb_data/               # gitignored, data lokal dev
 │   └── .bin/                  # gitignored, binary PocketBase hasil unduhan
 ├── scripts/
 │   ├── dev.mjs                # jalankan PocketBase + Vite tanpa Docker
 │   ├── pocketbase.mjs         # CLI download/serve/superuser/migrate
+│   ├── zoneinfo.mjs           # segarkan backend/zoneinfo.zip dari toolchain Go
 │   ├── seed.mjs               # seed data manual untuk testing
 │   └── lib/pocketbase.mjs     # resolver binary, checksum, args serve
 ├── docker/
@@ -321,8 +324,8 @@ Tiga lapis pengujian berjalan tanpa Docker dan tanpa menyentuh `backend/pb_data`
 
 | Perintah | Cakupan | Butuh |
 |---|---|---|
-| `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), guard teks/tanggal, scope platform, mode tenancy, validasi input konsol vendor, helper antrean dashboard, agregasi laporan | Node |
-| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, pengingat pra-SLA, merge tiket duplikat, validasi intake, katalog layanan + approval mode + SLA per layanan, triage, on-behalf, outcome perubahan, problem management + known error, knowledge base (visibilitas, publish, pencarian, workaround), asset/CI + service CI + riwayat tiket, CSAT satu respons per tiket, laporan SLA + CSV + laporan operasional + jadwal laporan, lampiran terproteksi, profil & password, lupa password mandiri, tim rumah sakit, email transaksional, logo rumah sakit, konsol vendor, vendor sebagai resolver tiket, laporan & audit lintas RS, setup awal (kode setup, standalone, vendor, penutupan setelah akun pertama) | Node + binary PocketBase |
+| `npm run test:unit` | Matematika SLA (jam kerja, hari libur, 24x7), konversi zona & DST (Goja dan Node memakai basis data IANA yang sama), jadwal laporan per zona, guard teks/tanggal, scope platform, mode tenancy, validasi input konsol vendor, helper antrean dashboard, agregasi laporan | Node |
+| `npm test` | Unit + API: auth/RBAC, alur tiket & approval (termasuk CAB dan delegasi), jeda SLA, reopen, pengingat pra-SLA, merge tiket duplikat, validasi intake, katalog layanan + approval mode + SLA per layanan, triage, on-behalf, outcome perubahan, problem management + known error, knowledge base (visibilitas, publish, pencarian, workaround), asset/CI + service CI + riwayat tiket, CSAT satu respons per tiket, laporan SLA + CSV + laporan operasional + jadwal laporan, zona waktu tenant & laporan, lampiran terproteksi, profil & password, lupa password mandiri, tim rumah sakit, email transaksional, logo rumah sakit, konsol vendor, vendor sebagai resolver tiket, laporan & audit lintas RS, setup awal (kode setup, standalone, vendor, penutupan setelah akun pertama) | Node + binary PocketBase |
 | `npm run test:e2e` | Smoke UI Playwright: login per peran, daftar, detail + isolasi komentar internal, dashboard, approval bertahap, delegasi, laporan SLA + jadwal laporan, profil, intake, katalog + intake layanan, triage prioritas, merge tiket duplikat, pengelolaan layanan di Pengaturan, problem known error dari tiket, penerbitan artikel + saran intake, lupa password, logo rumah sakit, konsol vendor (mode vendor), setup awal instalasi baru | Node + PocketBase + Chromium |
 | `npm run test:all` | ketiganya | — |
 
@@ -675,7 +678,8 @@ berdasarkan kalender cuti, dan pencabutan delegasi sebelum tahap diputuskan.
 ## SLA, jeda, dan eskalasi
 
 - Jam penyelesaian memakai kalender bisnis dari `sla_snapshot`/policy aktif
-  (Senin–Jumat 08:00–17:00 WIB, kritis 24/7, sadar hari libur).
+  (Senin–Jumat 08:00–17:00 **waktu lokal rumah sakit**, kritis 24/7, sadar hari
+  libur).
 - Saat tiket masuk `waiting`, `sla_paused_at` diisi dan scan breach melewati
   tiket tersebut. Saat dilanjutkan, `resolution_due_at` dan `next_due_at`
   digeser persis selama jeda, dan totalnya dicatat di `sla_paused_minutes`.
@@ -694,6 +698,30 @@ berdasarkan kalender cuti, dan pencabutan delegasi sebelum tahap diputuskan.
   "Eskalasi Lx" di detail dan antrean dashboard, dan setiap kenaikan level
   menulis event `escalate` ke timeline. Notifikasi memakai in-app + email;
   WhatsApp belum ada.
+
+### Zona waktu
+
+SLA dihitung pada zona waktu rumah sakit, bukan pada offset tetap WIB:
+
+- Zona diambil dari `sla_snapshot.timezone` (disalin dari policy saat tenggat
+  dibuat). Bila policy tidak punya zona, dipakai `tenants.timezone`. Mengubah
+  zona rumah sakit di Konsol Vendor ikut menyelaraskan policy SLA-nya.
+- Cara mengubah zona: instalasi baru lewat wizard `/setup`; instalasi
+  standalone lewat **Pengaturan → Identitas** (hanya Kepala IT, tercatat di
+  audit, policy SLA dan jadwal laporan ikut disesuaikan); instalasi vendor lewat
+  **Konsol Vendor** (Kepala IT rumah sakit tidak boleh mengubahnya sendiri).
+  Nama zona divalidasi terhadap basis data IANA.
+- Perhitungan sadar DST dan batas hari lokal. Basis data zona IANA diambil dari
+  `backend/zoneinfo.zip` lewat environment `ZONEINFO`; file ini dibundel supaya
+  hasilnya sama di Windows, Linux, dan container. Tanpa itu Go hanya mengenal
+  UTC dan SLA menjadi salah tanpa pesan error — saat bootstrap server mencetak
+  `PERINGATAN` bila zona tidak termuat.
+- `holidays.date` dibaca sebagai tanggal kalender lokal, bukan instan UTC,
+  sehingga hari libur tidak bergeser sehari pada zona negatif.
+- Snapshot menyimpan zona yang dipakai, jadi perbaikan zona tidak mengubah
+  tenggat tiket lama (tanggal tenggatnya sudah berupa instan UTC).
+- Perbarui basis data zona dengan `npm run pb:zoneinfo` (memerlukan Go; menyalin
+  `$GOROOT/lib/time/zoneinfo.zip`).
 
 ## Mode tenancy
 
@@ -859,12 +887,13 @@ rata-rata median per rumah sakit, jadi angka gabungan tetap benar.
 | Breach terbaru | 20 tiket breach terakhir dengan level eskalasi dan status |
 | Unduh CSV | satu baris per tiket pada rentang terpilih |
 | Cetak / PDF | dialog cetak browser dengan sidebar, filter, dan tombol aksi disembunyikan |
-| Laporan terjadwal | ringkasan email mingguan (Senin 07.00 WIB) atau bulanan (tanggal 1, 07.00 WIB) ke seluruh Kepala IT aktif |
+| Laporan terjadwal | ringkasan email mingguan (Senin 07.00 waktu lokal RS) atau bulanan (tanggal 1, 07.00 waktu lokal RS) ke seluruh Kepala IT aktif |
 
 Definisi angka:
 
-- Basis laporan adalah tiket yang **dibuat** pada rentang tanggal (zona
-  `Asia/Jakarta`), bukan tiket yang berubah pada rentang itu.
+- Basis laporan adalah tiket yang **dibuat** pada rentang tanggal (zona rumah
+  sakit yang dilihat; vendor dapat mengirim `?timezone=`), bukan tiket yang
+  berubah pada rentang itu.
 - `Breach` = salah satu dari `response_breach_at`, `approval_breach_at`, atau
   `resolution_breach_at` terisi. Compliance = `(total − breach) / total`.
 - Median respons memakai `first_response_at − created`; median resolusi memakai
@@ -872,22 +901,26 @@ Definisi angka:
 - Semua selisih waktu memakai menit kalender, bukan jam kerja.
 
 Rentang default 90 hari terakhir, maksimal 366 hari; `from`/`to` memakai format
-`YYYY-MM-DD`. Parameter `bucket=week` mengganti tren bulanan menjadi mingguan
-(ISO week). CSV memakai pemisah koma, UTF-8 dengan BOM agar rapi di Excel, dan
-berisi kolom tiket, unit, kategori, tanggal WIB, menit respons/resolusi, status
-breach, level eskalasi, kode resolusi, dan jumlah reopen.
+`YYYY-MM-DD` pada zona laporan. Parameter `bucket=week` mengganti tren bulanan
+menjadi mingguan (ISO week), dan `timezone=Nama/Zona` memilih zona laporan
+(divalidasi terhadap basis data IANA; default zona rumah sakit yang dilihat).
+CSV memakai pemisah koma, UTF-8 dengan BOM agar rapi di Excel, dan berisi kolom
+tiket, unit, kategori, tanggal lokal (`created_local`, `first_response_local`,
+`resolved_local`), menit respons/resolusi, status breach, level eskalasi, kode
+resolusi, dan jumlah reopen.
 
 Tombol **Cetak / PDF** membuka dialog cetak browser dengan sidebar, filter, dan
 tombol aksi disembunyikan; pengguna dapat memilih "Save as PDF". Jadwal laporan
 diatur oleh Kepala IT dari halaman Laporan: mingguan setiap Senin atau bulanan
-setiap tanggal 1, pukul 07.00 WIB. Cron mengirim ringkasan ke seluruh Kepala IT
-aktif, dengan tautan ke halaman laporan. Tombol **Kirim sekarang** memakai
-ringkasan yang sama untuk pengujian atau laporan manual.
+setiap tanggal 1, pukul 07.00 waktu lokal rumah sakit. Cron mengirim ringkasan
+ke seluruh Kepala IT aktif, dengan tautan ke halaman laporan. Tombol **Kirim
+sekarang** memakai ringkasan yang sama untuk pengujian atau laporan manual.
 
 Contoh query:
 
 ```text
 GET /api/itsm/reports/sla?from=2026-08-01&to=2026-10-31&bucket=month
+GET /api/itsm/reports/sla?from=2026-08-01&to=2026-10-31&timezone=Asia/Makassar
 GET /api/itsm/reports/sla.csv?from=2026-08-01&to=2026-10-31
 ```
 
@@ -1077,7 +1110,7 @@ URL-nya dialihkan ke daftar tiket.
 
 | Tab | Isi | Catatan |
 |---|---|---|
-| Identitas | nama, kode, logo rumah sakit | logo dipakai sidebar dan halaman masuk |
+| Identitas | nama, kode, logo rumah sakit, zona waktu | logo dipakai sidebar dan halaman masuk; zona waktu hanya bisa diubah pada instalasi standalone |
 | Unit | nama, kode, jenis (klinis/penunjang/manajemen), manajer | dipakai pada form intake; manajer menjadi approver tahap 1 |
 | Kategori | nama, kode, jenis tiket | filter pilihan kategori per tipe |
 | Layanan | layanan + item permintaan, approval mode, SLA, owner, unit | dipakai pada katalog dan intake |
@@ -1251,7 +1284,8 @@ Environment yang dibaca backend:
 | `TENANCY_MODE` | `standalone` | `vendor` mengaktifkan Konsol Vendor dan akun platform |
 | `SETUP_TOKEN` | — | Kode setup awal; bila kosong server membuat sendiri di `<dataDir>/setup_token` |
 | `PB_ENCRYPTION_KEY` | — | Enkripsi setting PocketBase (opsional) |
-| `TZ` | `Asia/Jakarta` | Zona proses; cron SLA tetap `Asia/Jakarta` |
+| `TZ` | `Asia/Jakarta` | Zona proses; hanya memengaruhi jam job cron instalasi (backup 02:00), bukan SLA |
+| `ZONEINFO` | `backend/zoneinfo.zip` | Basis data zona IANA yang dibaca Go; wajib agar SLA per zona benar di luar Linux |
 | `GOMEMLIMIT` | `512MiB` | Batas memori Go |
 
 `TENANCY_MODE` dibaca saat request (bukan di-cache), jadi mengubahnya cukup
@@ -1344,6 +1378,7 @@ UI memakai bahasa desain Atlassian/Jira, bukan komponen Bootstrap:
 | POST | `/api/itsm/profile/password` | Ganti password (verifikasi password lama) |
 | POST | `/api/itsm/auth/forgot-password` | Minta tautan reset password (guest, respons generik) |
 | POST/DELETE | `/api/itsm/tenant/logo` | Unggah/hapus logo rumah sakit; hanya IT Lead |
+| PATCH | `/api/itsm/tenant` | Ubah zona waktu rumah sakit; hanya IT Lead, hanya instalasi standalone |
 | GET | `/api/itsm/branding/logo` | Logo publik rumah sakit aktif (standalone) |
 | GET | `/api/itsm/team` | Daftar anggota tim; hanya IT Lead |
 | POST | `/api/itsm/team` | Tambah anggota (password awal dari sistem); hanya IT Lead |

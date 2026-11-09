@@ -7,7 +7,7 @@ import {
   getErrorMessage,
   submitPublicIntake,
 } from "../../../lib/api";
-import { formatDateTime, priorityLabel } from "../../../lib/format";
+import { configureFormatting, formatDateTime, priorityLabel } from "../../../lib/format";
 import { teamLabel } from "../../../lib/teams";
 
 const MAX_FILES = 3;
@@ -80,6 +80,8 @@ export default function PublicIntakePage() {
       try {
         const data = await fetchPublicIntake(token);
         if (!active) return;
+        // Halaman publik tidak lewat TenantProvider: zona diambil dari brand.
+        configureFormatting({ timeZone: data.tenant?.timezone });
         setMeta(data);
         document.title = `Lapor IT · ${data.tenant?.name || "Rumah Sakit"}`;
       } catch (err) {

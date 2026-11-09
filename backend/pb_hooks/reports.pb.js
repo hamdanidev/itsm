@@ -6,6 +6,10 @@
 //   tanpa `?tenant=` -> gabungan semua rumah sakit + ringkasan per RS
 //   dengan `?tenant=`-> satu rumah sakit
 // Akun rumah sakit selalu dibatasi ke tenant-nya sendiri oleh reportScope().
+//
+// Zona laporan dihitung di `lib/report_request.js` (bukan di file ini): callback
+// route berjalan di VM baru, jadi helper top-level `.pb.js` tidak tersedia.
+
 routerAdd(
   "GET",
   "/api/itsm/reports/sla",
@@ -13,20 +17,11 @@ routerAdd(
     var guards = require(__hooks + "/lib/guards.js");
     var reporting = require(__hooks + "/lib/reporting.js");
     var platform = require(__hooks + "/lib/platform.js");
+    var reportRequest = require(__hooks + "/lib/report_request.js");
 
-    var auth = guards.requireAuth(e);
-    guards.assertReportReader(auth);
-
-    var query = e.requestInfo().query || {};
-    var range = reporting.parseRange(query, Date.now());
-    if (range.error) throw new BadRequestError(range.error);
-
-    var scope = platform.reportScope(
-      $app,
-      auth,
-      reporting.queryText(query, "tenant"),
-      guards.isPlatformStaff(auth)
-    );
+    var ctx = reportRequest.context($app, e, guards, reporting, platform);
+    var range = ctx.range;
+    var scope = ctx.scope;
     var built = reporting.buildMulti($app, scope.tenants, range);
 
     var payload = {
@@ -35,6 +30,7 @@ routerAdd(
         to: range.to,
         days: range.days,
         bucket: range.bucket,
+        timezone: range.timezone,
       },
       scope: { mode: scope.mode, tenant: scope.selected },
       summary: built.report.summary,
@@ -62,22 +58,11 @@ routerAdd(
     var guards = require(__hooks + "/lib/guards.js");
     var reporting = require(__hooks + "/lib/reporting.js");
     var platform = require(__hooks + "/lib/platform.js");
+    var reportRequest = require(__hooks + "/lib/report_request.js");
 
-    var auth = guards.requireAuth(e);
-    guards.assertReportReader(auth);
-
-    var query = e.requestInfo().query || {};
-    var range = reporting.parseRange(query, Date.now());
-    if (range.error) throw new BadRequestError(range.error);
-
-    var scope = platform.reportScope(
-      $app,
-      auth,
-      reporting.queryText(query, "tenant"),
-      guards.isPlatformStaff(auth)
-    );
-
-    var report = reporting.buildOperations($app, scope.tenants, range);
+    var ctx = reportRequest.context($app, e, guards, reporting, platform);
+    var scope = ctx.scope;
+    var report = reporting.buildOperations($app, scope.tenants, ctx.range);
 
     return e.json(200, {
       range: report.range,
@@ -99,22 +84,11 @@ routerAdd(
     var guards = require(__hooks + "/lib/guards.js");
     var reporting = require(__hooks + "/lib/reporting.js");
     var platform = require(__hooks + "/lib/platform.js");
+    var reportRequest = require(__hooks + "/lib/report_request.js");
 
-    var auth = guards.requireAuth(e);
-    guards.assertReportReader(auth);
-
-    var query = e.requestInfo().query || {};
-    var range = reporting.parseRange(query, Date.now());
-    if (range.error) throw new BadRequestError(range.error);
-
-    var scope = platform.reportScope(
-      $app,
-      auth,
-      reporting.queryText(query, "tenant"),
-      guards.isPlatformStaff(auth)
-    );
-
-    var report = reporting.buildOperations($app, scope.tenants, range);
+    var ctx = reportRequest.context($app, e, guards, reporting, platform);
+    var scope = ctx.scope;
+    var report = reporting.buildOperations($app, scope.tenants, ctx.range);
     var csv = reporting.operationsCsv(report);
 
     e.response.header().set("Content-Type", "text/csv; charset=utf-8");
@@ -140,24 +114,18 @@ routerAdd(
     var guards = require(__hooks + "/lib/guards.js");
     var reporting = require(__hooks + "/lib/reporting.js");
     var platform = require(__hooks + "/lib/platform.js");
+    var reportRequest = require(__hooks + "/lib/report_request.js");
 
-    var auth = guards.requireAuth(e);
-    guards.assertReportReader(auth);
-
-    var query = e.requestInfo().query || {};
-    var range = reporting.parseRange(query, Date.now());
-    if (range.error) throw new BadRequestError(range.error);
-
-    var scope = platform.reportScope(
-      $app,
-      auth,
-      reporting.queryText(query, "tenant"),
-      guards.isPlatformStaff(auth)
-    );
+    var ctx = reportRequest.context($app, e, guards, reporting, platform);
+    var range = ctx.range;
+    var scope = ctx.scope;
     var built = reporting.buildMulti($app, scope.tenants, range);
 
     // Kolom tenant hanya ditambahkan saat mengekspor gabungan banyak RS.
-    var csv = reporting.toCsv(built.rows, { withTenant: scope.mode === "all" });
+    var csv = reporting.toCsv(built.rows, {
+      withTenant: scope.mode === "all",
+      timezone: range.timezone,
+    });
 
     e.response.header().set("Content-Type", "text/csv; charset=utf-8");
     e.response.header().set(
@@ -200,6 +168,7 @@ routerAdd(
       frequency: String(tenant.get("report_frequency") || "off"),
       next_at: String(tenant.get("report_next_at") || ""),
       last_sent_at: String(tenant.get("report_last_sent_at") || ""),
+      timezone: String(tenant.get("timezone") || ""),
       recipients: recipients.length,
     });
   },
@@ -233,7 +202,13 @@ routerAdd(
 
     var tenant = e.app.findRecordById("tenants", tenantId);
     var nextAt =
-      frequency === "off" ? "" : reportSchedule.nextRun(frequency, Date.now());
+      frequency === "off"
+        ? ""
+        : reportSchedule.nextRun(
+            frequency,
+            Date.now(),
+            String(tenant.get("timezone") || "")
+          );
 
     tenant.set("report_frequency", frequency);
     tenant.set("report_next_at", nextAt);

@@ -1,52 +1,109 @@
-const dateTimeFormatter = new Intl.DateTimeFormat("id-ID", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "Asia/Jakarta",
-});
+// Format tanggal/angka di UI.
+//
+// Zona waktu dan locale berasal dari rumah sakit yang sedang dilihat, bukan
+// dari perangkat pengguna: staf yang login dari luar negeri tetap membaca jam
+// dinding rumah sakitnya. `configureFormatting()` dipanggil TenantProvider
+// setiap kali tenant aktif berubah, dan halaman publik memanggilnya dari
+// payload branding.
+//
+// Bahasa masih `id-ID` (P1 i18n); yang diperbaiki di sini adalah kebenaran
+// waktu.
 
-const dateFormatter = new Intl.DateTimeFormat("id-ID", {
-  dateStyle: "medium",
-  timeZone: "Asia/Jakarta",
-});
+const DEFAULT_TIME_ZONE = "Asia/Jakarta";
+const DEFAULT_LOCALE = "id-ID";
 
-const dayMonthFormatter = new Intl.DateTimeFormat("id-ID", {
-  day: "numeric",
-  month: "short",
-  timeZone: "Asia/Jakarta",
-});
+let currentTimeZone = DEFAULT_TIME_ZONE;
+let currentLocale = DEFAULT_LOCALE;
+let formatters = null;
 
-const timeFormatter = new Intl.DateTimeFormat("id-ID", {
-  hour: "2-digit",
-  minute: "2-digit",
-  timeZone: "Asia/Jakarta",
-});
+function safeTimeZone(value) {
+  const zone = String(value || "").trim();
+  if (!zone) return DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone }).format(new Date());
+    return zone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+function getFormatters() {
+  if (formatters) return formatters;
+
+  const timeZone = currentTimeZone;
+  const options = { timeZone };
+
+  formatters = {
+    dateTime: new Intl.DateTimeFormat(currentLocale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+      ...options,
+    }),
+    date: new Intl.DateTimeFormat(currentLocale, {
+      dateStyle: "medium",
+      ...options,
+    }),
+    dayMonth: new Intl.DateTimeFormat(currentLocale, {
+      day: "numeric",
+      month: "short",
+      ...options,
+    }),
+    time: new Intl.DateTimeFormat(currentLocale, {
+      hour: "2-digit",
+      minute: "2-digit",
+      ...options,
+    }),
+  };
+
+  return formatters;
+}
+
+export function configureFormatting({ timeZone, locale } = {}) {
+  const nextZone = safeTimeZone(timeZone);
+  const nextLocale = String(locale || "").trim() || DEFAULT_LOCALE;
+
+  if (nextZone === currentTimeZone && nextLocale === currentLocale) return;
+
+  currentTimeZone = nextZone;
+  currentLocale = nextLocale;
+  formatters = null;
+}
+
+export function getFormatTimeZone() {
+  return currentTimeZone;
+}
+
+export function getFormatLocale() {
+  return currentLocale;
+}
 
 export function formatDateTime(value) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return dateTimeFormatter.format(date);
+  return getFormatters().dateTime.format(date);
 }
 
 export function formatDate(value) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return dateFormatter.format(date);
+  return getFormatters().date.format(date);
 }
 
 export function formatDayMonth(value) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return dayMonthFormatter.format(date);
+  return getFormatters().dayMonth.format(date);
 }
 
 export function formatTime(value) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return timeFormatter.format(date);
+  return getFormatters().time.format(date);
 }
 
 export function formatRelative(value) {

@@ -2,8 +2,14 @@
 // diuji tanpa PocketBase; build() membaca tiket dan unit dari app.
 //
 // Catatan Goja: hindari fitur di luar ES5+ yang belum tentu tersedia.
+//
+// Semua batas hari, bucket bulan/minggu, dan teks tanggal memakai zona waktu
+// laporan (`options.timezone`). Default `Asia/Jakarta` dipertahankan supaya
+// pemanggil lama dan test tetap valid, tetapi route laporan selalu mengirim
+// zona tenant yang sedang dilihat.
 
-var WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+var timezone = require(__hooks + "/lib/timezone.js");
+
 var DAY_MS = 24 * 60 * 60 * 1000;
 var MONTH_NAMES = [
   "Jan",
@@ -26,6 +32,11 @@ var TYPE_ORDER = ["incident", "service_request", "change_request"];
 function pad(value) {
   return ("0" + value).slice(-2);
 }
+
+function zoneOf(options) {
+  return timezone.resolveZone(options && options.timezone);
+}
+
 
 function toMs(value) {
   if (!value) return 0;
@@ -56,9 +67,8 @@ function round1(value) {
   return Math.round(value * 10) / 10;
 }
 
-function monthKey(ms) {
-  var date = new Date(ms + WIB_OFFSET_MS);
-  return date.getUTCFullYear() + "-" + pad(date.getUTCMonth() + 1);
+function monthKey(ms, zone) {
+  return timezone.dateKey(ms, timezone.resolveZone(zone)).slice(0, 7);
 }
 
 function monthLabel(key) {
@@ -68,11 +78,11 @@ function monthLabel(key) {
   return (MONTH_NAMES[month] || parts[1]) + " " + parts[0];
 }
 
-function weekKey(ms) {
-  // ISO week, dihitung dari tanggal WIB.
-  var wib = new Date(ms + WIB_OFFSET_MS);
-  var date = Date.UTC(wib.getUTCFullYear(), wib.getUTCMonth(), wib.getUTCDate());
-  var weekday = (new Date(date).getUTCDay() + 6) % 7;
+function weekKey(ms, zone) {
+  // ISO week, dihitung dari tanggal kalender lokal.
+  var parts = timezone.localParts(ms, timezone.resolveZone(zone));
+  var date = Date.UTC(parts.year, parts.month, parts.day);
+  var weekday = parts.weekday - 1;
   var thursday = date + (3 - weekday) * DAY_MS;
   var year = new Date(thursday).getUTCFullYear();
   var yearStart = Date.UTC(year, 0, 1);
@@ -85,25 +95,22 @@ function weekLabel(key) {
   return "Minggu " + String(key).split("-W")[1];
 }
 
-function bucketKey(ms, bucket) {
-  return bucket === "week" ? weekKey(ms) : monthKey(ms);
+function bucketKey(ms, bucket, zone) {
+  return bucket === "week" ? weekKey(ms, zone) : monthKey(ms, zone);
 }
 
 function bucketLabel(key, bucket) {
   return bucket === "week" ? weekLabel(key) : monthLabel(key);
 }
 
-function monthKeys(fromMs, toMs) {
-  var from = new Date(fromMs + WIB_OFFSET_MS);
-  var to = new Date(toMs + WIB_OFFSET_MS);
-  var year = from.getUTCFullYear();
-  var month = from.getUTCMonth();
+function monthKeys(fromMs, toMs, zone) {
+  var from = timezone.localParts(fromMs, timezone.resolveZone(zone));
+  var to = timezone.localParts(toMs, timezone.resolveZone(zone));
+  var year = from.year;
+  var month = from.month;
   var keys = [];
 
-  while (
-    year < to.getUTCFullYear() ||
-    (year === to.getUTCFullYear() && month <= to.getUTCMonth())
-  ) {
+  while (year < to.year || (year === to.year && month <= to.month)) {
     keys.push(year + "-" + pad(month + 1));
     month += 1;
 
@@ -116,17 +123,17 @@ function monthKeys(fromMs, toMs) {
   return keys;
 }
 
-function weekKeys(fromMs, toMs) {
+function weekKeys(fromMs, toMs, zone) {
   var keys = [];
   var cursor = fromMs;
 
   while (cursor <= toMs) {
-    var key = weekKey(cursor);
+    var key = weekKey(cursor, zone);
     if (keys.indexOf(key) < 0) keys.push(key);
     cursor += 7 * DAY_MS;
   }
 
-  var last = weekKey(toMs);
+  var last = weekKey(toMs, zone);
   if (keys.indexOf(last) < 0) keys.push(last);
 
   return keys;
@@ -217,8 +224,11 @@ function orderByType(list) {
   });
 }
 
-function trend(rows, fromMs, toMs, bucket) {
-  var keys = bucket === "week" ? weekKeys(fromMs, toMs) : monthKeys(fromMs, toMs);
+function trend(rows, fromMs, toMs, bucket, zone) {
+  var keys =
+    bucket === "week"
+      ? weekKeys(fromMs, toMs, zone)
+      : monthKeys(fromMs, toMs, zone);
   var byKey = {};
 
   for (var i = 0; i < keys.length; i++) {
@@ -226,7 +236,7 @@ function trend(rows, fromMs, toMs, bucket) {
   }
 
   for (var j = 0; j < rows.length; j++) {
-    var key = bucketKey(rows[j].createdMs, bucket);
+    var key = bucketKey(rows[j].createdMs, bucket, zone);
     if (!byKey[key]) byKey[key] = [];
     byKey[key].push(rows[j]);
   }
@@ -276,10 +286,11 @@ function recentBreaches(rows, limit) {
 
 function aggregate(rows, options) {
   var bucket = options.bucket === "week" ? "week" : "month";
+  var zone = zoneOf(options);
 
   return {
     summary: summarize(rows),
-    trend: trend(rows, options.fromMs, options.toMs, bucket),
+    trend: trend(rows, options.fromMs, options.toMs, bucket, zone),
     units: groupRows(rows, function (row) {
       return row.unit;
     }).sort(function (a, b) {
@@ -304,21 +315,21 @@ function aggregate(rows, options) {
   };
 }
 
-function formatWib(ms) {
+function formatLocal(ms, zone) {
   if (!ms) return "";
 
-  var date = new Date(ms + WIB_OFFSET_MS);
+  var parts = timezone.localParts(ms, timezone.resolveZone(zone));
 
   return (
-    date.getUTCFullYear() +
+    parts.year +
     "-" +
-    pad(date.getUTCMonth() + 1) +
+    pad(parts.month + 1) +
     "-" +
-    pad(date.getUTCDate()) +
+    pad(parts.day) +
     " " +
-    pad(date.getUTCHours()) +
+    pad(parts.hour) +
     ":" +
-    pad(date.getUTCMinutes())
+    pad(parts.minute)
   );
 }
 
@@ -334,6 +345,9 @@ function csvCell(value) {
 
 function toCsv(rows, options) {
   var withTenant = Boolean(options && options.withTenant);
+  var zone = zoneOf(options);
+  // Nama kolom memakai `_local` karena isinya waktu lokal tenant, bukan WIB.
+  // Isi CSV ikut zona laporan; jangan diubah tanpa versi format baru.
   var header = [
     "ticket_no",
     "type",
@@ -341,9 +355,9 @@ function toCsv(rows, options) {
     "unit",
     "category",
     "status",
-    "created_wib",
-    "first_response_wib",
-    "resolved_wib",
+    "created_local",
+    "first_response_local",
+    "resolved_local",
     "response_minutes",
     "resolution_minutes",
     "breached",
@@ -365,9 +379,9 @@ function toCsv(rows, options) {
       row.unit,
       row.category,
       row.status,
-      formatWib(row.createdMs),
-      formatWib(row.firstResponseMs),
-      formatWib(row.resolvedMs),
+      formatLocal(row.createdMs, zone),
+      formatLocal(row.firstResponseMs, zone),
+      formatLocal(row.resolvedMs, zone),
       row.firstResponseMs ? minutesBetween(row.createdMs, row.firstResponseMs) : "",
       row.resolvedMs ? minutesBetween(row.createdMs, row.resolvedMs) : "",
       row.breached ? "yes" : "no",
@@ -398,69 +412,81 @@ function queryText(query, key) {
   return String(value);
 }
 
-function startOfDayWib(ms) {
-  var wib = new Date(ms + WIB_OFFSET_MS);
-  var midnight = Date.UTC(
-    wib.getUTCFullYear(),
-    wib.getUTCMonth(),
-    wib.getUTCDate()
-  );
-
-  return midnight - WIB_OFFSET_MS;
+function dateText(ms, zone) {
+  return timezone.dateKey(ms, timezone.resolveZone(zone));
 }
 
-function endOfDayWib(ms) {
-  return startOfDayWib(ms) + DAY_MS - 1;
-}
-
-function dateText(ms) {
-  var wib = new Date(ms + WIB_OFFSET_MS);
-  return (
-    wib.getUTCFullYear() +
-    "-" +
-    pad(wib.getUTCMonth() + 1) +
-    "-" +
-    pad(wib.getUTCDate())
-  );
-}
-
-function parseDateText(text) {
+// Tanggal `YYYY-MM-DD` pada query adalah tanggal kalender lokal laporan, bukan
+// UTC. Tanpa zona, tanggal 1 bisa jatuh ke bulan sebelumnya.
+function parseDateText(text, zone) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
 
-  var date = new Date(text + "T00:00:00+07:00");
-  return isNaN(date.getTime()) ? null : date.getTime();
+  var year = Number(text.slice(0, 4));
+  var month = Number(text.slice(5, 7)) - 1;
+  var day = Number(text.slice(8, 10));
+  var probe = Date.UTC(year, month, day);
+
+  // Tolak tanggal yang tidak ada (mis. 2026-02-31).
+  var check = new Date(probe);
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month ||
+    check.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return timezone.fromLocal(year, month, day, 0, 0, timezone.resolveZone(zone));
 }
 
-// Rentang laporan: default 90 hari terakhir, maksimal 366 hari.
-function parseRange(query, nowMs) {
+// Rentang laporan: default 90 hari terakhir, maksimal 366 hari. Parameter
+// `from`/`to` adalah tanggal kalender pada zona laporan.
+function parseRange(query, nowMs, zoneName) {
+  var zone = timezone.resolveZone(zoneName);
   var bucket = queryText(query, "bucket") === "week" ? "week" : "month";
   var fromText = queryText(query, "from");
   var toText = queryText(query, "to");
   var now = nowMs || Date.now();
 
-  var toStart = toText ? parseDateText(toText) : now;
+  var toStart = toText ? parseDateText(toText, zone) : now;
 
   if (toText && toStart == null) {
     return { error: "Format tanggal akhir tidak valid (YYYY-MM-DD)" };
   }
 
-  var fromStart = fromText ? parseDateText(fromText) : null;
+  var fromStart = fromText ? parseDateText(fromText, zone) : null;
 
   if (fromText && fromStart == null) {
     return { error: "Format tanggal awal tidak valid (YYYY-MM-DD)" };
   }
 
-  var toMs = endOfDayWib(toStart);
-  var fromMs = fromStart
-    ? startOfDayWib(fromStart)
-    : startOfDayWib(toStart) - 89 * DAY_MS;
+  var toMs = timezone.endOfDay(toStart, zone);
+  var fromMs = fromStart;
+
+  if (fromMs == null) {
+    var anchor = timezone.localParts(toStart, zone);
+    fromMs = timezone.fromLocal(
+      anchor.year,
+      anchor.month,
+      anchor.day - 89,
+      0,
+      0,
+      zone
+    );
+  }
 
   if (fromMs > toMs) {
     return { error: "Tanggal awal harus sebelum tanggal akhir" };
   }
 
+  var fromParts = timezone.localParts(fromMs, zone);
+  var toParts = timezone.localParts(toMs, zone);
   var days =
-    Math.round((startOfDayWib(toMs) - startOfDayWib(fromMs)) / DAY_MS) + 1;
+    Math.round(
+      (Date.UTC(toParts.year, toParts.month, toParts.day) -
+        Date.UTC(fromParts.year, fromParts.month, fromParts.day)) /
+        DAY_MS
+    ) + 1;
 
   if (days > 366) {
     return { error: "Rentang laporan maksimal 366 hari" };
@@ -469,10 +495,11 @@ function parseRange(query, nowMs) {
   return {
     fromMs: fromMs,
     toMs: toMs,
-    from: dateText(fromMs),
-    to: dateText(toMs),
+    from: dateText(fromMs, zone),
+    to: dateText(toMs, zone),
     days: days,
     bucket: bucket,
+    timezone: zone,
   };
 }
 
@@ -756,9 +783,10 @@ function buildOperations(app, tenants, options) {
 
   return {
     range: {
-      from: dateText(options.fromMs),
-      to: dateText(options.toMs),
+      from: dateText(options.fromMs, zoneOf(options)),
+      to: dateText(options.toMs, zoneOf(options)),
       days: options.days,
+      timezone: zoneOf(options),
     },
     sla: summarize(rows),
     incidents: {

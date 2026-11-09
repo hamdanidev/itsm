@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import PageHeader from "../../../components/ui/PageHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useTenant } from "../../../app/providers/TenantProvider";
 import { isPlatformStaff, isLead } from "../../../lib/permissions";
+import { formatDateTime } from "../../../lib/format";
 import {
   downloadOperationsReportCsv,
   downloadSlaReportCsv,
@@ -45,18 +46,18 @@ const PRESETS = [
   { label: "Bulan ini", month: true },
 ];
 
-function wibDateString(date = new Date()) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Jakarta",
-  }).format(date);
+// Tanggal kalender pada zona laporan. `en-CA` menghasilkan YYYY-MM-DD yang
+// dipakai langsung sebagai nilai input tanggal.
+function dateStringInZone(date, timeZone) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(date);
 }
 
-function daysAgo(days) {
-  return wibDateString(new Date(Date.now() - days * 86400000));
+function daysAgo(days, timeZone) {
+  return dateStringInZone(new Date(Date.now() - days * 86400000), timeZone);
 }
 
-function startOfMonth() {
-  const today = wibDateString();
+function startOfMonth(timeZone) {
+  const today = dateStringInZone(new Date(), timeZone);
   return `${today.slice(0, 7)}-01`;
 }
 
@@ -79,16 +80,6 @@ function formatPercent(value) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 1,
   })}%`;
-}
-
-function formatDate(value) {
-  if (!value) return "—";
-
-  return new Intl.DateTimeFormat("id-ID", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Jakarta",
-  }).format(new Date(value));
 }
 
 function Kpi({ icon, label, value, hint, tone = "" }) {
@@ -424,12 +415,16 @@ function IncidentStatsSection({ stats }) {
 
 export default function ReportsPage() {
   const { user } = useAuth();
-  const { tenants } = useTenant();
+  const { tenant, tenants } = useTenant();
   const isVendor = isPlatformStaff(user);
   const canSchedule = isLead(user) && !isVendor;
 
-  const [from, setFrom] = useState(() => daysAgo(89));
-  const [to, setTo] = useState(() => wibDateString());
+  // Tanggal input, batas laporan, dan tampilan tanggal mengikuti zona rumah
+  // sakit yang sedang dilihat (vendor: tenant aktif).
+  const timeZone = tenant?.timezone || "Asia/Jakarta";
+
+  const [from, setFrom] = useState(() => daysAgo(89, "Asia/Jakarta"));
+  const [to, setTo] = useState(() => dateStringInZone(new Date(), "Asia/Jakarta"));
   const [bucket, setBucket] = useState("month");
   // Kosong = gabungan semua rumah sakit (hanya berlaku untuk akun vendor).
   const [tenantFilter, setTenantFilter] = useState("");
@@ -445,6 +440,7 @@ export default function ReportsPage() {
   const [scheduleRunning, setScheduleRunning] = useState(false);
   const [scheduleNotice, setScheduleNotice] = useState("");
   const [scheduleError, setScheduleError] = useState("");
+  const appliedZone = useRef("");
 
   const load = useCallback(async (params) => {
     setLoading(true);
@@ -467,8 +463,17 @@ export default function ReportsPage() {
   }, []);
 
   useEffect(() => {
-    load({ from: daysAgo(89), to: wibDateString(), bucket: "month" });
-  }, [load]);
+    if (appliedZone.current === timeZone) return;
+
+    appliedZone.current = timeZone;
+
+    const nextTo = dateStringInZone(new Date(), timeZone);
+    const nextFrom = daysAgo(89, timeZone);
+
+    setFrom(nextFrom);
+    setTo(nextTo);
+    load({ from: nextFrom, to: nextTo, bucket: "month", timezone: timeZone });
+  }, [timeZone, load]);
 
   useEffect(() => {
     if (!canSchedule) return undefined;
@@ -494,6 +499,7 @@ export default function ReportsPage() {
       to: next.to ?? to,
       bucket: next.bucket ?? bucket,
       tenant: next.tenant ?? tenantFilter,
+      timezone: timeZone,
     };
 
     setFrom(params.from);
@@ -505,11 +511,17 @@ export default function ReportsPage() {
 
   function applyPreset(preset) {
     if (preset.month) {
-      apply({ from: startOfMonth(), to: wibDateString() });
+      apply({
+        from: startOfMonth(timeZone),
+        to: dateStringInZone(new Date(), timeZone),
+      });
       return;
     }
 
-    apply({ from: daysAgo(preset.days - 1), to: wibDateString() });
+    apply({
+      from: daysAgo(preset.days - 1, timeZone),
+      to: dateStringInZone(new Date(), timeZone),
+    });
   }
 
   async function downloadCsv() {
@@ -517,7 +529,7 @@ export default function ReportsPage() {
     setError("");
 
     try {
-      await downloadSlaReportCsv({ from, to, tenant: tenantFilter });
+      await downloadSlaReportCsv({ from, to, tenant: tenantFilter, timezone: timeZone });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -530,7 +542,12 @@ export default function ReportsPage() {
     setError("");
 
     try {
-      await downloadOperationsReportCsv({ from, to, tenant: tenantFilter });
+      await downloadOperationsReportCsv({
+        from,
+        to,
+        tenant: tenantFilter,
+        timezone: timeZone,
+      });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -680,7 +697,7 @@ export default function ReportsPage() {
               type="date"
               value={to}
               min={from}
-              max={wibDateString()}
+              max={dateStringInZone(new Date(), timeZone)}
               onChange={(event) => setTo(event.target.value)}
             />
           </div>
@@ -986,7 +1003,7 @@ export default function ReportsPage() {
                                 <td>{item.unit}</td>
                                 <td>{PRIORITY_LABELS[item.priority] || item.priority}</td>
                                 <td>{STATUS_LABELS[item.status] || item.status}</td>
-                                <td className="col-date">{formatDate(item.breached_at)}</td>
+                                <td className="col-date">{formatDateTime(item.breached_at)}</td>
                                 <td className="col-num">
                                   {item.escalation_level || 0}
                                 </td>
@@ -1023,7 +1040,8 @@ export default function ReportsPage() {
           <div className="panel-body">
             <p className="report-schedule-intro">
               Kirim ringkasan SLA otomatis ke seluruh Kepala IT aktif. Pilih
-              mingguan (Senin 07.00 WIB) atau bulanan (tanggal 1, 07.00 WIB).
+              mingguan (Senin 07.00 waktu lokal RS) atau bulanan (tanggal 1,
+              07.00 waktu lokal RS).
             </p>
 
             <div className="report-schedule-controls">
@@ -1065,12 +1083,12 @@ export default function ReportsPage() {
             <div className="report-schedule-meta">
               {schedule?.next_at && (
                 <span>
-                  Pengiriman berikutnya: <strong>{formatDate(schedule.next_at)}</strong>
+                  Pengiriman berikutnya: <strong>{formatDateTime(schedule.next_at)}</strong>
                 </span>
               )}
               {schedule?.last_sent_at && (
                 <span>
-                  Terakhir dikirim: <strong>{formatDate(schedule.last_sent_at)}</strong>
+                  Terakhir dikirim: <strong>{formatDateTime(schedule.last_sent_at)}</strong>
                 </span>
               )}
               {schedule?.recipients != null && (

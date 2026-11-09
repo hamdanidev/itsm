@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { pb } from "../../lib/pocketbase";
@@ -13,6 +14,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(pb.authStore.record || null);
   const [ready, setReady] = useState(false);
+  const refreshing = useRef(false);
 
   useEffect(() => {
     const unsubscribe = pb.authStore.onChange((_token, record) => {
@@ -25,13 +27,27 @@ export function AuthProvider({ children }) {
         return;
       }
 
+      // React StrictMode menjalankan effect dua kali. Tanpa penjaga ini dua
+      // `authRefresh` berjalan bersamaan, SDK membatalkan salah satunya, dan
+      // request yang dibatalkan dulu dianggap sesi tidak berlaku.
+      if (refreshing.current) return;
+      refreshing.current = true;
+
       try {
         const auth = await pb.collection("users").authRefresh();
         setUser(auth.record);
-      } catch {
-        pb.authStore.clear();
-        setUser(null);
+      } catch (err) {
+        // Hanya 401/403 yang berarti token benar-benar tidak berlaku. Error
+        // lain (request dibatalkan, jaringan putus sesaat) tidak boleh
+        // mengeluarkan pengguna dari sesinya.
+        const status = Number(err && err.status) || 0;
+
+        if (status === 401 || status === 403) {
+          pb.authStore.clear();
+          setUser(null);
+        }
       } finally {
+        refreshing.current = false;
         setReady(true);
       }
     }

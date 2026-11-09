@@ -324,13 +324,37 @@ routerAdd(
     }
 
     var changes = {};
+    var previousTimezone = String(tenant.get("timezone") || "");
+    var timezoneChanged =
+      input.timezone !== undefined && String(input.timezone) !== previousTimezone;
 
     for (var key in input) {
       changes[key] = { from: tenant.get(key), to: input[key] };
       tenant.set(key, input[key]);
     }
 
-    $app.save(tenant);
+    // Policy SLA menyimpan zona sendiri agar bisa dihitung tanpa membaca tenant.
+    // Saat zona rumah sakit berubah, policy-nya ikut diselaraskan; tanpa ini
+    // tenggat tiket baru tetap memakai zona lama.
+    $app.runInTransaction((txApp) => {
+      txApp.save(tenant);
+
+      if (!timezoneChanged) return;
+
+      var policies = txApp.findRecordsByFilter(
+        "sla_policies",
+        "tenant = {:tenant}",
+        "",
+        0,
+        0,
+        { tenant: tenant.id }
+      );
+
+      for (var i = 0; i < policies.length; i++) {
+        policies[i].set("timezone", input.timezone);
+        txApp.save(policies[i]);
+      }
+    });
 
     platform.writeAudit(e, auth, {
       tenant: tenant.id,

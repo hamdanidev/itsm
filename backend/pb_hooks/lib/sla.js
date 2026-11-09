@@ -1,5 +1,14 @@
-var WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
-var DAY_MS = 24 * 60 * 60 * 1000;
+// Perhitungan tenggat SLA.
+//
+// Kalender bisnis dihitung pada zona waktu tenant (atau policy bila diisi
+// berbeda), bukan pada offset tetap. `timezone.js` yang menangani konversi
+// sadar DST; modul ini hanya berurusan dengan aturan SLA.
+//
+// `sla_snapshot` menyimpan zona yang dipakai saat tenggat dihitung, sehingga
+// perubahan zona tenant di kemudian hari tidak mengubah tenggat tiket lama:
+// tanggal tenggat sudah berupa instan UTC yang tersimpan.
+
+var timezone = require(__hooks + "/lib/timezone.js");
 
 var IMPACT_TO_PRIORITY = {
   patient_safety: "critical",
@@ -48,43 +57,36 @@ function daysFrom(value) {
   return result.length ? result : [1, 2, 3, 4, 5];
 }
 
-function wibParts(ms) {
-  var d = new Date(ms + WIB_OFFSET_MS);
-  return {
-    year: d.getUTCFullYear(),
-    month: d.getUTCMonth(),
-    date: d.getUTCDate(),
-    weekday: d.getUTCDay() || 7,
-  };
-}
-
-function keyFromMs(ms) {
-  var p = wibParts(ms);
-  return (
-    p.year +
-    "-" +
-    ("0" + (p.month + 1)).slice(-2) +
-    "-" +
-    ("0" + p.date).slice(-2)
-  );
-}
-
+// Hari libur adalah tanggal kalender, bukan instan. PocketBase menyimpannya
+// sebagai datetime tengah malam UTC, jadi bagian tanggalnya dipakai apa adanya.
+// Membaca lewat konversi zona justru bisa menggeser satu hari untuk zona
+// negatif (00:00Z = hari sebelumnya di America/New_York).
 function holidaySet(records) {
   var result = {};
+
   for (var i = 0; i < (records || []).length; i++) {
-    var raw = String(value(records[i], "date", "")).replace(" ", "T");
-    var date = new Date(raw);
-    if (!isNaN(date.getTime())) {
-      result[keyFromMs(date.getTime())] = true;
-    }
+    var raw = String(value(records[i], "date", "")).trim();
+    var key = raw.slice(0, 10);
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(key)) result[key] = true;
   }
+
   return result;
 }
 
-function addBusinessMinutes(startMs, minutes, policy, holidays) {
+function zoneFor(policy, tenantTimezone) {
+  var policyZone = String(value(policy, "timezone", "") || "").trim();
+
+  if (timezone.isValidZone(policyZone)) return policyZone;
+
+  return timezone.resolveZone(tenantTimezone);
+}
+
+function addBusinessMinutes(startMs, minutes, policy, holidays, tenantTimezone) {
   var remaining = Math.floor(minutes);
   if (remaining <= 0) return startMs;
 
+  var zone = zoneFor(policy, tenantTimezone);
   var days = daysFrom(value(policy, "business_days", [1, 2, 3, 4, 5]));
   var startMinutes = clockToMinutes(value(policy, "business_start", "08:00"));
   var endMinutes = clockToMinutes(value(policy, "business_end", "17:00"));
@@ -95,12 +97,27 @@ function addBusinessMinutes(startMs, minutes, policy, holidays) {
 
   while (remaining > 0 && guard < 4000) {
     guard++;
-    var parts = wibParts(cursor);
-    var dayStart = Date.UTC(parts.year, parts.month, parts.date) - WIB_OFFSET_MS;
-    var workStart = dayStart + startMinutes * 60000;
-    var workEnd = dayStart + endMinutes * 60000;
+
+    var parts = timezone.localParts(cursor, zone);
+    var workStart = timezone.fromLocal(
+      parts.year,
+      parts.month,
+      parts.day,
+      Math.floor(startMinutes / 60),
+      startMinutes % 60,
+      zone
+    );
+    var workEnd = timezone.fromLocal(
+      parts.year,
+      parts.month,
+      parts.day,
+      Math.floor(endMinutes / 60),
+      endMinutes % 60,
+      zone
+    );
     var isWorkday =
-      days.indexOf(parts.weekday) >= 0 && !holidays[keyFromMs(cursor)];
+      days.indexOf(parts.weekday) >= 0 &&
+      !holidays[timezone.dateKey(cursor, zone)];
 
     if (isWorkday) {
       if (cursor < workStart) cursor = workStart;
@@ -113,21 +130,30 @@ function addBusinessMinutes(startMs, minutes, policy, holidays) {
       }
     }
 
-    cursor = dayStart + DAY_MS;
+    // Awal hari berikutnya dihitung dari kalender lokal, bukan +24 jam, agar
+    // hari yang panjangnya 23/25 jam karena DST tetap benar.
+    cursor = timezone.fromLocal(
+      parts.year,
+      parts.month,
+      parts.day + 1,
+      0,
+      0,
+      zone
+    );
   }
 
   return cursor;
 }
 
-function addMinutes(startMs, minutes, policy, holidays) {
+function addMinutes(startMs, minutes, policy, holidays, tenantTimezone) {
   if (!minutes || minutes <= 0) return null;
   if (String(value(policy, "calendar_mode", "business_hours")) === "24x7") {
     return startMs + minutes * 60000;
   }
-  return addBusinessMinutes(startMs, minutes, policy, holidays);
+  return addBusinessMinutes(startMs, minutes, policy, holidays, tenantTimezone);
 }
 
-function fallbackPolicy(type, priority) {
+function fallbackPolicy(type, priority, zone) {
   var response = { critical: 15, high: 30, normal: 120, low: 480 }[priority];
   var resolution = 0;
 
@@ -150,7 +176,7 @@ function fallbackPolicy(type, priority) {
     business_days: [1, 2, 3, 4, 5],
     business_start: "08:00",
     business_end: "17:00",
-    timezone: "Asia/Jakarta",
+    timezone: timezone.resolveZone(zone),
     version: 0,
   };
 }
@@ -178,8 +204,22 @@ function loadHolidays(app, tenantId) {
   );
 }
 
-function computeDue(start, type, priority, policy, holidays) {
-  var usePolicy = policy || fallbackPolicy(type, priority);
+// Zona tenant dipakai sebagai fallback saat policy belum punya zona (mis. data
+// lama). Dibaca sekali per operasi; biayanya satu lookup berindeks.
+function tenantTimezone(app, tenantId) {
+  if (!tenantId) return "";
+
+  try {
+    var tenant = app.findRecordById("tenants", String(tenantId));
+    return String(tenant.get("timezone") || "");
+  } catch (err) {
+    return "";
+  }
+}
+
+function computeDue(start, type, priority, policy, holidays, tenantTimezoneName) {
+  var usePolicy = policy || fallbackPolicy(type, priority, tenantTimezoneName);
+  var zone = zoneFor(usePolicy, tenantTimezoneName);
   var startMs = start instanceof Date ? start.getTime() : new Date(start).getTime();
   if (isNaN(startMs)) throw new Error("Invalid SLA start date");
 
@@ -190,13 +230,26 @@ function computeDue(start, type, priority, policy, holidays) {
   var approvalMinutes = numberValue(usePolicy, "approval_minutes", 0);
   var resolutionMinutes = numberValue(usePolicy, "resolution_minutes", 0);
 
-  var responseMs = addMinutes(startMs, responseMinutes, usePolicy, holidayKeys);
-  var approvalMs = addMinutes(startMs, approvalMinutes, usePolicy, holidayKeys);
+  var responseMs = addMinutes(
+    startMs,
+    responseMinutes,
+    usePolicy,
+    holidayKeys,
+    zone
+  );
+  var approvalMs = addMinutes(
+    startMs,
+    approvalMinutes,
+    usePolicy,
+    holidayKeys,
+    zone
+  );
   var resolutionMs = addMinutes(
     startMs,
     resolutionMinutes,
     usePolicy,
-    holidayKeys
+    holidayKeys,
+    zone
   );
 
   var days = daysFrom(value(usePolicy, "business_days", [1, 2, 3, 4, 5]));
@@ -218,7 +271,7 @@ function computeDue(start, type, priority, policy, holidays) {
       business_days: days,
       business_start: String(value(usePolicy, "business_start", "08:00")),
       business_end: String(value(usePolicy, "business_end", "17:00")),
-      timezone: String(value(usePolicy, "timezone", "Asia/Jakarta")),
+      timezone: zone,
       computed_at: new Date().toISOString(),
     },
   };
@@ -228,6 +281,7 @@ module.exports = {
   priorityFromImpact: priorityFromImpact,
   findPolicy: findPolicy,
   loadHolidays: loadHolidays,
+  tenantTimezone: tenantTimezone,
   computeDue: computeDue,
   addBusinessMinutes: addBusinessMinutes,
 };

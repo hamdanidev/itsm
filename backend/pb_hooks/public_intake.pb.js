@@ -62,6 +62,7 @@ routerAdd("GET", "/api/itsm/public/intake/{token}", (e) => {
     tenant: {
       name: String(tenant.get("name") || ""),
       code: String(tenant.get("code") || ""),
+      timezone: String(tenant.get("timezone") || ""),
       logo_url: logo
         ? "/api/itsm/public/intake/" + encodeURIComponent(token) + "/logo"
         : "",
@@ -339,7 +340,14 @@ routerAdd("POST", "/api/itsm/public/intake/{token}", (e) => {
     }
 
     var holidays = sla.loadHolidays(txApp, tenantId);
-    due = sla.computeDue(new Date(), type, priority, policy, holidays);
+    due = sla.computeDue(
+      new Date(),
+      type,
+      priority,
+      policy,
+      holidays,
+      sla.tenantTimezone(txApp, tenantId)
+    );
 
     var collection = txApp.findCollectionByNameOrId("tickets");
     ticket = new Record(collection);

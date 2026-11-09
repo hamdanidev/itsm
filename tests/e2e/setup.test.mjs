@@ -218,6 +218,28 @@ test("form setup membuat rumah sakit dan langsung masuk sebagai Kepala IT", asyn
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForURL(/\/dashboard$/, { timeout: 20_000 });
 
+  // Zona waktu bisa diatur sendiri oleh Kepala IT pada instalasi standalone.
+  await page.goto(`${state.web.url}/admin`, { waitUntil: "domcontentloaded" });
+  await page.waitForURL(/\/admin$/, { timeout: 20_000 });
+  await page.waitForSelector('[role="tab"]', { timeout: 20_000 });
+  await page.getByRole("tab", { name: "Identitas" }).click();
+  await page.waitForSelector("#tenant-timezone");
+  await page.waitForSelector("#tenant-timezone");
+
+  await page.selectOption("#tenant-timezone", "Asia/Makassar");
+  await page.getByRole("button", { name: /Simpan zona waktu/ }).click();
+  await page.waitForSelector(".alert--success");
+
+  assert.match(
+    await page.locator(".alert--success").innerText(),
+    /Zona waktu diperbarui/
+  );
+
+  const shifted = await superuser.list("tenants", {
+    filter: 'code = "RSUD-KOTA-BDG"',
+  });
+  assert.equal(shifted.items[0].timezone, "Asia/Makassar");
+
   // Setelah keluar, /setup tidak lagi terbuka.
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${state.web.url}/setup`, { waitUntil: "domcontentloaded" });

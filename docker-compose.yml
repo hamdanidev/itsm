@@ -15,6 +15,8 @@ services:
       - .env
     environment:
       TZ: ${TZ:-Asia/Jakarta}
+      # Basis data zona IANA bawaan image (lihat Dockerfile).
+      ZONEINFO: /pb/zoneinfo.zip
       TENANCY_MODE: ${TENANCY_MODE:-standalone}
       APP_ORIGIN: https://${APP_DOMAIN}
       AUTOMIGRATE: "false"

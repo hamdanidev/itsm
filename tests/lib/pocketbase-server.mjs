@@ -11,6 +11,7 @@ import {
   hooksDir,
   migrationsDir,
   rootDir,
+  zoneinfoPath,
 } from "../../scripts/lib/pocketbase.mjs";
 
 export const SUPERUSER = {
@@ -105,12 +106,18 @@ export async function startPocketBase({ dataDir, port, timeoutMs = 60_000 } = {}
       // Instance uji memakai origin bebas: request tetap melewati proxy Vite,
       // dan port web e2e dipilih acak agar tidak bentrok dengan dev server.
       "--origins=*",
+      // `PB_DEV_LOG=1` menampilkan stack trace error route saat menelusuri
+      // kegagalan test; default tetap senyap seperti produksi.
+      ...(process.env.PB_DEV_LOG === "1" ? ["--dev"] : []),
     ],
     {
       cwd: rootDir,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
+        // Basis data zona IANA yang dibundel; tanpa ini Go di Windows hanya
+        // mengenal UTC dan seluruh perhitungan SLA menjadi salah.
+        ZONEINFO: process.env.ZONEINFO || zoneinfoPath,
         // Email tidak benar-benar dikirim saat test. Mode capture tetap
         // mencatat salinan ke `email_outbox` agar isi dan tautan bisa diperiksa.
         MAIL_TRANSPORT: "capture",

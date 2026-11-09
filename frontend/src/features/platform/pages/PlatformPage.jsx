@@ -11,6 +11,7 @@ import { useTenant } from "../../../app/providers/TenantProvider";
 import { formatDate } from "../../../lib/format";
 import { isPlatformAdmin, tenantRoleLabel } from "../../../lib/permissions";
 import { TEAM_OPTIONS, teamLabel } from "../../../lib/teams";
+import { timeZoneOptions } from "../../../lib/timezones";
 import { formErrorText, useAppForm } from "../../../lib/formik";
 import { usePagedEndpoint, useDebouncedValue } from "../../../lib/pagedList";
 import {
@@ -24,11 +25,7 @@ import {
   updatePlatformTenantUser,
 } from "../../../lib/api";
 
-const TIMEZONES = [
-  ["Asia/Jakarta", "WIB · Asia/Jakarta"],
-  ["Asia/Makassar", "WITA · Asia/Makassar"],
-  ["Asia/Jayapura", "WIT · Asia/Jayapura"],
-];
+const TIMEZONES = timeZoneOptions();
 
 const ROLES = [
   ["requester", "Pemohon"],
@@ -77,7 +74,6 @@ function timezoneLabel(value) {
   const found = TIMEZONES.find(([zone]) => zone === value);
   return found ? found[1] : value || "—";
 }
-
 function StatusLozenge({ active }) {
   return (
     <span

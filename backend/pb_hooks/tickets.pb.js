@@ -266,7 +266,14 @@ routerAdd(
       }
 
       var holidays = sla.loadHolidays(txApp, tenantId);
-      due = sla.computeDue(new Date(), type, priority, policy, holidays);
+      due = sla.computeDue(
+        new Date(),
+        type,
+        priority,
+        policy,
+        holidays,
+        sla.tenantTimezone(txApp, tenantId)
+      );
 
       var collection = txApp.findCollectionByNameOrId("tickets");
       ticket = new Record(collection);

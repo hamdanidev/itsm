@@ -194,3 +194,48 @@ test("parseRange memvalidasi rentang dan default 90 hari", () => {
     /366/
   );
 });
+
+// ---------------------------------------------------------------------------
+// Zona waktu laporan: batas hari dan bucket tidak boleh memakai offset tetap.
+// ---------------------------------------------------------------------------
+
+test("bucket bulan mengikuti zona laporan", () => {
+  // 2026-11-01T03:00Z = 31 Oktober 23:00 di New York.
+  const instant = Date.UTC(2026, 10, 1, 3, 0);
+
+  assert.equal(reporting.monthKey(instant, "Asia/Jakarta"), "2026-11");
+  assert.equal(reporting.monthKey(instant, "America/New_York"), "2026-10");
+});
+
+test("parseRange memakai batas hari zona laporan", () => {
+  const now = Date.UTC(2026, 10, 1, 2, 0);
+
+  assert.equal(reporting.parseRange({}, now, "Asia/Jakarta").to, "2026-11-01");
+  assert.equal(
+    reporting.parseRange({}, now, "America/New_York").to,
+    "2026-10-31"
+  );
+
+  const range = reporting.parseRange({}, now, "America/New_York");
+  assert.equal(range.timezone, "America/New_York");
+  assert.equal(range.days, 90);
+});
+
+test("CSV memakai waktu lokal zona laporan", () => {
+  const created = Date.UTC(2026, 5, 1, 12, 0);
+  const csv = reporting.toCsv(
+    [
+      row({
+        createdMs: created,
+        firstResponseMs: created + 30 * 60000,
+        resolvedMs: created + 5 * 3600000,
+      }),
+    ],
+    { timezone: "America/New_York" }
+  );
+  const lines = csv.split("\r\n");
+
+  assert.match(lines[0], /created_local,first_response_local,resolved_local/);
+  assert.match(lines[1], /2026-06-01 08:00,2026-06-01 08:30,2026-06-01 13:00/);
+});
+

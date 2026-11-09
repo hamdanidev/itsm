@@ -8,6 +8,7 @@ import {
   submitPublicTicketCsat,
 } from "../../../lib/api";
 import {
+  configureFormatting,
   formatDateTime,
   impactLabel,
   priorityLabel,
@@ -65,6 +66,8 @@ export default function PublicTicketPage() {
         const result = await fetchPublicTicket(token);
         if (!active) return;
 
+        // Halaman publik tidak lewat TenantProvider: zona diambil dari brand.
+        configureFormatting({ timeZone: result.tenant?.timezone });
         setData(result);
         document.title = `Status ${result.ticket?.ticket_no || "tiket"} · ${
           result.tenant?.name || "Rumah Sakit"

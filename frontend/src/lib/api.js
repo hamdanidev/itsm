@@ -294,6 +294,8 @@ function reportQuery(params = {}) {
   if (params.from) query.set("from", params.from);
   if (params.to) query.set("to", params.to);
   if (params.bucket) query.set("bucket", params.bucket);
+  // Zona laporan eksplisit; server memvalidasi nama IANA-nya.
+  if (params.timezone) query.set("timezone", params.timezone);
   // Akun vendor: kosong berarti gabungan semua rumah sakit.
   if (params.tenant) query.set("tenant", params.tenant);
   return query.toString();
@@ -597,6 +599,12 @@ export async function uploadTenantLogo(file) {
 
 export async function removeTenantLogo() {
   return pb.send("/api/itsm/tenant/logo", { method: "DELETE" });
+}
+
+// Zona waktu rumah sakit; hanya tersedia pada instalasi standalone (mode vendor
+// mengelola zona lewat Konsol Vendor).
+export async function updateTenantTimezone(timezone) {
+  return pb.send("/api/itsm/tenant", { method: "PATCH", body: { timezone } });
 }
 
 export async function fetchMailStatus() {

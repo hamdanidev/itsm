@@ -7,6 +7,7 @@ import test from "node:test";
 import { loadHookModule } from "../lib/load-hook.mjs";
 
 const sla = loadHookModule("lib/sla.js");
+const tz = loadHookModule("lib/timezone.js");
 
 const WIB_OFFSET = 7 * 60 * 60 * 1000;
 
@@ -174,3 +175,101 @@ test("addBusinessMinutes tidak menggeser saat durasi nol", () => {
   const start = wib(2026, 11, 2, 9, 0).getTime();
   assert.equal(sla.addBusinessMinutes(start, 0, policy(), []), start);
 });
+
+// ---------------------------------------------------------------------------
+// Zona waktu: sebelum ini seluruh perhitungan memakai offset tetap +07:00,
+// sehingga RS di WITA/WIT dan negara lain selalu mendapat tenggat yang salah.
+// ---------------------------------------------------------------------------
+
+function at(zone, year, month, day, hour, minute = 0) {
+  return new Date(tz.fromLocal(year, month - 1, day, hour, minute, zone));
+}
+
+function localLabel(value, zone) {
+  const parts = tz.localParts(new Date(value).getTime(), zone);
+  return `${parts.year}-${parts.month + 1}-${parts.day} ${String(
+    parts.hour
+  ).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+}
+
+test("jam kerja mengikuti zona policy, bukan offset WIB", () => {
+  const due = sla.computeDue(
+    at("Asia/Makassar", 2026, 11, 2, 9, 0),
+    "incident",
+    "normal",
+    policy({ timezone: "Asia/Makassar", response_minutes: 120 }),
+    []
+  );
+
+  assert.equal(localLabel(due.response, "Asia/Makassar"), "2026-11-2 11:00");
+  assert.equal(due.snapshot.timezone, "Asia/Makassar");
+  assert.equal(due.response.toISOString(), "2026-11-02T03:00:00.000Z");
+});
+
+test("policy tanpa zona memakai zona tenant", () => {
+  const due = sla.computeDue(
+    at("Asia/Jayapura", 2026, 11, 2, 9, 0),
+    "incident",
+    "normal",
+    policy({ timezone: "", response_minutes: 60 }),
+    [],
+    "Asia/Jayapura"
+  );
+
+  assert.equal(localLabel(due.response, "Asia/Jayapura"), "2026-11-2 10:00");
+  assert.equal(due.snapshot.timezone, "Asia/Jayapura");
+});
+
+test("jatuh tempo benar menyeberangi akhir pekan dan peralihan DST", () => {
+  // Jumat 30 Oktober 2026 16:00 EDT. Sisa jam kerja Jumat 60 menit, lalu
+  // Senin 2 November 08:00 EST + 60 menit = 09:00 waktu setempat.
+  const due = sla.computeDue(
+    at("America/New_York", 2026, 10, 30, 16, 0),
+    "incident",
+    "normal",
+    policy({ timezone: "America/New_York", response_minutes: 120 }),
+    [],
+    "America/New_York"
+  );
+
+  assert.equal(
+    localLabel(due.response, "America/New_York"),
+    "2026-11-2 09:00"
+  );
+  // Offset sudah berubah dari -04:00 (EDT) ke -05:00 (EST).
+  assert.equal(due.response.toISOString(), "2026-11-02T14:00:00.000Z");
+});
+
+test("hari libur dibaca sebagai tanggal kalender walau zona negatif", () => {
+  // Libur disimpan PocketBase sebagai 00:00Z. Dibaca lewat konversi zona,
+  // tanggal itu akan bergeser ke 1 November di New York.
+  const holidays = [{ date: "2026-11-02 00:00:00.000Z" }];
+  const due = sla.computeDue(
+    at("America/New_York", 2026, 11, 2, 9, 0),
+    "incident",
+    "normal",
+    policy({ timezone: "America/New_York", response_minutes: 60 }),
+    holidays,
+    "America/New_York"
+  );
+
+  assert.equal(
+    localLabel(due.response, "America/New_York"),
+    "2026-11-3 09:00"
+  );
+});
+
+test("zona tidak valid di policy jatuh ke zona tenant", () => {
+  const due = sla.computeDue(
+    at("Asia/Makassar", 2026, 11, 2, 9, 0),
+    "incident",
+    "normal",
+    policy({ timezone: "Mars/Olympus", response_minutes: 60 }),
+    [],
+    "Asia/Makassar"
+  );
+
+  assert.equal(due.snapshot.timezone, "Asia/Makassar");
+  assert.equal(localLabel(due.response, "Asia/Makassar"), "2026-11-2 10:00");
+});
+

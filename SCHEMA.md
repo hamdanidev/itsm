@@ -197,12 +197,21 @@ diunggah IT Lead lewat `POST /api/itsm/tenant/logo`. File diakses pengguna login
 lewat file API; halaman login standalone memakai route publik
 `/api/itsm/branding/logo` yang dinonaktifkan pada mode vendor.
 
-`timezone` dipakai saat membuat kebijakan SLA default tenant baru, tetapi
-perhitungan SLA tetap memakai `sla_policies.timezone` atau default `Asia/Jakarta`
-dan cron di-hardcode ke `Asia/Jakarta`.
+`timezone` adalah zona IANA rumah sakit (mis. `Asia/Jakarta`, `Asia/Makassar`,
+`America/New_York`). Nilainya dipakai saat membuat kebijakan SLA default tenant
+baru dan menjadi fallback perhitungan SLA bila policy tidak punya zona. Nama zona
+divalidasi terhadap basis data IANA (`backend/zoneinfo.zip` lewat `ZONEINFO`),
+bukan hanya pola teks.
+
+Yang boleh mengubah: wizard setup (instalasi baru), `PATCH /api/itsm/tenant`
+(Kepala IT, hanya mode standalone), dan Konsol Vendor (mode vendor). Kedua jalur
+terakhir menyelaraskan `sla_policies.timezone` dan menghitung ulang
+`report_next_at` agar laporan tetap 07.00 waktu lokal; perubahan lewat route
+dicatat di `audit_logs`.
 
 `report_frequency` (`off/weekly/monthly`) mengatur laporan SLA terjadwal:
-`weekly` setiap Senin 07.00 WIB, `monthly` setiap tanggal 1 07.00 WIB.
+`weekly` setiap Senin 07.00 **waktu lokal tenant**, `monthly` setiap tanggal 1
+07.00 waktu lokal tenant.
 `report_next_at` adalah jadwal berikutnya dan `report_last_sent_at` waktu kirim
 terakhir. Cron `report_schedule_scan` mengirim ringkasan email ke seluruh
 Kepala IT aktif lalu menghitung ulang `report_next_at`. Hanya route
@@ -845,6 +854,7 @@ Jeda dan recompute:
 | POST | `/api/itsm/profile/password` | Ganti password dengan verifikasi password lama |
 | POST | `/api/itsm/auth/forgot-password` | Minta tautan reset password (guest; respons generik) |
 | POST/DELETE | `/api/itsm/tenant/logo` | Unggah/hapus logo rumah sakit; hanya IT Lead |
+| PATCH | `/api/itsm/tenant` | Ubah `timezone` rumah sakit; hanya IT Lead, hanya mode standalone |
 | GET | `/api/itsm/branding/logo` | Logo publik rumah sakit aktif (standalone) |
 | GET | `/api/itsm/public/intake/{token}` | Meta form QR publik: tenant, titik, layanan/item, dampak (tanpa auth) |
 | POST | `/api/itsm/public/intake/{token}` | Buat tiket tamu dari QR (multipart: `payload` + `files`, tanpa auth) |
@@ -919,11 +929,15 @@ API rule.
 ## Laporan SLA
 
 `GET /api/itsm/reports/sla` mengagregasi tiket yang **dibuat** pada rentang
-`from`–`to` (WIB, `YYYY-MM-DD`), default 90 hari, maksimal 366 hari. Agregasi
-dijalankan di server (`pb_hooks/lib/reporting.js`), bukan di browser.
+`from`–`to` (tanggal kalender pada zona laporan, `YYYY-MM-DD`), default 90 hari,
+maksimal 366 hari. Agregasi dijalankan di server
+(`pb_hooks/lib/reporting.js`), bukan di browser.
 
 Parameter: `from`, `to`, `bucket` (`month` default, `week` memakai ISO week),
-dan `tenant` (khusus akun vendor).
+`timezone` (nama IANA, divalidasi), dan `tenant` (khusus akun vendor). Zona
+laporan ditentukan `lib/report_request.js`: `timezone` eksplisit > zona tenant
+yang dilihat > `Asia/Jakarta`. Batas hari, bucket bulan/minggu, dan teks tanggal
+di CSV mengikuti zona itu; tanggal tenggat tiket sendiri selalu disimpan UTC.
 
 Cakupan ditentukan `lib/platform.js#reportScope`:
 
@@ -940,7 +954,7 @@ memakai `assertLead`.
 
 Respons:
 
-- `range` — `from`, `to`, `days`, `bucket`.
+- `range` — `from`, `to`, `days`, `bucket`, `timezone`.
 - `scope` — `{ mode: "own"|"one"|"all", tenant }`.
 - `summary` — `total`, `resolved`, `breached`, `compliance` (persen),
   `median_response_minutes`, `median_resolution_minutes`, `reopens`.
@@ -962,9 +976,10 @@ median resolusi memakai `resolved_at − created` untuk tiket yang sudah selesai
 Semua durasi memakai menit kalender.
 
 `GET /api/itsm/reports/sla.csv` memakai filter yang sama dan mengirim satu baris
-per tiket (UTF-8 + BOM, pemisah koma) untuk diolah di Excel. Saat cakupannya
-`all`, kolom pertama menjadi `tenant`; ekspor satu rumah sakit memakai header
-lama tanpa kolom itu.
+per tiket (UTF-8 + BOM, pemisah koma) untuk diolah di Excel. Kolom waktu memakai
+akhiran `_local` (`created_local`, `first_response_local`, `resolved_local`) dan
+berisi waktu lokal zona laporan. Saat cakupannya `all`, kolom pertama menjadi
+`tenant`; ekspor satu rumah sakit memakai header tanpa kolom itu.
 
 ## Profil pengguna
 
@@ -1022,6 +1037,19 @@ tidak bisa dipakai ulang dan sesi lama keluar), lalu menulis audit
 - Setiap unggah/hapus menulis audit `update` pada `collection_name=tenants`.
 - Frontend memakai `tenantLogoUrl()` (`/api/files/tenants/{id}/{logo}`) untuk
   pengguna login, dan route publik di atas untuk halaman login.
+
+## Zona waktu rumah sakit
+
+- `PATCH /api/itsm/tenant` — body `{ timezone }`, hanya IT Lead, hanya mode
+  standalone (mode vendor 403: zona dikelola Konsol Vendor).
+- Zona divalidasi terhadap basis data IANA; nama karangan ditolak (400).
+- Transaksi menyimpan `tenants.timezone`, menyelaraskan `sla_policies.timezone`
+  milik tenant, dan menghitung ulang `tenants.report_next_at` bila jadwal laporan
+  aktif (tetap 07.00 waktu lokal).
+- Perubahan menulis audit `update` dengan `changes.timezone.{from,to}` dan
+  `changes.report_next_at`. Nilai yang sama tidak menulis audit.
+- Tiket lama tidak berubah: tenggat sudah tersimpan sebagai instan UTC dan
+  `sla_snapshot.timezone` merekam zona saat dihitung.
 
 ## Tim rumah sakit
 
@@ -1127,8 +1155,9 @@ Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
 - Mode tenancy hanya bisa diubah lewat environment; tidak ada tombol ubah mode
   di aplikasi (disengaja agar mode tidak bisa dinaikkan dari dalam).
 - Belum ada SSO.
-- `tenants.timezone` belum dipakai untuk perhitungan SLA; jam kerja masih
-  mengikuti policy atau default `Asia/Jakarta`.
+- Perhitungan SLA memakai zona policy/tenant dan sadar DST, tetapi belum ada
+  editor zona per policy di UI: zona policy mengikuti zona rumah sakit (diselaraskan
+  saat zona tenant diubah).
 - Deteksi data pasien bersifat kebijakan + attestation, bukan DLP.
 - PocketBase berjalan sebagai satu instance; jangan scale horizontal dengan
   SQLite yang sama.

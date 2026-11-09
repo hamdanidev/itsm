@@ -8,6 +8,7 @@ import {
 } from "react";
 import { pb } from "../../lib/pocketbase";
 import { fetchPlatformTenants } from "../../lib/api";
+import { configureFormatting } from "../../lib/format";
 import { useAuth } from "./AuthProvider";
 
 const STORAGE_KEY = "itsm.vendor.activeTenant";
@@ -153,6 +154,12 @@ export function TenantProvider({ children }) {
       loading,
     ]
   );
+
+  // Format tanggal di seluruh UI mengikuti zona rumah sakit yang sedang
+  // dilihat, bukan zona perangkat. Hanya dijalankan saat tenant sudah ada:
+  // halaman publik (tanpa TenantProvider) mengatur zonanya sendiri dari
+  // payload branding, dan jangan sampai tertimpa nilai default.
+  if (tenant?.timezone) configureFormatting({ timeZone: tenant.timezone });
 
   return (
     <TenantContext.Provider value={value}>{children}</TenantContext.Provider>

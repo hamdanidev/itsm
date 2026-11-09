@@ -393,7 +393,7 @@ export default function AdminPage() {
       <PageHeader
         breadcrumb={[{ label: "Service desk" }, { label: "Pengaturan" }]}
         title="Pengaturan"
-        description="Kelola identitas rumah sakit, unit, kategori, layanan, titik QR, kebijakan SLA, hari libur, dan tim IT. Perubahan data master berlaku untuk tiket baru; tiket lama memakai snapshot SLA saat dibuat."
+        description="Kelola identitas rumah sakit (termasuk zona waktu), unit, kategori, layanan, titik QR, kebijakan SLA, hari libur, dan tim IT. Perubahan data master berlaku untuk tiket baru; tiket lama memakai snapshot SLA saat dibuat."
         actions={
           isTeamTab || isIdentityTab || isServiceTab || isIntakeTab ? undefined : (
             <button

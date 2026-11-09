@@ -190,7 +190,8 @@ function activateNext(app, ticket, steps) {
     String(ticket.get("type")),
     String(ticket.get("priority")),
     snapshot,
-    sla.loadHolidays(app, tenantId)
+    sla.loadHolidays(app, tenantId),
+    sla.tenantTimezone(app, tenantId)
   );
 
   if (!due.approval) return next;

@@ -3,9 +3,10 @@
 // (normalizeCode, normalizeTimezone, validateTenantInput, validateUserInput)
 // sehingga bisa diuji unit tanpa PocketBase.
 
+var timezone = require(__hooks + "/lib/timezone.js");
+
 var CODE_PATTERN = /^[A-Z0-9][A-Z0-9._-]{1,19}$/;
 var EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-var TIMEZONE_PATTERN = /^[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+)*$/;
 
 var ROLES = ["requester", "it_support", "resolver", "it_lead", "viewer"];
 var TEAMS = [
@@ -40,8 +41,11 @@ function normalizeTimezone(raw) {
   return value;
 }
 
+// Nama zona harus benar-benar ada di basis data IANA, bukan hanya berbentuk
+// seperti nama zona. Zona karangan yang lolos validasi akan diam-diam jatuh ke
+// default saat perhitungan SLA, dan itu jenis kesalahan yang sulit terlihat.
 function isValidTimezone(value) {
-  return TIMEZONE_PATTERN.test(String(value || ""));
+  return timezone.isValidZone(value);
 }
 
 // Mengembalikan objek bersih siap `record.set`. `partial` dipakai untuk PATCH:

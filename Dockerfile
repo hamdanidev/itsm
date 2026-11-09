@@ -42,6 +42,10 @@ WORKDIR /pb
 COPY --from=pb-download /pb/pocketbase /usr/local/bin/pocketbase
 COPY backend/pb_migrations ./pb_migrations
 COPY backend/pb_hooks ./pb_hooks
+# Zona IANA dibundel agar hasil SLA tidak bergantung pada paket tzdata sistem.
+# `ZONEINFO` dibaca Go saat memuat lokasi; nilainya harus ada sejak proses lahir.
+COPY backend/zoneinfo.zip ./zoneinfo.zip
+ENV ZONEINFO=/pb/zoneinfo.zip
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 RUN chmod +x /usr/local/bin/entrypoint.sh \

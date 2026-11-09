@@ -4,14 +4,11 @@ import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMeta } from "../../../app/providers/MetaProvider";
 import { fetchSetupStatus, getErrorMessage, submitSetup } from "../../../lib/api";
 import { fieldError, formErrorText, useAppForm } from "../../../lib/formik";
+import { timeZoneOptions } from "../../../lib/timezones";
 import AuthBrand from "../../auth/AuthBrand";
 import ThemeToggle from "../../../components/ui/ThemeToggle";
 
-const TIMEZONES = [
-  ["Asia/Jakarta", "WIB · Asia/Jakarta"],
-  ["Asia/Makassar", "WITA · Asia/Makassar"],
-  ["Asia/Jayapura", "WIT · Asia/Jayapura"],
-];
+const TIMEZONES = timeZoneOptions();
 
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9._-]{1,19}$/;
 const EMAIL_PATTERN = /^\S+@\S+\.\S+$/;

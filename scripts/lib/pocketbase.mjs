@@ -24,6 +24,11 @@ export const dataDir = path.join(backendDir, "pb_data");
 export const migrationsDir = path.join(backendDir, "pb_migrations");
 export const hooksDir = path.join(backendDir, "pb_hooks");
 export const binDir = path.join(backendDir, ".bin");
+// Basis data zona IANA (TZif) yang dibundel. Go membacanya lewat `ZONEINFO`,
+// sehingga perhitungan SLA tidak bergantung pada paket `tzdata` sistem — di
+// Windows jalur sistem itu tidak ada, dan tanpa ini semua zona non-UTC akan
+// diam-diam menjadi UTC.
+export const zoneinfoPath = path.join(backendDir, "zoneinfo.zip");
 
 const DEFAULT_PB_VERSION = "0.40.5";
 const HEALTH_PATH = "/api/health";
@@ -262,6 +267,7 @@ export async function spawnPocketBase(extraArgs = []) {
       ...dotEnv,
       ...process.env,
       TZ: process.env.TZ || "Asia/Jakarta",
+      ZONEINFO: process.env.ZONEINFO || zoneinfoPath,
       // Tautan email di dev harus mengarah ke Vite, bukan port PocketBase.
       APP_URL:
         process.env.APP_URL || dotEnv.APP_URL || "http://localhost:5173",
@@ -300,7 +306,12 @@ export async function runPocketBase(args, label = "pocketbase") {
   const child = spawn(binary, args, {
     cwd: rootDir,
     stdio: "inherit",
-    env: { ...dotEnv, ...process.env, TZ: process.env.TZ || "Asia/Jakarta" },
+    env: {
+      ...dotEnv,
+      ...process.env,
+      TZ: process.env.TZ || "Asia/Jakarta",
+      ZONEINFO: process.env.ZONEINFO || zoneinfoPath,
+    },
   });
 
   return new Promise((resolve, reject) => {
