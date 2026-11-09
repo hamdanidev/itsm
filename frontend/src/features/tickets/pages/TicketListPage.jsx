@@ -106,6 +106,16 @@ const viewFilterKeys = [
 ];
 
 const DENSITY_KEY = "ticket-list-density";
+// Mode tampilan terakhir diingat supaya kembali dari menu lain tidak reset.
+const VIEW_KEY = "ticket-list-view";
+
+function readSavedView() {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "board" ? "board" : "list";
+  } catch {
+    return "list";
+  }
+}
 
 const startableStatuses = ["open", "assigned", "reopened", "waiting"];
 
@@ -163,7 +173,15 @@ export default function TicketListPage() {
 
   // Aksi cepat, aksi massal, dan papan kerja hanya untuk staf IT dan teknisi.
   const canBulkAct = isStaff(user) || isResolver(user);
-  const view = canBulkAct && params.get("view") === "board" ? "board" : "list";
+  const [savedView, setSavedView] = useState(readSavedView);
+  const viewParam = params.get("view");
+  // Parameter `view` di URL selalu menang (tautan/bookmark papan tetap papan).
+  // Tanpa parameter itu, pakai mode terakhir yang dipilih pengguna.
+  const view =
+    canBulkAct &&
+    (viewParam === "board" || (viewParam === null && savedView === "board"))
+      ? "board"
+      : "list";
 
   const [search, setSearch] = useState(q);
   const [perPage, setPerPage] = useState(25);
@@ -402,6 +420,14 @@ export default function TicketListPage() {
   // mewakili status) dan scope "aktif" agar kolom Selesai tetap terisi.
   function switchView(next) {
     setSelectedIds(new Set());
+    setSavedView(next);
+
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // localStorage bisa diblokir; URL tetap menyimpan mode pada sesi ini.
+    }
+
     updateParams(
       next === "board"
         ? { view: "board", status: "", scope: "" }

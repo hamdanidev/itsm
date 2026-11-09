@@ -250,6 +250,50 @@ test("pemohon tidak melihat tampilan tersimpan, pilih massal, atau aksi cepat", 
   await context.close();
 });
 
+test("mode tampilan terakhir bertahan setelah pindah menu", async () => {
+  const { context, page } = await login(state.org.support.email);
+
+  await page.goto(`${state.web.url}/tickets`, { waitUntil: "networkidle" });
+  await page.waitForSelector(".issue-table");
+
+  const papan = page.getByRole("button", { name: "Papan", exact: true });
+
+  await papan.click();
+  await page.waitForSelector(".board-columns", { timeout: 20_000 });
+  assert.equal(await papan.getAttribute("aria-pressed"), "true");
+
+  // Pindah menu lewat sidebar lalu kembali ke Tiket, seperti alur pengguna.
+  await page.locator('.sidebar-link[href="/dashboard"]').click();
+  await page.waitForURL(/\/dashboard$/, { timeout: 20_000 });
+  await page.locator('.sidebar-link[href="/tickets"]').click();
+  await page.waitForURL(/\/tickets$/, { timeout: 20_000 });
+  await page.waitForSelector(".board-columns", { timeout: 20_000 });
+
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Papan", exact: true })
+      .getAttribute("aria-pressed"),
+    "true",
+    "mode papan harus bertahan setelah kembali dari menu lain"
+  );
+
+  // Pilihan daftar juga bertahan setelah muat ulang.
+  await page.getByRole("button", { name: "Daftar", exact: true }).click();
+  await page.waitForSelector(".issue-table", { timeout: 20_000 });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForSelector(".issue-table", { timeout: 20_000 });
+
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Papan", exact: true })
+      .getAttribute("aria-pressed"),
+    "false",
+    "mode daftar harus bertahan setelah muat ulang"
+  );
+
+  await context.close();
+});
+
 test("kepadatan tabel tersimpan dan kolom tim tampil", async () => {
   const { context, page } = await login(state.org.lead.email);
   await page.goto(`${state.web.url}/tickets`, { waitUntil: "networkidle" });
