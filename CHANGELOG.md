@@ -12,9 +12,9 @@ ringkasan; detail per rilis ada di sini.
 - tautan **Bantuan** kini juga ada di menu pengguna (Profil saya → Bantuan),
   selain ikon tanya di topbar;
 - versi panduan dinaikkan ke 1.1; PDF dibangun ulang (81 halaman, 68 screenshot).
-- perbaikan: tautan daftar isi di /panduan.html tidak lagi diarahkan ke
-  /panduan/ (penyebab halaman 404 aplikasi); <base> diganti path gambar
-  absolut saat publish.
+- perbaikan: tautan daftar isi dan tautan antar-bab di /panduan.html tidak lagi
+  diarahkan ke halaman aplikasi (404). <base> dihapus, path gambar menjadi
+  absolut, dan tautan *.md antar-bab ditulis sebagai anchor #… saat build.
 ## 2026-11-10 — Panduan pengguna v1.0
 
 Panduan bergambar untuk staf rumah sakit tersedia lengkap di `docs/USER-GUIDE/`:

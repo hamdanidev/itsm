@@ -86,6 +86,23 @@ async function buildHtml() {
     chapters.push({ file, title, html: output, headings });
   }
 
+  // Dokumen ini menggabungkan semua bab, jadi tautan antar-bab harus menjadi
+  // anchor. Tanpa ini `href="01-....md"` diarahkan ke `/01-....md` dan ditangkap
+  // router SPA saat panduan disajikan di /panduan.html.
+  const chapterAnchors = new Map(
+    chapters.map((chapter) => [chapter.file, chapter.headings[0].id])
+  );
+
+  for (const chapter of chapters) {
+    chapter.html = chapter.html.replace(
+      /href="(?:\.\/)?([^"#]+\.md)(?:#[^"]*)?"/g,
+      (match, file) => {
+        const anchor = chapterAnchors.get(file);
+        return anchor ? `href="#${anchor}"` : match;
+      }
+    );
+  }
+
   const toc = chapters
     .map((chapter, index) => {
       const items = chapter.headings
