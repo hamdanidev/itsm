@@ -11,6 +11,12 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+# Panduan pengguna statis: dibangun dari Markdown + gambar yang di-commit,
+# lalu disalin ke public/ agar Vite menerbitkannya di /panduan/.
+COPY package.json package-lock.json /app/
+COPY scripts/guide /app/scripts/guide
+COPY docs/USER-GUIDE /app/docs/USER-GUIDE
+RUN cd /app && npm ci --omit=optional && node scripts/guide/build.mjs --publish
 RUN npm run build
 
 # ---------------------------------------------------------------------------

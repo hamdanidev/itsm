@@ -21,6 +21,9 @@ backups/
 node_modules/
 frontend/node_modules/
 frontend/dist/
+docs/USER-GUIDE/dist/
+frontend/public/panduan/
+frontend/public/panduan.html
 
 # Misc
 *.log

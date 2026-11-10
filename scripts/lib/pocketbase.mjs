@@ -20,7 +20,12 @@ export const rootDir = path.resolve(
   ".."
 );
 export const backendDir = path.join(rootDir, "backend");
-export const dataDir = path.join(backendDir, "pb_data");
+// `PB_DATA_DIR` memungkinkan instance terpisah (mis. pengambilan screenshot
+// panduan) memakai direktori data sendiri, sehingga instalasi rumah sakit di
+// `backend/pb_data` tidak pernah tersentuh.
+export const dataDir = process.env.PB_DATA_DIR
+  ? path.resolve(rootDir, process.env.PB_DATA_DIR)
+  : path.join(backendDir, "pb_data");
 export const migrationsDir = path.join(backendDir, "pb_migrations");
 export const hooksDir = path.join(backendDir, "pb_hooks");
 export const binDir = path.join(backendDir, ".bin");

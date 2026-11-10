@@ -31,9 +31,15 @@
     "test:unit": "node --test \"tests/unit/*.test.mjs\"",
     "test:api": "node tests/run-api.mjs",
     "test:e2e": "node --test --test-concurrency=2 \"tests/e2e/*.test.mjs\"",
-    "test:all": "npm test && npm run test:e2e"
+    "test:all": "npm test && npm run test:e2e",
+    "guide:shots": "node scripts/guide/screenshots.mjs",
+    "guide:build": "node scripts/guide/build.mjs",
+    "guide:pdf": "node scripts/guide/build.mjs --pdf",
+    "guide:check": "node --test tests/unit/guide.test.mjs",
+    "guide:publish": "node scripts/guide/build.mjs --publish"
   },
   "devDependencies": {
+    "marked": "^18.2.0",
     "playwright-core": "1.64.1"
   }
 }

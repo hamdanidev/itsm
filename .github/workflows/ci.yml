@@ -37,6 +37,7 @@ jobs:
       - run: npm ci --prefix frontend
       - run: npm run build
       - run: npm run test:unit
+      - run: npm run guide:build
       - run: npm run test:api
 
   e2e:

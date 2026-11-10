@@ -20,6 +20,14 @@ import Avatar from "../ui/Avatar";
 import ThemeToggle from "../ui/ThemeToggle";
 import TenantSwitcher from "./TenantSwitcher";
 
+// Panduan pengguna: disajikan statis di /panduan/ (lihat `npm run guide:publish`).
+// `VITE_GUIDE_URL=off` menyembunyikan tautan bila instalasi tidak menghosting
+// panduan; URL eksternal juga bisa dipakai.
+const GUIDE_URL =
+  import.meta.env.VITE_GUIDE_URL === "off"
+    ? ""
+    : import.meta.env.VITE_GUIDE_URL || "/panduan.html";
+
 // Pilihan lebar sidebar disimpan agar tidak berubah saat halaman di-refresh.
 const SIDEBAR_STORAGE_KEY = "itsm.sidebar.collapsed";
 
@@ -316,6 +324,19 @@ export default function AppShell() {
         <div className="topbar-actions">
           <TenantSwitcher />
 
+          {GUIDE_URL && (
+            <a
+              className="icon-button"
+              href={GUIDE_URL}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Buka panduan pengguna"
+              title="Bantuan — buka panduan pengguna"
+            >
+              <i className="bi bi-question-circle" aria-hidden="true" />
+            </a>
+          )}
+
           {!isPlatformStaff(user) && !isViewer(user) && (
             <Link
               className="btn btn-primary topbar-create"
@@ -479,6 +500,19 @@ export default function AppShell() {
                     ))}
                   </div>
                 </div>
+
+                {GUIDE_URL && (
+                  <a
+                    className="menu-item"
+                    href={GUIDE_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    role="menuitem"
+                  >
+                    <i className="bi bi-question-circle" aria-hidden="true" />
+                    Bantuan
+                  </a>
+                )}
 
                 <button
                   className="menu-item is-danger"
