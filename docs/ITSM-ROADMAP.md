@@ -659,6 +659,9 @@ keamanan/operasional punya jawaban tertulis.
 | Laporan SLA pertama terkirim otomatis | ada (mingguan/bulanan) |
 
 - Keluaran: laporan pilot 1 halaman + testimoni tertulis + keputusan lanjut/tidak.
+- **Panduan pengguna bergambar** (`docs/USER-GUIDE/`) disiapkan sebelum
+  onboarding: bab pembuat tiket + PDF pelatihan, dengan screenshot otomatis
+  agar tidak basi saat UI berubah. Fase 0–1 (bab 02) sudah ada di repo.
 - **Jangan janjikan** WhatsApp API, SSO/AD, atau AI selama pilot. Untuk keberatan
   kanal, tawarkan intake QR tanpa login yang sudah ada.
 
@@ -708,7 +711,7 @@ capacity, availability, financial). Alasan dan urutannya ada di
 5. **S0-5 dokumen jual** — berkas di `docs/` (one-pager, skrip demo, proposal
    pilot, harga, security pack).
 
-Aturan per item: satu commit, test menyertai, dan perbarui README/SCHEMA bila
+Aturan per item: satu commit, test menyertai, dan perbarui README/DATA-MODEL bila
 route atau perilaku berubah. Jangan mengerjakan S0-5 lebih dulu: tanpa bulk
 import dan 2FA, pilot akan gagal saat implementasi.
 
@@ -756,7 +759,7 @@ import dan 2FA, pilot akan gagal saat implementasi.
 ## 13. Referensi
 
 - [README.md](../README.md) — fitur dan operasi saat ini.
-- [SCHEMA.md](../SCHEMA.md) — schema dan custom route.
+- [docs/DATA-MODEL.md](DATA-MODEL.md) — koleksi, state machine, aturan akses.
 - `backend/pb_migrations/` — source of truth schema.
 - `backend/pb_hooks/` — route, guard, SLA, approval, audit.
 - `frontend/src/features/` — UI per domain.

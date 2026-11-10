@@ -664,7 +664,7 @@ Belum perlu role penuh sampai volume dan prosesnya ada. Untuk sementara:
 | UI | `TeamTab.jsx`, `PlatformPage.jsx` | Opsi role `resolver`; field `job_title`/`team` | Validasi server harus sama |
 | UI | `AppShell.jsx`, `TicketDetailPage.jsx`, `DashboardPage.jsx`, `TicketListPage.jsx` | Sembunyikan menu/aksi yang tidak boleh; tambah antrean "Tiket saya"/"Tim saya" | Aksi harus dicek server, bukan hanya UI |
 | Test | `tests/unit/guards.test.mjs`, `tests/api/auth-rbac.test.mjs`, `ticket-flow`, `team`, `platform*` | Matriks resolver vs agent vs lead vs requester | Test lama mengasumsikan 2 role staf |
-| Docs | `README.md`, `SCHEMA.md`, `docs/ITSM-ROADMAP.md` | Update role matrix dan schema | Jangan biarkan dokumen drift |
+| Docs | `README.md`, `docs/DATA-MODEL.md`, `docs/ITSM-ROADMAP.md` | Update role matrix dan schema | Jangan biarkan dokumen drift |
 
 **Prinsip migrasi:** tambah kolom/nilai dulu, backfill, baru jadikan wajib.
 Jangan mengedit migrasi yang sudah diterapkan (`docs/ITSM-ROADMAP.md:181`).
@@ -727,5 +727,5 @@ agar tidak ada cabang yang tertinggal.
   owner/manager.
 - [Freshservice — Default Agent Roles](https://support.freshservice.com/support/solutions/articles/156468/)
   — contoh pemisahan requester/agent/supervisor/admin di produk ITSM.
-- Repo: [`README.md`](../README.md), [`SCHEMA.md`](../SCHEMA.md),
+- Repo: [`README.md`](../README.md), [`docs/DATA-MODEL.md`](DATA-MODEL.md),
   [`docs/ITSM-ROADMAP.md`](./ITSM-ROADMAP.md).

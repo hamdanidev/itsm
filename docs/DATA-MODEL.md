@@ -1,6 +1,19 @@
-# Healthcare ITSM — Schema
+# Healthcare ITSM — Data model
 
 PocketBase v0.40.5. Source of truth: `backend/pb_migrations/`.
+
+Dokumen ini memuat koleksi, state machine, prioritas/SLA, dan aturan aksesnya.
+Perilaku per modul ada di [`FEATURES/`](FEATURES/), daftar route di
+[`API.md`](API.md), batasan yang diketahui di
+[`KNOWN-LIMITATIONS.md`](KNOWN-LIMITATIONS.md), dan penegakan tenancy di
+[`FEATURES/PLATFORM.md`](FEATURES/PLATFORM.md).
+
+- [Aturan akses](#aturan-akses)
+- [Setup awal](#setup-awal-first-run)
+- [Koleksi](#koleksi)
+- [State machine](#state-machine)
+- [Prioritas dan SLA](#prioritas-dan-sla)
+- [Custom routes](#custom-routes)
 
 ## Aturan akses
 
@@ -27,136 +40,14 @@ sakit* di bawah.
 Semua koleksi bisnis memiliki `tenant`. Server mengambil tenant dari `e.auth`,
 bukan dari body request. Frontend guard bukan otorisasi.
 
-## Mode tenancy
-
-Instalasi yang sama melayani dua bentuk deployment, ditentukan environment
-`TENANCY_MODE` (dibaca `lib/tenancy.js` saat request, bukan dari database):
-
-| Mode | `tenants` | Konsol Vendor | Login akun platform |
-|---|---|---|---|
-| `standalone` (default) | 1 baris | 403 | 403 |
-| `vendor` | N baris | aktif | diizinkan |
-
-Nilai tidak dikenal → `standalone` (gagal tertutup). Mode tidak mengubah schema
-maupun data; instalasi standalone bisa naik ke vendor tanpa migrasi.
-
-Karena API rule statis, mode ditegakkan di luar rule:
-
-1. `onRecordAuthRequest` (main.pb.js) menolak login **dan** refresh akun
-   platform saat mode bukan vendor.
-2. Semua route `/api/itsm/platform/*` memanggil `tenancy.assertVendor()`.
-3. `GET /api/itsm/app-meta` memberi tahu frontend mode aktif.
-
-Akun platform (`is_platform_staff = true`) bertindak sebagai resolver: mereka
-boleh **membaca** tiket semua rumah sakit, tetapi penulisan tetap lewat route
-`/api/itsm/*` yang memeriksa role dan kepemilikan tiket per record.
-
-### Akses vendor ke data rumah sakit
-
-Rule baca yang diberi cabang `@request.auth.is_platform_staff = true`:
-`tickets`, `ticket_comments`, `ticket_attachments`, `ticket_approvals`,
-`notifications`, `users`, `units`, `ticket_categories`, `services`,
-`service_items`, `problems`, `problem_tickets`, `knowledge_articles`, `assets`,
-`asset_tickets`, `service_cis`, `sla_policies`, `holidays`, `tenants`. Cabang
-tenant lama tidak diubah, sehingga akun rumah sakit tetap terisolasi.
-`ticket_csat` sengaja tidak punya rule baca/tulis langsung; akses hanya lewat
-route `/api/itsm/tickets/{id}/csat`.
-
-`users` juga membuka `is_platform_staff = true` untuk pembaca tenant, supaya nama
-assignee/approver vendor bisa di-expand di tiket rumah sakit. Field sensitif
-tetap disembunyikan `onRecordEnrich` (hanya diri sendiri / IT Lead /
-superuser).
-
-Konsekuensi lain yang disengaja:
-
-- `guards.findTicket` menerima akun platform untuk tiket tenant mana pun;
-  `assertSameTenant` dan `canAccessTicket` punya cabang platform.
-- Assignee boleh staf rumah sakit pemilik tiket **atau** staf vendor aktif.
-  Staf vendor bisa menugaskan tiket ke dirinya sendiri; staf rumah sakit yang
-  bisa melihat akun vendor juga bisa mengescalate ke vendor.
-- Delegasi approval boleh ditujukan ke staf vendor.
-- Notifikasi approval dikirim ke lead rumah sakit + lead vendor
-  (`notify.approvalAlerts`), termasuk notifikasi tiket kritis.
-- **Gate CAB tetap menghitung lead rumah sakit saja** (`notify.activeLeads`),
-  agar jumlah akun vendor tidak mengubah alur approval tenant mana pun.
-- Audit mencatat aktor vendor dengan `actor_role` berawalan `platform_`
-  (mis. `platform_it_lead`), pada tenant tiket yang bersangkutan.
-- Vendor tidak bisa membuat tiket: route create membutuhkan `tenant` dan `unit`
-  milik akun, yang tidak dimiliki akun platform.
-
-### Layar audit vendor
-
-`GET /api/itsm/platform/audit` membaca `audit_logs` lintas tenant tanpa
-melonggarkan rule koleksi (rule baca audit tetap milik IT Lead per tenant).
-
-Parameter: `tenant`, `actor` (id user), `scope` (`platform` / `tenant` /
-`superuser`), `action`, `collection`, `q` (nomor tiket), `from`, `to`, `page`,
-`perPage` (maks 100; default 25). Rentang tanggal memakai parser laporan
-(default 90 hari, maks 366).
-
-Respons memuat `items` yang sudah dilengkapi `tenant_name`, `tenant_code`,
-`actor_name`, `actor_role`, `actor_scope`, `ticket_no`, `changes`, `ip`, dan
-`user_agent`, plus `totalItems`, `totalPages`, dan `actors` (pilihan filter
-aktor: staf vendor + staf tenant terpilih).
-
-### Layar audit rumah sakit
-
-`GET /api/itsm/audit` dipakai Kepala IT dan Pengamat. Tenant selalu diambil
-dari `e.auth`; parameter `tenant` diabaikan. Parameter lain sama dengan audit
-vendor. Pengamat tidak membuka koleksi `audit_logs`; route ini yang membaca
-untuknya. Rule koleksi tetap hanya untuk Kepala IT.
-
-Catatan semantik:
-
-- `scope=tenant` berarti staf rumah sakit saja; baris `superuser` tidak ikut.
-- Aksi vendor tercatat dengan `actor_role` `platform_*` dan `actor_scope`
-  `platform`.
-- Perubahan data master lewat Admin UI (superuser) tercatat dengan
-  `actor_role = "superuser"` dan **tanpa** relasi `actor`, karena superuser
-  bukan record `users`. Sebelumnya baris ini tidak tersimpan sama sekali.
-
-### Data master per rumah sakit
-
-`GET`/`POST`/`PATCH` pada `/api/itsm/platform/tenants/{id}/master...` memberi
-vendor akses kelola unit, kategori, kebijakan SLA, dan hari libur tanpa
-melonggarkan rule tulis `LEAD && TENANT` milik rumah sakit.
-
-- `kind`: `units` | `categories` | `policies` | `holidays`.
-- Baca untuk semua akun platform; tulis hanya `role = it_lead` (vendor admin).
-- Setiap record dipaksa `tenant = {id}` dari URL. Record milik tenant lain
-  menghasilkan 404, termasuk saat `recordId` valid tetapi beda rumah sakit.
-- Validasi di `lib/master_data.js`: kode huruf besar 1–20 karakter, jenis
-  unit/kategori dikenal, jam `HH:MM` dengan mulai < selesai, hari kerja 1–7,
-  respons ≥ 1 menit, tanggal `YYYY-MM-DD`.
-- Keunikan dijaga manual: `(tenant, code)` untuk unit/kategori,
-  `(tenant, ticket_type, priority)` untuk kebijakan SLA, `(tenant, date)` untuk
-  hari libur. Pelanggaran → 400.
-- Manajer unit harus pengguna aktif pada rumah sakit yang sama.
-- Tidak ada hard delete; gunakan `is_active = false` agar riwayat tiket lama
-  tetap valid.
-- Setiap create/update menulis `audit_logs` pada tenant terkait dengan
-  `collection_name` yang diubah dan `actor_role` platform.
-
-Di UI, vendor memilih satu rumah sakit aktif lewat pemilih tenant di top bar.
-Pilihan disimpan di `localStorage` dan menjadi filter daftar tiket; ia **bukan**
-batas keamanan (vendor memang boleh melihat semua), melainkan konteks kerja.
-
-Halaman detail tiket menyelaraskan pemilih ke tenant tiket saat dibuka (sekali
-per tiket), sehingga membuka tautan/notifikasi tiket RS lain tidak
-meninggalkan pemilih di RS yang salah. Mengganti rumah sakit dari halaman
-detail mengalihkan ke daftar tiket rumah sakit yang baru, bukan menampilkan
-tiket RS lain di bawah pemilih tersebut.
-
 ## Setup awal (first-run)
 
 Instalasi baru — belum ada satu pun record `users` — membuka halaman `/setup`.
 Status dan pembuatan akun pertama dilayani `pb_hooks/setup.pb.js` dengan helper
 di `lib/setup.js`.
 
-| Method | Path | Keterangan |
-|---|---|---|
-| GET | `/api/itsm/setup/status` | `required`, `mode`, `hospital` (prefill standalone), `token_required`, `min_password` |
-| POST | `/api/itsm/setup` | Buat data awal + akun pertama; body `token` + `hospital`/`account` |
+Route, bentuk body, dan response-nya ada di
+[`API.md`](API.md#setup-awal-dan-metadata).
 
 - **Penanda selesai**: `countRecords("users") === 0`. Begitu akun pertama ada,
   kedua route menolak (409) dan `/setup` dialihkan ke `/login`; tidak ada flag
@@ -863,81 +754,8 @@ Jeda dan recompute:
 
 ## Custom routes
 
-| Method | Path | Keterangan |
-|---|---|---|
-| POST | `/api/itsm/tickets` | Buat tiket |
-| POST | `/api/itsm/tickets/{id}/assign` | Assign / lepas assignee |
-| POST | `/api/itsm/tickets/{id}/transition` | Mulai, menunggu/lanjutkan, selesaikan, tutup, buka kembali |
-| POST | `/api/itsm/tickets/{id}/merge` | Gabungkan tiket duplikat ke tiket tujuan; staff IT |
-| POST | `/api/itsm/tickets/{id}/triage` | Koreksi prioritas/dampak/kategori/layanan/lokasi sebelum pekerjaan dimulai |
-| POST | `/api/itsm/problems` | Buat problem; opsional tautkan `ticket_id` |
-| PATCH | `/api/itsm/problems/{id}` | Ubah status/root cause/workaround/permanent fix |
-| POST | `/api/itsm/problems/{id}/tickets` | Tautkan tiket ke problem |
-| POST | `/api/itsm/incidents` | Deklarasikan insiden mayor; opsional `source_ticket` |
-| PATCH | `/api/itsm/incidents/{id}` | Ubah status/severity/komandan/layanan/PIR |
-| POST | `/api/itsm/incidents/{id}/updates` | Update komunikasi internal/publik |
-| POST | `/api/itsm/incidents/{id}/tickets` | Tautkan tiket terdampak |
-| GET | `/api/itsm/incidents/stats` | MTTR, jumlah insiden, tren, dan PIR (hanya IT Lead) |
-| POST | `/api/itsm/knowledge` | Buat artikel draft; opsional tautkan tiket |
-| PATCH | `/api/itsm/knowledge/{id}` | Ubah artikel atau ajukan review |
-| POST | `/api/itsm/knowledge/{id}/publish` | Terbitkan/pensiunkan; hanya IT Lead |
-| GET | `/api/itsm/knowledge/search` | Cari artikel terbit + workaround known error |
-| POST | `/api/itsm/tickets/{id}/approval` | Setujui/tolak/delegasikan tahap approval aktif |
-| POST | `/api/itsm/tickets/{id}/comments` | Komentar publik/internal |
-| POST | `/api/itsm/tickets/{id}/attachments` | Upload lampiran |
-| GET | `/api/itsm/tickets/{id}/timeline` | Riwayat aktivitas tiket (proyeksi audit) |
-| GET | `/api/itsm/reports/sla` | Laporan SLA (JSON), Kepala IT atau Pengamat |
-| GET | `/api/itsm/reports/sla.csv` | Ekspor CSV per tiket, Kepala IT atau Pengamat |
-| GET/PATCH | `/api/itsm/reports/schedule` | Baca/ubah jadwal laporan; hanya Kepala IT |
-| POST | `/api/itsm/reports/schedule/run` | Kirim ringkasan laporan sekarang; hanya Kepala IT |
-| GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri (nama, telepon, nomor pegawai) |
-| POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus avatar |
-| POST | `/api/itsm/profile/password` | Ganti password dengan verifikasi password lama |
-| POST | `/api/itsm/profile/2fa/start` | Mulai aktivasi TOTP (verifikasi password, kembalikan secret + URI) |
-| POST | `/api/itsm/profile/2fa/confirm` | Konfirmasi kode 6 digit, aktifkan 2FA, kembalikan 10 kode pemulihan |
-| POST | `/api/itsm/profile/2fa/disable` | Nonaktifkan 2FA (password + kode TOTP/pemulihan) |
-| POST | `/api/itsm/auth/forgot-password` | Minta tautan reset password (guest; respons generik) |
-| POST/DELETE | `/api/itsm/tenant/logo` | Unggah/hapus logo rumah sakit; hanya IT Lead |
-| PATCH | `/api/itsm/tenant` | Ubah `timezone` rumah sakit; hanya IT Lead, hanya mode standalone |
-| GET | `/api/itsm/branding/logo` | Logo publik rumah sakit aktif (standalone) |
-| GET | `/api/itsm/public/intake/{token}` | Meta form QR publik: tenant, titik, layanan/item, dampak (tanpa auth) |
-| POST | `/api/itsm/public/intake/{token}` | Buat tiket tamu dari QR (multipart: `payload` + `files`, tanpa auth) |
-| GET | `/api/itsm/public/intake/{token}/logo` | Logo tenant untuk halaman QR (tanpa auth, berbasis token) |
-| GET | `/api/itsm/public/tickets/{token}` | Status satu tiket tamu + pembaruan publik (tanpa auth) |
-| POST | `/api/itsm/public/tickets/{token}/csat` | CSAT tamu setelah tiket selesai/ditutup (tanpa auth) |
-| GET | `/api/itsm/public/tickets/{token}/logo` | Logo tenant untuk halaman status (tanpa auth) |
-| GET | `/api/itsm/intake-points` | Daftar titik QR tenant; hanya IT Lead |
-| POST | `/api/itsm/intake-points` | Buat titik QR + token; hanya IT Lead |
-| PATCH | `/api/itsm/intake-points/{id}` | Ubah nama/unit/lokasi/batas/status titik; hanya IT Lead |
-| POST | `/api/itsm/intake-points/{id}/rotate` | Rotasi token titik; hanya IT Lead |
-| GET | `/api/itsm/team` | Daftar anggota tim rumah sakit; hanya IT Lead |
-| POST | `/api/itsm/team` | Tambah anggota (password awal dibuat sistem); hanya IT Lead |
-| POST | `/api/itsm/team/import` | Impor anggota dari CSV (multipart `file`); hanya IT Lead |
-| PATCH | `/api/itsm/team/{userId}` | Ubah nama/role/unit/status anggota; hanya IT Lead |
-| POST | `/api/itsm/team/{userId}/password` | Reset password anggota; hanya IT Lead |
-| POST | `/api/itsm/team/{userId}/2fa-reset` | Hapus 2FA + kode pemulihan anggota, akhiri sesi; hanya IT Lead |
-| POST | `/api/itsm/team/{userId}/unlock` | Buka kunci login akibat percobaan gagal; hanya IT Lead |
-| GET | `/api/itsm/mail/status` | Status SMTP + hitungan antrean tenant; hanya IT Lead |
-| POST | `/api/itsm/mail/dispatch` | Kirim antrean email sekarang; hanya superuser |
-| GET | `/api/itsm/app-meta` | Mode tenancy aktif + `setup_required` (publik, tanpa auth) |
-| GET | `/api/itsm/setup/status` | Status setup awal + identitas RS untuk prefill (publik) |
-| POST | `/api/itsm/setup` | Buat data awal + akun pertama; wajib kode setup (publik) |
-| GET | `/api/itsm/platform/tenants` | Daftar tenant + hitungan; akun platform |
-| POST | `/api/itsm/platform/tenants` | Buat tenant + seed + akun IT pertama; platform admin |
-| GET | `/api/itsm/platform/tenants/{id}` | Detail tenant, hitungan, pengguna, unit |
-| PATCH | `/api/itsm/platform/tenants/{id}` | Ubah nama/kode/zona waktu/status; platform admin |
-| POST | `/api/itsm/platform/tenants/{id}/seed` | Lengkapi data master default (idempoten) |
-| POST | `/api/itsm/platform/tenants/{id}/users` | Tambah pengguna tenant; platform admin |
-| PATCH | `/api/itsm/platform/tenants/{id}/users/{userId}` | Ubah status/role/unit/password |
-| GET | `/api/itsm/platform/tenants/{id}/master` | Data master RS: unit, kategori, kebijakan SLA, hari libur, pengguna |
-| POST | `/api/itsm/platform/tenants/{id}/master/{kind}` | Tambah data master; vendor admin |
-| PATCH | `/api/itsm/platform/tenants/{id}/master/{kind}/{recordId}` | Ubah/nonaktifkan data master; vendor admin |
-| GET | `/api/itsm/audit` | Audit tenant; Kepala IT atau Pengamat (filter aktor, aksi, cakupan, tanggal, nomor tiket) |
-| GET | `/api/itsm/platform/audit` | Audit lintas tenant (filter RS, aktor, aksi, cakupan, tanggal, nomor tiket) |
-| POST | `/api/itsm/dev/seed/age` | **Development**: mundurkan/sebar waktu record untuk seed manual; superuser |
-| POST | `/api/itsm/dev/seed/reset` | **Development**: hapus data transaksional satu tenant untuk seed manual; superuser |
-| POST | `/api/itsm/dev/sla/scan` | **Development**: jalankan pemindaian pengingat pra-SLA sekarang; superuser |
-| POST | `/api/itsm/dev/reports/scan` | **Development**: jalankan pemindaian jadwal laporan sekarang; superuser |
+Daftar route lengkap (method, path, hak akses, dan keterangan) ada di
+[`API.md`](API.md). Aturan yang berlaku untuk semua route:
 
 Semua route memakai `$apis.requireAuth()` dan pengecekan server-side, kecuali
 route publik `/api/itsm/public/intake/*` yang memvalidasi token titik, tenant
@@ -962,7 +780,6 @@ memundurkan tiket beserta komentar, approval, notifikasi, dan audit log agar
 laporan riwayat terlihat wajar, serta untuk mereset data demo sebelum seeding
 ulang.
 
-
 Route approval menerima `decision` `approved` / `rejected` / `delegated`. Untuk
 delegasi, sertakan `delegate` (id user) dan `note` sebagai alasan (wajib ≥ 5
 karakter).
@@ -972,284 +789,3 @@ tulis menuntut `role = it_lead`. Route ini juga memanggil `tenancy.assertVendor(
 sehingga selalu 403 pada instalasi standalone. Pembacaan lintas tenant dilakukan
 dengan `findRecordsByFilter` ber-`tenant` eksplisit — bukan dengan melonggarkan
 API rule.
-
-## Laporan SLA
-
-`GET /api/itsm/reports/sla` mengagregasi tiket yang **dibuat** pada rentang
-`from`–`to` (tanggal kalender pada zona laporan, `YYYY-MM-DD`), default 90 hari,
-maksimal 366 hari. Agregasi dijalankan di server
-(`pb_hooks/lib/reporting.js`), bukan di browser.
-
-Parameter: `from`, `to`, `bucket` (`month` default, `week` memakai ISO week),
-`timezone` (nama IANA, divalidasi), dan `tenant` (khusus akun vendor). Zona
-laporan ditentukan `lib/report_request.js`: `timezone` eksplisit > zona tenant
-yang dilihat > `Asia/Jakarta`. Batas hari, bucket bulan/minggu, dan teks tanggal
-di CSV mengikuti zona itu; tanggal tenggat tiket sendiri selalu disimpan UTC.
-
-Cakupan ditentukan `lib/platform.js#reportScope`:
-
-| Akun | `tenant` | Cakupan |
-|---|---|---|
-| IT Lead rumah sakit | diabaikan | selalu `own` — tenant sendiri |
-| Vendor lead | kosong | `all` — gabungan semua rumah sakit |
-| Vendor lead | `<id>` | `one` — satu rumah sakit |
-
-Akun vendor **tidak** bisa memakai `tenant` untuk keluar dari batasnya sendiri,
-dan akun rumah sakit tidak bisa memperluas cakupan dengan parameter itu
-(diabaikan). Vendor support (`it_support`) tetap ditolak karena laporan
-memakai `assertLead`.
-
-Respons:
-
-- `range` — `from`, `to`, `days`, `bucket`, `timezone`.
-- `scope` — `{ mode: "own"|"one"|"all", tenant }`.
-- `summary` — `total`, `resolved`, `breached`, `compliance` (persen),
-  `median_response_minutes`, `median_resolution_minutes`, `reopens`.
-- `trend` — per bucket: `created`, `resolved`, `breached`, `compliance`.
-- `units`, `services`, `priorities`, `types` — `{ name, summary }` dengan bentuk
-  summary yang sama. `services` dikelompokkan dari relasi `tickets.service`;
-  tiket tanpa layanan masuk ke `Tanpa layanan`.
-- `breaches` — maksimal 20 tiket breach terbaru (nomor, unit, tenant,
-  prioritas, status, waktu breach, level eskalasi).
-- `tenants` — hanya pada mode `all`: `{ id, name, code, summary }` per rumah
-  sakit, urut dari tiket terbanyak. Ini yang dipakai tabel perbandingan RS.
-
-Median dihitung dari gabungan seluruh baris (bukan rata-rata median per
-tenant), sehingga angka laporan lintas RS tetap benar.
-
-`breached` dihitung dari field `response_breach_at`, `approval_breach_at`, atau
-`resolution_breach_at`. Median respons memakai `first_response_at − created`;
-median resolusi memakai `resolved_at − created` untuk tiket yang sudah selesai.
-Semua durasi memakai menit kalender.
-
-`GET /api/itsm/reports/sla.csv` memakai filter yang sama dan mengirim satu baris
-per tiket (UTF-8 + BOM, pemisah koma) untuk diolah di Excel. Kolom waktu memakai
-akhiran `_local` (`created_local`, `first_response_local`, `resolved_local`) dan
-berisi waktu lokal zona laporan. Saat cakupannya `all`, kolom pertama menjadi
-`tenant`; ekspor satu rumah sakit memakai header tanpa kolom itu.
-
-## Profil pengguna
-
-Route profil hanya menyentuh record `e.auth`; tidak ada parameter id, sehingga
-pengguna tidak bisa mengubah profil orang lain.
-
-- `GET /api/itsm/profile` — data sendiri + `unit_name`/`tenant_name`.
-- `PATCH /api/itsm/profile` — `name` (2–120 karakter), `phone` (angka dan
-  `+ - ( )`), `employee_no` (huruf/angka/titik/garis miring/strip), dan
-  `email_notifications` (boolean, disimpan terbalik di `email_opt_out`). Field
-  `role`, `tenant`, `unit`, `is_active`, dan email diabaikan walau dikirim.
-- `POST /api/itsm/profile/avatar` — multipart `avatar`; PocketBase memvalidasi
-  tipe dan ukuran (maks 2 MB). `DELETE` menghapus avatar.
-- `POST /api/itsm/profile/password` — `current_password`, `new_password`,
-  `new_password_confirm`. Password lama diverifikasi dengan
-  `record.validatePassword()`, minimal 8 karakter, lalu `refreshTokenKey()`
-  membuat semua sesi lama tidak berlaku.
-- `POST /api/itsm/profile/2fa/start` — body `current_password`; membuat secret
-  baru (aktivasi belum berlaku sampai dikonfirmasi) dan mengembalikan
-  `secret`, `otpauth_uri`, `issuer`, dan `account`. Secret lama ditimpa bila
-  pengguna mengulang.
-- `POST /api/itsm/profile/2fa/confirm` — body `code` 6 digit; memverifikasi
-  dengan toleransi ±1 langkah, menaikkan `totp_enabled`, dan mengembalikan 10
-  `recovery_codes` sekali pakai. Tidak mengubah langkah TOTP terakhir sehingga
-  kode yang baru dipakai untuk aktivasi masih boleh dipakai sekali saat login.
-- `POST /api/itsm/profile/2fa/disable` — body `password` + `code` (TOTP atau
-  kode pemulihan). Menghapus secret, hash pemulihan, dan langkah terakhir.
-
-Setiap perubahan menulis `audit_logs` dengan `action=update`,
-`collection_name=users`, `record_id` pengguna, dan `changes` tanpa nilai
-password. Notifikasi tidak dibuat untuk perubahan profil.
-
-## Lupa password mandiri
-
-`POST /api/itsm/auth/forgot-password` adalah endpoint guest (`requireGuestOnly`)
-dengan body `{email}` dan selalu membalas `200 {ok:true}` agar tidak bisa
-dipakai menebak akun.
-
-1. Cari user aktif dengan email tersebut. Bila tidak ada, akun nonaktif, atau
-   tenant nonaktif, tidak ada email yang dikirim.
-2. Batasi satu permintaan per menit per pengguna. Penanda dibaca dari
-   `audit_logs` (`action=password_reset_request`, `actor=user`) agar tidak perlu
-   field/tabel tambahan.
-3. Buat token dengan `record.newPasswordResetToken()` (JWT bertanda tangan,
-   memakai `tokenKey` + secret collection; tidak disimpan di database).
-4. Kirim tautan `${APP_URL}/reset-password?token=...` lewat `lib/mail.js`.
-   Mode capture menyimpan salinannya di `email_outbox` (`template=password_reset`,
-   `event=link`) untuk test.
-5. Halaman `/reset-password` memanggil endpoint bawaan PocketBase
-   `POST /api/collections/users/confirm-password-reset`.
-
-Hook `onRecordConfirmPasswordResetRequest` setelah konfirmasi berhasil:
-menurunkan `must_change_password`, memanggil `refreshTokenKey()` (token reset
-tidak bisa dipakai ulang dan sesi lama keluar), lalu menulis audit
-`password_reset` dengan `changes.sessions_revoked=true`.
-
-## Logo rumah sakit
-
-- `POST /api/itsm/tenant/logo` — multipart `logo`, hanya IT Lead; field
-  `tenants.logo` memvalidasi tipe (PNG/JPG/WEBP) dan ukuran (maks 2 MB).
-- `DELETE /api/itsm/tenant/logo` — menghapus logo.
-- `GET /api/itsm/branding/logo` — publik, hanya mode standalone, menyajikan file
-  logo rumah sakit aktif lewat `e.fileFS($os.dirFS(...))`. Mode vendor selalu
-  404.
-- Setiap unggah/hapus menulis audit `update` pada `collection_name=tenants`.
-- Frontend memakai `tenantLogoUrl()` (`/api/files/tenants/{id}/{logo}`) untuk
-  pengguna login, dan route publik di atas untuk halaman login.
-
-## Zona waktu rumah sakit
-
-- `PATCH /api/itsm/tenant` — body `{ timezone }`, hanya IT Lead, hanya mode
-  standalone (mode vendor 403: zona dikelola Konsol Vendor).
-- Zona divalidasi terhadap basis data IANA; nama karangan ditolak (400).
-- Transaksi menyimpan `tenants.timezone`, menyelaraskan `sla_policies.timezone`
-  milik tenant, dan menghitung ulang `tenants.report_next_at` bila jadwal laporan
-  aktif (tetap 07.00 waktu lokal).
-- Perubahan menulis audit `update` dengan `changes.timezone.{from,to}` dan
-  `changes.report_next_at`. Nilai yang sama tidak menulis audit.
-- Tiket lama tidak berubah: tenggat sudah tersimpan sebagai instan UTC dan
-  `sla_snapshot.timezone` merekam zona saat dihitung.
-
-## Tim rumah sakit
-
-IT Lead mengelola staf di tenant-nya sendiri lewat `/api/itsm/team`. Penulisan
-memakai `$app.save`, sehingga `users.createRule` tetap `null` (superuser saja).
-
-- Cakupan: `tenant = e.auth.tenant`; akun platform dan pengguna tenant lain
-  selalu menghasilkan 404.
-- Role yang boleh dibuat: `requester`, `it_support`, `resolver`, `it_lead`, `viewer`.
-- Email wajib unik global dan tidak dapat diubah setelah akun dibuat.
-- Password awal dibuat server: 16 karakter dari alfabet tanpa karakter ambigu.
-  Password hanya dikembalikan sekali pada respons `POST` (create) dan
-  `POST .../password` (reset); `audit_logs` tidak menyimpannya.
-- Bila SMTP aktif, respons yang sama diikuti email undangan/reset berisi
-  password sementara. Kegagalan email tidak membatalkan akun; UI menampilkan
-  password dan pesan kegagalan agar bisa diserahkan manual.
-- `POST` membuat akun dengan `must_change_password = true`; reset password juga
-  menaikkan flag itu dan memanggil `refreshTokenKey()` (sesi lama berakhir).
-- Lead tidak dapat menonaktifkan akun sendiri atau mengubah role sendiri.
-- IT Lead aktif terakhir tidak dapat dinonaktifkan atau diturunkan; bila
-  perubahan itu dicoba, server menolak 400.
-- Unit yang dipasang harus milik tenant yang sama.
-- Setiap create/update/reset menulis `audit_logs` (`collection_name=users`).
-- `POST /api/itsm/team/{userId}/2fa-reset` menghapus secret, hash kode
-  pemulihan, dan status 2FA anggota, lalu memanggil `refreshTokenKey()` agar
-  semua sesinya berakhir. IT Lead tidak dapat mereset 2FA akun sendiri lewat
-  route ini (gunakan Profil). Audit `mfa_reset`.
-- `POST /api/itsm/team/{userId}/unlock` menghapus `login_failed_count` dan
-  `login_locked_until`; audit `update` dengan `changes.field=login_lock`.
-  Ditolak 400 bila akun tidak sedang terkunci dan tidak punya percobaan gagal.
-- Serialisasi tim memuat `totp_enabled`, `login_failed_count`, dan
-  `login_locked_until` agar UI menampilkan badge 2FA/terkunci dan tombol aksi
-  yang relevan.
-
-### Impor massal dari CSV
-
-`POST /api/itsm/team/import` menerima satu berkas multipart bernama `file`
-(maks 2 MB, maks 1.000 baris data). Berkas dibaca dan divalidasi di server;
-tidak ada akun yang dibuat untuk baris yang gagal.
-
-- Header wajib: `nama`, `email`, `role`, `unit`, `tim` (alias bahasa Inggris
-  `name`, `team`, dan `jabatan`/`job_title` opsional). Urutan kolom bebas;
-  pemisah koma, titik koma, atau tab dideteksi otomatis; kutip ganda dan BOM
-  UTF-8 didukung.
-- `role` menerima kunci internal (`it_support`) maupun label UI
-  (`Staff IT`). `tim` menerima kunci maupun label (`application` /
-  `Aplikasi / SIMRS`). `unit` dicocokkan lewat kode lebih dulu, lalu nama;
-  nama unit ganda harus memakai kode.
-- Per baris divalidasi nama (2–120), email valid dan unik global, role dikenal,
-  tim dikenal, unit ada dan aktif, serta jabatan maks 80 karakter. Email
-  duplikat di dalam berkas dilaporkan dengan nomor baris asalnya.
-- Respons: `summary {total, imported, failed}`, `imported[]` (termasuk
-  `password` awal, hanya sekali), dan `failed[]` (`row`, `name`, `email`,
-  `errors[]`). Email undangan tidak dikirim massal; UI menyediakan unduhan
-  kredensial CSV.
-- Setiap impor menulis satu audit `action=import`, `collection_name=users`,
-  berisi `file_name`, jumlah baris/berhasil/gagal, dan maksimal 50 baris gagal
-  sebagai contoh. Password awal tidak pernah masuk `audit_logs`.
-
-Halaman `/change-password` dipakai untuk memaksa penggantian password awal:
-selama `must_change_password = true`, `guards.requireAuth` menolak route ITSM
-lain dan router mengalihkan pengguna ke halaman itu.
-
-## SLA breach scan
-
-`backend/pb_hooks/sla_job.pb.js` berjalan setiap 5 menit, menandai
-`response_breach_at`, `approval_breach_at`, dan `resolution_breach_at`, lalu
-menaikkan `escalation_level` dan menulis audit `sla_breach`. Job idempoten dan
-memproses batch berulang sampai tidak ada tiket overdue.
-
-Tiket `waiting` dilewati pada scan penyelesaian. Eskalasi berjenjang:
-
-| Level | Pemicu |
-|---|---|
-| 1 | `response_breach_at` atau `approval_breach_at` terisi |
-| 2 | `resolution_breach_at` terisi |
-| 3 | breach penyelesaian > 4 jam dan belum ditangani; audit `escalate` |
-
-## Known limitations
-
-- Problem belum punya laporan aging/repeat incident rate khusus di halaman
-  Laporan; ringkasan operasional ada di halaman Problem dan Knowledge.
-- Knowledge base belum punya editor rich text, versi artikel, atau workflow
-  review multi-approver; lifecycle draft → review → published → retired dijaga
-  route.
-- Katalog layanan (Increment A) belum punya dynamic form builder atau checklist
-  fulfillment; item hanya membawa deskripsi, approval mode, dan SLA. Vendor
-  hanya baca katalog; penulisan lewat konsol vendor belum dibuka.
-- Triage hanya boleh sebelum pekerjaan dimulai; setelah `in_progress`, koreksi
-  prioritas/layanan harus lewat alur perubahan atau penanganan manual.
-- CAB memakai IT Lead kedua (belum ada peran/komite CAB terpisah). Yang dihitung
-  hanya IT Lead **rumah sakit**; lead vendor tidak menambah kursi CAB, sehingga
-  jumlah akun vendor tidak mengubah alur approval tenant.
-- Delegasi tidak otomatis dari kalender cuti dan belum dapat dicabut sebelum
-  tahap diputuskan; penerima delegasi tetap punya akses baca tiket.
-- SLA approval per tahap memakai `sla_snapshot` tiket, bukan policy terbaru.
-- Eskalasi Level 3 terlihat in-app (badge + timeline + notifikasi) dan dikirim
-  lewat email bila penerima mengaktifkan preferensi; WhatsApp belum ada.
-- Dashboard belum punya tren historis atau ekspor; agregatnya dihitung di
-  client dari tiket aktif per tenant (bukan seluruh riwayat). Gunakan halaman
-  Laporan untuk tren dan ekspor.
-- Laporan menghitung ulang dari field tiket saat ini (tidak ada snapshot
-  laporan), belum bisa difilter per unit dari UI, dan belum dikirim otomatis
-  lewat email/PDF. Rentang dibatasi 366 hari dan agregasi berjalan di server
-  (JS) atas tiket pada rentang tersebut.
-- Profil belum punya 2FA/OTP dan avatar tidak dimoderasi; kebijakan password
-  hanya panjang minimal 8 karakter. File avatar disajikan tanpa token (nama file
-  acak), jadi jangan dipakai untuk data sensitif.
-- Provisioning akun: IT Lead rumah sakit mengelola timnya lewat tab **Tim** di
-  `/admin`; undangan berisi password sementara dikirim lewat SMTP bila aktif,
-  atau diserahkan manual bila SMTP mati. Akun platform tetap hanya bisa dibuat
-  superuser. Belum ada verifikasi email saat pemilik akun ingin mengganti
-  alamat email.
-- Lupa password: tautan memakai token bertanda tangan dengan masa berlaku dari
-  setelan collection `users`; pembatasan satu permintaan per menit per pengguna.
-  Bila SMTP belum aktif, pengguna tidak menerima tautan dan harus meminta IT
-  Lead mereset dari tab Tim.
-- Email: password sementara dikirim sebagai teks biasa di isi email, jadi SMTP
-  wajib memakai TLS di produksi. Email notifikasi bisa dimatikan per pengguna;
-  undangan dan reset password tetap dikirim. `MAIL_TRANSPORT=capture` menyimpan
-  salinan email (termasuk password) hanya untuk test/development.
-- Logo: route `/api/itsm/branding/logo` bersifat publik pada mode standalone
-  (hanya mengembalikan logo rumah sakit aktif), jadi jangan unggah gambar yang
-  memuat data sensitif. Pada mode vendor route ini 404.
-- Konsol Vendor: akun vendor sudah bisa menjadi assignee, approver, dan penerima
-  notifikasi tiket lintas tenant (Fase 2), serta mengelola data master rumah
-  sakit dari konsol. Yang belum: membuat tiket (akun platform tidak punya
-  tenant/unit) dan mengubah data master dari UI tiket (hanya lewat konsol).
-- Gate CAB hanya menghitung IT Lead rumah sakit. Rumah sakit yang sepenuhnya
-  dioperasikan vendor (tanpa lead sendiri) tidak akan pernah membentuk tahap
-  CAB, meski vendor punya beberapa lead. Vendor tetap bisa menyetujui tahap
-  IT Lead dan bisa didelegasikan.
-- Pemilih tenant menyaring daftar tiket/notifikasi di UI, bukan batas keamanan:
-  akun vendor memang boleh membaca semua tenant. Dashboard gabungan semua RS
-  belum ada; laporan dan audit lintas RS sudah tersedia.
-- Reset password oleh vendor tidak mencabut token akses yang masih berlaku;
-  pengguna lama tetap aktif sampai token kedaluwarsa.
-- Mode tenancy hanya bisa diubah lewat environment; tidak ada tombol ubah mode
-  di aplikasi (disengaja agar mode tidak bisa dinaikkan dari dalam).
-- Belum ada SSO.
-- Perhitungan SLA memakai zona policy/tenant dan sadar DST, tetapi belum ada
-  editor zona per policy di UI: zona policy mengikuti zona rumah sakit (diselaraskan
-  saat zona tenant diubah).
-- Deteksi data pasien bersifat kebijakan + attestation, bukan DLP.
-- PocketBase berjalan sebagai satu instance; jangan scale horizontal dengan
-  SQLite yang sama.

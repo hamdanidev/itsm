@@ -1,0 +1,16 @@
+{
+  "title": "Panduan Pengguna Healthcare ITSM",
+  "subtitle": "Mengenal ITSM, masuk, lapor gangguan, tangani tiket, dan pantau layanan",
+  "version": "1.1",
+  "date": "10 November 2026",
+  "chapters": [
+    "00-pengantar.md",
+    "01-masuk-dan-akun.md",
+    "02-pemohon.md",
+    "03-service-desk.md",
+    "04-admin.md",
+    "05-vendor.md",
+    "06-qr-publik.md",
+    "99-lampiran.md"
+  ]
+}

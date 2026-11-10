@@ -1,0 +1,1691 @@
+{
+  "baseUrl": "http://localhost:5173",
+  "pbUrl": "http://127.0.0.1:8090",
+  "password": "SeedDemo123!",
+  "admin": {
+    "email": "admin@itsm.local",
+    "password": "PasswordKuat123!"
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "shots": [
+    {
+      "id": "00-pengantar/01-satu-pintu",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets?view=list",
+      "waitFor": ".issue-table",
+      "highlight": [
+        {
+          "selector": ".tabs",
+          "label": "1"
+        },
+        {
+          "selector": ".issue-table",
+          "label": "2"
+        }
+      ],
+      "note": "Satu daftar untuk semua laporan: status, prioritas, dan SLA"
+    },
+    {
+      "id": "01-masuk-dan-akun/01-halaman-masuk",
+      "role": "perawat.igd@demo.local",
+      "anonymous": true,
+      "path": "/login",
+      "waitFor": ".login-card",
+      "actions": [
+        {
+          "type": "fill",
+          "selector": "#email",
+          "value": "perawat.igd@demo.local"
+        }
+      ],
+      "highlight": [
+        {
+          "selector": "#email",
+          "label": "1"
+        },
+        {
+          "selector": "#password",
+          "label": "2"
+        },
+        {
+          "selector": "button.login-submit",
+          "label": "3",
+          "placement": "above"
+        }
+      ],
+      "note": "Halaman masuk: email, password, dan tombol Masuk"
+    },
+    {
+      "id": "01-masuk-dan-akun/02-lupa-password",
+      "role": "perawat.igd@demo.local",
+      "anonymous": true,
+      "path": "/forgot-password",
+      "waitFor": ".login-card",
+      "highlight": [
+        {
+          "selector": "#forgot-email",
+          "label": "1"
+        },
+        {
+          "selector": "button.login-submit",
+          "label": "2",
+          "placement": "above"
+        }
+      ],
+      "note": "Halaman lupa password"
+    },
+    {
+      "id": "01-masuk-dan-akun/03-tautan-terkirim",
+      "role": "perawat.igd@demo.local",
+      "anonymous": true,
+      "path": "/forgot-password",
+      "waitFor": ".login-card",
+      "actions": [
+        {
+          "type": "fill",
+          "selector": "#forgot-email",
+          "value": "perawat.igd@demo.local"
+        },
+        {
+          "type": "click",
+          "selector": "button.login-submit"
+        }
+      ],
+      "waitAfterActions": ".login-notice",
+      "highlight": [
+        {
+          "selector": ".login-notice",
+          "label": "1"
+        }
+      ],
+      "note": "Konfirmasi tautan reset dikirim (pesan selalu sama)"
+    },
+    {
+      "id": "01-masuk-dan-akun/04-password-baru",
+      "role": "perawat.igd@demo.local",
+      "anonymous": true,
+      "path": "/reset-password?token={token}",
+      "vars": {
+        "token": {
+          "collection": "email_outbox",
+          "filter": "template='password_reset' && to='perawat.igd@demo.local'",
+          "sort": "-created",
+          "field": "html",
+          "regex": "reset-password\\?token=([A-Za-z0-9_.%-]+)"
+        }
+      },
+      "waitFor": "#reset-password",
+      "highlight": [
+        {
+          "selector": "#reset-password",
+          "label": "1"
+        },
+        {
+          "selector": "#reset-confirm",
+          "label": "2"
+        },
+        {
+          "selector": "button.login-submit",
+          "label": "3",
+          "placement": "above"
+        }
+      ],
+      "note": "Membuat password baru dari tautan email"
+    },
+    {
+      "id": "01-masuk-dan-akun/05-ganti-password-wajib",
+      "role": "perawat.igd@demo.local",
+      "path": "/change-password",
+      "waitFor": "#current-password",
+      "highlight": [
+        {
+          "selector": "#current-password",
+          "label": "1"
+        },
+        {
+          "selector": "button.login-submit",
+          "label": "2",
+          "placement": "above"
+        }
+      ],
+      "note": "Halaman wajib ganti password setelah login pertama"
+    },
+    {
+      "id": "01-masuk-dan-akun/06-profil",
+      "role": "perawat.igd@demo.local",
+      "path": "/profile",
+      "waitFor": ".profile-grid",
+      "highlight": [
+        {
+          "selector": ".profile-avatar",
+          "label": "1"
+        },
+        {
+          "selector": "#profile-name",
+          "label": "2"
+        }
+      ],
+      "note": "Halaman profil: foto, data, dan kontak"
+    },
+    {
+      "id": "01-masuk-dan-akun/07-keamanan",
+      "role": "perawat.igd@demo.local",
+      "path": "/profile",
+      "waitFor": ".profile-grid",
+      "scrollTo": ".security-block",
+      "highlight": [
+        {
+          "selector": ".security-block",
+          "label": "1"
+        }
+      ],
+      "note": "Panel Keamanan: ganti password dan 2FA"
+    },
+    {
+      "id": "01-masuk-dan-akun/08-aktifkan-2fa",
+      "role": "perawat.igd@demo.local",
+      "path": "/profile",
+      "waitFor": ".profile-grid",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Aktifkan 2FA\")"
+        },
+        {
+          "type": "wait",
+          "ms": 400
+        }
+      ],
+      "waitAfterActions": "#totp-start-form",
+      "highlight": [
+        {
+          "selector": "#totp-current-password",
+          "label": "1"
+        },
+        {
+          "selector": "button[form=\"totp-start-form\"]",
+          "label": "2",
+          "placement": "above"
+        }
+      ],
+      "note": "Konfirmasi password sebelum mengatur authenticator"
+    },
+    {
+      "id": "01-masuk-dan-akun/09-pindai-qr",
+      "role": "perawat.igd@demo.local",
+      "path": "/profile",
+      "waitFor": ".profile-grid",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Aktifkan 2FA\")"
+        },
+        {
+          "type": "fill",
+          "selector": "#totp-current-password",
+          "value": "SeedDemo123!"
+        },
+        {
+          "type": "click",
+          "selector": "button[form=\"totp-start-form\"]"
+        },
+        {
+          "type": "wait",
+          "ms": 600
+        }
+      ],
+      "waitAfterActions": "img.totp-qr",
+      "highlight": [
+        {
+          "selector": "img.totp-qr",
+          "label": "1"
+        },
+        {
+          "selector": ".totp-secret",
+          "label": "2"
+        },
+        {
+          "selector": "#totp-code",
+          "label": "3",
+          "placement": "above"
+        }
+      ],
+      "note": "QR, kunci manual, dan kode 6 digit"
+    },
+    {
+      "id": "01-masuk-dan-akun/10-menu-keluar",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets",
+      "waitFor": ".issue-table",
+      "actions": [
+        {
+          "type": "click",
+          "selector": ".user-trigger"
+        },
+        {
+          "type": "wait",
+          "ms": 300
+        }
+      ],
+      "highlight": [
+        {
+          "selector": ".menu",
+          "label": "1"
+        }
+      ],
+      "note": "Menu pengguna: Profil saya, tema, dan Keluar"
+    },
+    {
+      "id": "02-pemohon/01-buat-tiket",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets",
+      "waitFor": ".issue-table",
+      "highlight": [
+        {
+          "selector": ".topbar-create",
+          "label": "1"
+        }
+      ],
+      "note": "Tombol Buat tiket di kanan atas"
+    },
+    {
+      "id": "02-pemohon/02-jenis-tiket",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/new",
+      "waitFor": ".wizard-steps",
+      "actions": [
+        {
+          "type": "click",
+          "selector": ".type-option:has-text(\"Incident\")"
+        }
+      ],
+      "highlight": [
+        {
+          "selector": ".wizard-steps",
+          "label": "1"
+        },
+        {
+          "selector": ".type-options",
+          "label": "2"
+        }
+      ],
+      "note": "Langkah 1: pilih jenis tiket"
+    },
+    {
+      "id": "02-pemohon/03-layanan",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/new",
+      "waitFor": ".wizard-steps",
+      "actions": [
+        {
+          "type": "select",
+          "selector": "#service",
+          "label": "SIMRS"
+        }
+      ],
+      "scrollTo": "#service",
+      "highlight": [
+        {
+          "selector": "#service",
+          "label": "1"
+        }
+      ],
+      "note": "Pilih layanan agar SLA dan approval mengikuti"
+    },
+    {
+      "id": "02-pemohon/04-dampak",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/new",
+      "waitFor": ".wizard-steps",
+      "actions": [
+        {
+          "type": "select",
+          "selector": "#service",
+          "label": "SIMRS"
+        },
+        {
+          "type": "click",
+          "selector": ".impact-option:has-text(\"Alur kerja klinis\")"
+        }
+      ],
+      "scrollTo": ".impact-options",
+      "highlight": [
+        {
+          "selector": ".impact-options",
+          "label": "1"
+        }
+      ],
+      "note": "Dampak klinis menentukan prioritas awal"
+    },
+    {
+      "id": "02-pemohon/05-detail",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/new",
+      "waitFor": ".wizard-steps",
+      "actions": [
+        {
+          "type": "click",
+          "selector": ".type-option:has-text(\"Incident\")"
+        },
+        {
+          "type": "select",
+          "selector": "#service",
+          "label": "SIMRS"
+        },
+        {
+          "type": "click",
+          "selector": ".impact-option:has-text(\"Alur kerja klinis\")"
+        },
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Lanjut\")"
+        },
+        {
+          "type": "fill",
+          "selector": "#title",
+          "value": "SIMRS gagal menyimpan kunjungan pasien BPJS"
+        },
+        {
+          "type": "fill",
+          "selector": "#description",
+          "value": "Sejak pukul 08.00 pendaftaran pasien BPJS gagal disimpan. Muncul pesan \"gagal menyimpan kunjungan\". Sudah dicoba ulang dan ganti komputer, hasilnya sama. Modul pendaftaran tidak bisa dipakai."
+        }
+      ],
+      "scrollTo": "#title",
+      "highlight": [
+        {
+          "selector": "#title",
+          "label": "1"
+        },
+        {
+          "selector": ".rich-editor",
+          "label": "2"
+        }
+      ],
+      "note": "Langkah 2: judul ringkas dan deskripsi"
+    },
+    {
+      "id": "02-pemohon/06-lampiran",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/new",
+      "waitFor": ".wizard-steps",
+      "actions": [
+        {
+          "type": "click",
+          "selector": ".type-option:has-text(\"Incident\")"
+        },
+        {
+          "type": "select",
+          "selector": "#service",
+          "label": "SIMRS"
+        },
+        {
+          "type": "click",
+          "selector": ".impact-option:has-text(\"Alur kerja klinis\")"
+        },
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Lanjut\")"
+        }
+      ],
+      "scrollTo": ".file-input",
+      "highlight": [
+        {
+          "selector": ".file-input",
+          "label": "1"
+        }
+      ],
+      "note": "Lampiran opsional: screenshot pesan error"
+    },
+    {
+      "id": "02-pemohon/07-tinjau",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/new",
+      "waitFor": ".wizard-steps",
+      "actions": [
+        {
+          "type": "click",
+          "selector": ".type-option:has-text(\"Incident\")"
+        },
+        {
+          "type": "select",
+          "selector": "#service",
+          "label": "SIMRS"
+        },
+        {
+          "type": "click",
+          "selector": ".impact-option:has-text(\"Alur kerja klinis\")"
+        },
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Lanjut\")"
+        },
+        {
+          "type": "fill",
+          "selector": "#title",
+          "value": "SIMRS gagal menyimpan kunjungan pasien BPJS"
+        },
+        {
+          "type": "fill",
+          "selector": "#description",
+          "value": "Sejak pukul 08.00 pendaftaran pasien BPJS gagal disimpan. Sudah dicoba ulang dan ganti komputer."
+        },
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Lanjut\")"
+        },
+        {
+          "type": "check",
+          "selector": "#confirmData"
+        }
+      ],
+      "scrollTo": "#confirmData",
+      "highlight": [
+        {
+          "selector": "#confirmData",
+          "label": "1"
+        },
+        {
+          "selector": ".form-actions button[type=\"submit\"]",
+          "label": "2",
+          "placement": "above"
+        }
+      ],
+      "note": "Langkah 3: konfirmasi data pasien lalu kirim"
+    },
+    {
+      "id": "02-pemohon/08-katalog",
+      "role": "perawat.igd@demo.local",
+      "path": "/catalog",
+      "waitFor": ".catalog-grid",
+      "scrollTo": "top",
+      "highlight": [
+        {
+          "selector": ".catalog-card:has-text(\"Perubahan konfigurasi SIMRS\")",
+          "label": "1"
+        }
+      ],
+      "note": "Katalog layanan: pilih layanan lalu buat tiket"
+    },
+    {
+      "id": "02-pemohon/09-detail-tiket",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "requester.email='perawat.igd@demo.local' && status='open' && type='incident'",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "highlight": [
+        {
+          "selector": ".issue-meta-line",
+          "label": "1"
+        },
+        {
+          "selector": "aside.detail-side",
+          "label": "2",
+          "placement": "above"
+        }
+      ],
+      "note": "Status, prioritas, dan SLA tiket"
+    },
+    {
+      "id": "02-pemohon/10-komentar",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "requester.email='perawat.igd@demo.local' && status='open' && type='incident'",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "scrollTo": ".composer",
+      "highlight": [
+        {
+          "selector": "#comment",
+          "label": "1"
+        },
+        {
+          "selector": ".composer-actions button[type=\"submit\"]",
+          "label": "2"
+        }
+      ],
+      "note": "Menambahkan komentar publik"
+    },
+    {
+      "id": "02-pemohon/11-riwayat",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "requester.email='perawat.igd@demo.local' && status='open' && type='incident'",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "actions": [
+        {
+          "type": "click",
+          "selector": ".activity-tab:has-text(\"Riwayat\")"
+        }
+      ],
+      "scrollTo": ".history",
+      "highlight": [
+        {
+          "selector": ".history",
+          "label": "1"
+        }
+      ],
+      "note": "Riwayat aktivitas tiket"
+    },
+    {
+      "id": "02-pemohon/12-lampiran-tiket",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "requester.email='perawat.igd@demo.local' && status='open' && type='incident'",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "scrollTo": ".attach-form",
+      "highlight": [
+        {
+          "selector": ".attach-form",
+          "label": "1"
+        }
+      ],
+      "note": "Menambah lampiran setelah tiket dibuat"
+    },
+    {
+      "id": "02-pemohon/13-approval",
+      "role": "manajer.rm@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "ticket_approvals",
+        "filter": "approver.email='manajer.rm@demo.local' && status='pending'",
+        "sort": "-created",
+        "field": "ticket"
+      },
+      "waitFor": ".issue-head",
+      "scrollTo": ".ticket-actions",
+      "highlight": [
+        {
+          "selector": ".ticket-actions",
+          "label": "1"
+        }
+      ],
+      "note": "Approver unit menyetujui atau menolak permintaan"
+    },
+    {
+      "id": "02-pemohon/14-approval-tahap",
+      "role": "manajer.rm@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "ticket_approvals",
+        "filter": "approver.email='manajer.rm@demo.local' && status='pending'",
+        "sort": "-created",
+        "field": "ticket"
+      },
+      "waitFor": ".issue-head",
+      "scrollTo": ".approval-steps",
+      "highlight": [
+        {
+          "selector": ".approval-steps",
+          "label": "1"
+        }
+      ],
+      "note": "Rantai approval dan batas waktunya"
+    },
+    {
+      "id": "02-pemohon/15-csat",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "requester.email='perawat.igd@demo.local' && status='closed'",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "scrollTo": ".csat-picker",
+      "highlight": [
+        {
+          "selector": ".csat-picker",
+          "label": "1"
+        },
+        {
+          "selector": "#csat-comment",
+          "label": "2"
+        }
+      ],
+      "note": "Penilaian kepuasan setelah tiket selesai"
+    },
+    {
+      "id": "02-pemohon/16-buka-kembali",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "requester.email='perawat.igd@demo.local' && status='closed'",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "scrollTo": ".ticket-actions",
+      "highlight": [
+        {
+          "selector": ".ticket-actions",
+          "label": "1"
+        }
+      ],
+      "note": "Membuka kembali tiket yang sudah ditutup"
+    },
+    {
+      "id": "02-pemohon/17-notifikasi",
+      "role": "perawat.igd@demo.local",
+      "path": "/notifications",
+      "waitFor": ".notif-page-list",
+      "scrollTo": "top",
+      "highlight": [
+        {
+          "selector": ".tabs",
+          "label": "1"
+        },
+        {
+          "selector": ".notif-page-item",
+          "label": "2"
+        }
+      ],
+      "note": "Notifikasi in-app"
+    },
+    {
+      "id": "02-pemohon/18-cari-tiket",
+      "role": "perawat.igd@demo.local",
+      "path": "/tickets",
+      "waitFor": ".issue-table",
+      "actions": [
+        {
+          "type": "fill",
+          "selector": ".search-box input",
+          "value": "SIMRS"
+        },
+        {
+          "type": "press",
+          "selector": ".search-box input",
+          "key": "Enter"
+        }
+      ],
+      "highlight": [
+        {
+          "selector": ".search-box",
+          "label": "1"
+        }
+      ],
+      "note": "Mencari tiket berdasarkan nomor atau judul"
+    },
+    {
+      "id": "03-service-desk/01-ringkasan",
+      "role": "support@demo.local",
+      "path": "/dashboard",
+      "waitFor": ".kpi-grid",
+      "highlight": [
+        {
+          "selector": ".kpi-grid",
+          "label": "1"
+        },
+        {
+          "selector": ".dash-panel",
+          "label": "2"
+        }
+      ],
+      "note": "Ringkasan: KPI dan antrean kerja"
+    },
+    {
+      "id": "03-service-desk/02-antrean",
+      "role": "support@demo.local",
+      "path": "/tickets?view=list",
+      "waitFor": ".issue-table",
+      "highlight": [
+        {
+          "selector": ".saved-views",
+          "label": "1"
+        },
+        {
+          "selector": ".filter-bar",
+          "label": "2"
+        }
+      ],
+      "note": "Tampilan tersimpan dan filter antrean"
+    },
+    {
+      "id": "03-service-desk/03-papan",
+      "role": "support@demo.local",
+      "path": "/tickets",
+      "waitFor": ".issue-table",
+      "actions": [
+        {
+          "type": "click",
+          "selector": ".view-switch button:has-text(\"Papan\")"
+        },
+        {
+          "type": "wait",
+          "ms": 700
+        }
+      ],
+      "highlight": [
+        {
+          "selector": ".board-columns",
+          "label": "1"
+        }
+      ],
+      "note": "Papan Kanban per status"
+    },
+    {
+      "id": "03-service-desk/04-detail-aksi",
+      "role": "resolver.app@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "team='application' && assignee='' && status='open' && type='incident'",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "highlight": [
+        {
+          "selector": ".ticket-actions",
+          "label": "1"
+        }
+      ],
+      "note": "Aksi tiket untuk teknisi: ambil, mulai, tunggu, selesaikan"
+    },
+    {
+      "id": "03-service-desk/05-triage",
+      "role": "support@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "status='assigned' && type='incident'",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Triage\")"
+        },
+        {
+          "type": "wait",
+          "ms": 600
+        }
+      ],
+      "waitAfterActions": "#triage-form",
+      "highlight": [
+        {
+          "selector": "#triagePriority",
+          "label": "1"
+        },
+        {
+          "selector": "#triageImpact",
+          "label": "2"
+        }
+      ],
+      "note": "Triage: koreksi prioritas dan klasifikasi sebelum dikerjakan"
+    },
+    {
+      "id": "03-service-desk/06-komentar-internal",
+      "role": "support@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "status='in_progress' && type='incident'",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "actions": [
+        {
+          "type": "click",
+          "selector": ".composer-meta button:has-text(\"Internal\")"
+        },
+        {
+          "type": "wait",
+          "ms": 200
+        }
+      ],
+      "scrollTo": ".composer",
+      "highlight": [
+        {
+          "selector": "#comment",
+          "label": "1"
+        },
+        {
+          "selector": ".composer-meta",
+          "label": "2"
+        }
+      ],
+      "note": "Komentar internal hanya terlihat staf IT"
+    },
+    {
+      "id": "03-service-desk/07-selesaikan",
+      "role": "resolver.app@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "assignee.email='resolver.app@demo.local' && status='in_progress'",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Selesaikan\")"
+        },
+        {
+          "type": "wait",
+          "ms": 500
+        }
+      ],
+      "waitAfterActions": "#resolve-form",
+      "highlight": [
+        {
+          "selector": "#resolutionSummary",
+          "label": "1"
+        },
+        {
+          "selector": "#resolutionCode",
+          "label": "2"
+        }
+      ],
+      "note": "Modal penyelesaian: ringkasan resolusi wajib"
+    },
+    {
+      "id": "03-service-desk/08-sla",
+      "role": "resolver.app@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "assignee.email='resolver.app@demo.local' && status='in_progress'",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "scrollTo": "top",
+      "highlight": [
+        {
+          "selector": "aside.detail-side",
+          "label": "1"
+        }
+      ],
+      "note": "Panel SLA, detail, dan pihak terkait"
+    },
+    {
+      "id": "03-service-desk/09-merge",
+      "role": "support@demo.local",
+      "path": "/tickets/{id}",
+      "pick": {
+        "collection": "tickets",
+        "filter": "status='open' && type='incident' && merged_into=''",
+        "sort": "-updated"
+      },
+      "waitFor": ".issue-head",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Gabungkan\")"
+        },
+        {
+          "type": "wait",
+          "ms": 500
+        }
+      ],
+      "waitAfterActions": "input[placeholder^=\"Cari nomor tiket\"]",
+      "highlight": [
+        {
+          "selector": "input[placeholder^=\"Cari nomor tiket\"]",
+          "label": "1"
+        },
+        {
+          "selector": "#ticket-merge-note",
+          "label": "2"
+        }
+      ],
+      "note": "Gabungkan tiket duplikat"
+    },
+    {
+      "id": "03-service-desk/10-aksi-massal",
+      "role": "support@demo.local",
+      "path": "/tickets?view=list",
+      "waitFor": ".issue-table",
+      "actions": [
+        {
+          "type": "check",
+          "selector": "tbody tr:first-child .row-check"
+        },
+        {
+          "type": "wait",
+          "ms": 400
+        }
+      ],
+      "waitAfterActions": ".bulk-bar",
+      "highlight": [
+        {
+          "selector": ".bulk-bar",
+          "label": "1"
+        }
+      ],
+      "note": "Aksi massal: pilih beberapa tiket lalu assign/mulai"
+    },
+    {
+      "id": "03-service-desk/11-problem",
+      "role": "support@demo.local",
+      "path": "/problems",
+      "waitFor": ".issue-table",
+      "highlight": [
+        {
+          "selector": ".issue-table",
+          "label": "1"
+        }
+      ],
+      "note": "Daftar problem dan statusnya",
+      "scrollTo": "top"
+    },
+    {
+      "id": "03-service-desk/12-problem-detail",
+      "role": "support@demo.local",
+      "path": "/problems/{id}",
+      "pick": {
+        "collection": "problems",
+        "sort": "-updated"
+      },
+      "waitFor": ".problem-head-meta",
+      "highlight": [
+        {
+          "selector": ".problem-head-meta",
+          "label": "1"
+        },
+        {
+          "selector": "aside.detail-side",
+          "label": "2"
+        }
+      ],
+      "note": "Detail problem: akar masalah dan tiket terkait"
+    },
+    {
+      "id": "03-service-desk/13-pengetahuan",
+      "role": "support@demo.local",
+      "path": "/knowledge",
+      "waitFor": ".issue-table",
+      "highlight": [
+        {
+          "selector": ".issue-table",
+          "label": "1"
+        }
+      ],
+      "note": "Artikel pengetahuan untuk workaround",
+      "scrollTo": "top"
+    },
+    {
+      "id": "03-service-desk/14-insiden",
+      "role": "support@demo.local",
+      "path": "/incidents",
+      "waitFor": ".issue-table",
+      "highlight": [
+        {
+          "selector": ".issue-table",
+          "label": "1"
+        }
+      ],
+      "note": "Insiden mayor: daftar dan deklarasi",
+      "scrollTo": "top"
+    },
+    {
+      "id": "03-service-desk/15-aset",
+      "role": "support@demo.local",
+      "path": "/assets",
+      "waitFor": ".issue-table",
+      "highlight": [
+        {
+          "selector": ".issue-table",
+          "label": "1"
+        }
+      ],
+      "note": "Aset dan CI",
+      "scrollTo": "top"
+    },
+    {
+      "id": "06-qr-publik/01-form-qr",
+      "role": "perawat.igd@demo.local",
+      "anonymous": true,
+      "path": "/i/{token}",
+      "vars": {
+        "token": {
+          "collection": "intake_points",
+          "filter": "name ~ 'IGD'",
+          "sort": "name",
+          "field": "token"
+        }
+      },
+      "waitFor": ".public-intake-card",
+      "highlight": [
+        {
+          "selector": ".public-choice-grid",
+          "label": "1"
+        },
+        {
+          "selector": "#public-service",
+          "label": "2"
+        }
+      ],
+      "note": "Form QR: jenis laporan, layanan, dampak"
+    },
+    {
+      "id": "06-qr-publik/02-detail-laporan",
+      "role": "perawat.igd@demo.local",
+      "anonymous": true,
+      "path": "/i/{token}",
+      "vars": {
+        "token": {
+          "collection": "intake_points",
+          "filter": "name ~ 'IGD'",
+          "sort": "name",
+          "field": "token"
+        }
+      },
+      "waitFor": ".public-intake-card",
+      "actions": [
+        {
+          "type": "select",
+          "selector": "#public-service",
+          "label": "SIMRS"
+        },
+        {
+          "type": "click",
+          "selector": ".public-impact:has-text(\"Alur kerja klinis\")"
+        },
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Lanjut\")"
+        },
+        {
+          "type": "fill",
+          "selector": "#public-title",
+          "value": "SIMRS gagal menyimpan kunjungan pasien BPJS"
+        },
+        {
+          "type": "fill",
+          "selector": "#public-description",
+          "value": "Sejak pukul 08.00 pendaftaran pasien BPJS gagal disimpan dan muncul pesan error. Sudah dicoba ulang dan ganti komputer, hasilnya sama. Loket IGD mencatat manual sementara."
+        }
+      ],
+      "scrollTo": "#public-title",
+      "highlight": [
+        {
+          "selector": "#public-title",
+          "label": "1"
+        },
+        {
+          "selector": "#public-description",
+          "label": "2"
+        }
+      ],
+      "note": "Langkah 2: judul dan deskripsi"
+    },
+    {
+      "id": "06-qr-publik/03-lampiran",
+      "role": "perawat.igd@demo.local",
+      "anonymous": true,
+      "path": "/i/{token}",
+      "vars": {
+        "token": {
+          "collection": "intake_points",
+          "filter": "name ~ 'IGD'",
+          "sort": "name",
+          "field": "token"
+        }
+      },
+      "waitFor": ".public-intake-card",
+      "actions": [
+        {
+          "type": "select",
+          "selector": "#public-service",
+          "label": "SIMRS"
+        },
+        {
+          "type": "click",
+          "selector": ".public-impact:has-text(\"Alur kerja klinis\")"
+        },
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Lanjut\")"
+        },
+        {
+          "type": "fill",
+          "selector": "#public-title",
+          "value": "SIMRS gagal menyimpan kunjungan pasien BPJS"
+        },
+        {
+          "type": "fill",
+          "selector": "#public-description",
+          "value": "Sejak pukul 08.00 pendaftaran pasien BPJS gagal disimpan dan muncul pesan error. Sudah dicoba ulang dan ganti komputer, hasilnya sama. Loket IGD mencatat manual sementara."
+        }
+      ],
+      "scrollTo": ".public-file-input",
+      "highlight": [
+        {
+          "selector": ".public-file-input",
+          "label": "1"
+        }
+      ],
+      "note": "Lampiran opsional di langkah 2"
+    },
+    {
+      "id": "06-qr-publik/04-laporan-terkirim",
+      "role": "perawat.igd@demo.local",
+      "anonymous": true,
+      "path": "/i/{token}",
+      "vars": {
+        "token": {
+          "collection": "intake_points",
+          "filter": "name ~ 'IGD'",
+          "sort": "name",
+          "field": "token"
+        }
+      },
+      "waitFor": ".public-intake-card",
+      "actions": [
+        {
+          "type": "select",
+          "selector": "#public-service",
+          "label": "SIMRS"
+        },
+        {
+          "type": "click",
+          "selector": ".public-impact:has-text(\"Alur kerja klinis\")"
+        },
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Lanjut\")"
+        },
+        {
+          "type": "fill",
+          "selector": "#public-title",
+          "value": "SIMRS gagal menyimpan kunjungan pasien BPJS"
+        },
+        {
+          "type": "fill",
+          "selector": "#public-description",
+          "value": "Sejak pukul 08.00 pendaftaran pasien BPJS gagal disimpan dan muncul pesan error. Sudah dicoba ulang dan ganti komputer, hasilnya sama. Loket IGD mencatat manual sementara."
+        },
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Lanjut\")"
+        },
+        {
+          "type": "fill",
+          "selector": "#public-name",
+          "value": "Wawan Setiawan"
+        },
+        {
+          "type": "fill",
+          "selector": "#public-contact",
+          "value": "081234567890"
+        },
+        {
+          "type": "check",
+          "selector": "#public-confirm"
+        },
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Kirim laporan\")"
+        }
+      ],
+      "waitAfterActions": ".public-success",
+      "highlight": [
+        {
+          "selector": ".public-success-ticket",
+          "label": "1"
+        },
+        {
+          "selector": ".public-success-status",
+          "label": "2"
+        }
+      ],
+      "note": "Nomor tiket dan tautan status setelah laporan terkirim"
+    },
+    {
+      "id": "06-qr-publik/05-status-tamu",
+      "role": "perawat.igd@demo.local",
+      "anonymous": true,
+      "path": "/t/{token}",
+      "vars": {
+        "token": {
+          "collection": "tickets",
+          "filter": "public_token != '' && status='assigned'",
+          "sort": "-updated",
+          "field": "public_token"
+        }
+      },
+      "waitFor": ".public-ticket-card",
+      "scrollTo": "top",
+      "highlight": [
+        {
+          "selector": ".public-ticket-meta",
+          "label": "1"
+        }
+      ],
+      "note": "Halaman status tanpa login"
+    },
+    {
+      "id": "06-qr-publik/06-csat-tamu",
+      "role": "perawat.igd@demo.local",
+      "anonymous": true,
+      "path": "/t/{token}",
+      "vars": {
+        "token": {
+          "collection": "tickets",
+          "filter": "public_token != '' && status='resolved'",
+          "sort": "-updated",
+          "field": "public_token"
+        }
+      },
+      "waitFor": ".public-csat",
+      "scrollTo": ".public-csat",
+      "highlight": [
+        {
+          "selector": ".public-csat-stars--input",
+          "label": "1"
+        },
+        {
+          "selector": "#public-csat-comment",
+          "label": "2"
+        }
+      ],
+      "note": "Penilaian CSAT dari pelapor tamu"
+    },
+    {
+      "id": "04-admin/01-identitas",
+      "role": "lead.it@demo.local",
+      "path": "/admin",
+      "waitFor": ".admin-panel",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Identitas\")"
+        },
+        {
+          "type": "wait",
+          "ms": 500
+        }
+      ],
+      "waitAfterActions": ".identity-panel",
+      "highlight": [
+        {
+          "selector": ".identity-panel",
+          "label": "1"
+        }
+      ],
+      "note": "Identitas rumah sakit: logo dan zona waktu"
+    },
+    {
+      "id": "04-admin/02-unit",
+      "role": "lead.it@demo.local",
+      "path": "/admin",
+      "waitFor": ".admin-table",
+      "highlight": [
+        {
+          "selector": ".admin-table",
+          "label": "1"
+        }
+      ],
+      "note": "Daftar unit dan kepala unit"
+    },
+    {
+      "id": "04-admin/03-layanan",
+      "role": "lead.it@demo.local",
+      "path": "/admin",
+      "waitFor": ".admin-table",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Layanan\")"
+        },
+        {
+          "type": "wait",
+          "ms": 700
+        }
+      ],
+      "highlight": [
+        {
+          "selector": ".admin-table",
+          "label": "1"
+        }
+      ],
+      "note": "Katalog layanan dan approval per item"
+    },
+    {
+      "id": "04-admin/04-titik-qr",
+      "role": "lead.it@demo.local",
+      "path": "/admin",
+      "waitFor": ".admin-table",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Titik QR\")"
+        },
+        {
+          "type": "wait",
+          "ms": 900
+        }
+      ],
+      "waitAfterActions": ".qr-grid",
+      "highlight": [
+        {
+          "selector": ".qr-card",
+          "label": "1"
+        }
+      ],
+      "note": "Titik QR: unduh, cetak, dan salin tautan"
+    },
+    {
+      "id": "04-admin/05-sla",
+      "role": "lead.it@demo.local",
+      "path": "/admin",
+      "waitFor": ".admin-table",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Kebijakan SLA\")"
+        },
+        {
+          "type": "wait",
+          "ms": 700
+        }
+      ],
+      "highlight": [
+        {
+          "selector": ".admin-table",
+          "label": "1"
+        }
+      ],
+      "note": "Kebijakan SLA per prioritas"
+    },
+    {
+      "id": "04-admin/06-hari-libur",
+      "role": "lead.it@demo.local",
+      "path": "/admin",
+      "waitFor": ".admin-table",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Hari libur\")"
+        },
+        {
+          "type": "wait",
+          "ms": 700
+        }
+      ],
+      "highlight": [
+        {
+          "selector": ".admin-table",
+          "label": "1"
+        }
+      ],
+      "note": "Hari libur untuk perhitungan SLA"
+    },
+    {
+      "id": "04-admin/07-tim",
+      "role": "lead.it@demo.local",
+      "path": "/admin",
+      "waitFor": ".admin-table",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Tim\")"
+        },
+        {
+          "type": "wait",
+          "ms": 800
+        }
+      ],
+      "waitAfterActions": ".admin-panel",
+      "highlight": [
+        {
+          "selector": ".admin-table",
+          "label": "1"
+        }
+      ],
+      "note": "Daftar anggota tim dan perannya"
+    },
+    {
+      "id": "04-admin/08-undang-anggota",
+      "role": "lead.it@demo.local",
+      "path": "/admin",
+      "waitFor": ".admin-table",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Tim\")"
+        },
+        {
+          "type": "wait",
+          "ms": 800
+        },
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Tambah anggota\")"
+        },
+        {
+          "type": "wait",
+          "ms": 500
+        }
+      ],
+      "waitAfterActions": "#team-form",
+      "highlight": [
+        {
+          "selector": "#team-email",
+          "label": "1"
+        },
+        {
+          "selector": "#team-role",
+          "label": "2"
+        }
+      ],
+      "note": "Undang anggota baru: email, role, unit"
+    },
+    {
+      "id": "04-admin/09-impor-csv",
+      "role": "lead.it@demo.local",
+      "path": "/admin",
+      "waitFor": ".admin-table",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Tim\")"
+        },
+        {
+          "type": "wait",
+          "ms": 800
+        },
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Impor CSV\")"
+        },
+        {
+          "type": "wait",
+          "ms": 500
+        }
+      ],
+      "waitAfterActions": "#team-import-file",
+      "highlight": [
+        {
+          "selector": "#team-import-file",
+          "label": "1"
+        }
+      ],
+      "note": "Impor anggota massal dari CSV"
+    },
+    {
+      "id": "04-admin/10-laporan",
+      "role": "lead.it@demo.local",
+      "path": "/reports",
+      "waitFor": ".kpi-grid",
+      "highlight": [
+        {
+          "selector": ".kpi-grid",
+          "label": "1"
+        }
+      ],
+      "note": "Laporan: KPI periode"
+    },
+    {
+      "id": "04-admin/11-tren",
+      "role": "lead.it@demo.local",
+      "path": "/reports",
+      "waitFor": ".kpi-grid",
+      "scrollTo": ".report-grid",
+      "highlight": [
+        {
+          "selector": ".report-grid",
+          "label": "1"
+        }
+      ],
+      "note": "Tren volume dan SLA per layanan"
+    },
+    {
+      "id": "04-admin/12-jadwal-laporan",
+      "role": "lead.it@demo.local",
+      "path": "/reports",
+      "waitFor": ".kpi-grid",
+      "scrollTo": ".panel:has-text(\"Laporan terjadwal\")",
+      "highlight": [
+        {
+          "selector": ".panel:has-text(\"Laporan terjadwal\")",
+          "label": "1"
+        }
+      ],
+      "note": "Laporan terjadwal ke email"
+    },
+    {
+      "id": "04-admin/13-audit",
+      "role": "lead.it@demo.local",
+      "path": "/audit",
+      "waitFor": ".admin-table",
+      "highlight": [
+        {
+          "selector": ".filter-bar",
+          "label": "1"
+        },
+        {
+          "selector": ".admin-table",
+          "label": "2"
+        }
+      ],
+      "note": "Audit log: siapa melakukan apa dan kapan"
+    },
+    {
+      "id": "05-vendor/01-konsol-vendor",
+      "role": "vendor.seed@demo.local",
+      "path": "/platform",
+      "waitFor": ".admin-table",
+      "highlight": [
+        {
+          "selector": ".kpi-grid",
+          "label": "1"
+        },
+        {
+          "selector": ".admin-table",
+          "label": "2"
+        }
+      ],
+      "note": "Konsol vendor: KPI dan daftar rumah sakit"
+    },
+    {
+      "id": "05-vendor/02-tambah-rs",
+      "role": "vendor.seed@demo.local",
+      "path": "/platform",
+      "waitFor": ".admin-table",
+      "actions": [
+        {
+          "type": "click",
+          "selector": "button:has-text(\"Tambah rumah sakit\")"
+        },
+        {
+          "type": "wait",
+          "ms": 500
+        }
+      ],
+      "waitAfterActions": "#tenant-name",
+      "highlight": [
+        {
+          "selector": "#tenant-name",
+          "label": "1"
+        },
+        {
+          "selector": "#tenant-code",
+          "label": "2"
+        }
+      ],
+      "note": "Membuat rumah sakit baru + admin pertama"
+    },
+    {
+      "id": "05-vendor/03-data-master",
+      "role": "vendor.seed@demo.local",
+      "path": "/platform/tenants/{id}",
+      "pick": {
+        "collection": "tenants",
+        "filter": "code='DEMO01'",
+        "sort": "name"
+      },
+      "waitFor": ".admin-table",
+      "highlight": [
+        {
+          "selector": ".tabs",
+          "label": "1"
+        },
+        {
+          "selector": ".admin-table",
+          "label": "2"
+        }
+      ],
+      "note": "Data master per rumah sakit"
+    },
+    {
+      "id": "05-vendor/04-tiket-lintas",
+      "role": "vendor.seed@demo.local",
+      "path": "/tickets",
+      "waitFor": ".tenant-switcher",
+      "actions": [
+        {
+          "type": "select",
+          "selector": ".tenant-switcher select",
+          "label": "RS Sehat Digital"
+        },
+        {
+          "type": "wait",
+          "ms": 900
+        }
+      ],
+      "waitAfterActions": ".issue-table",
+      "highlight": [
+        {
+          "selector": ".tenant-switcher",
+          "label": "1"
+        }
+      ],
+      "note": "Pilih rumah sakit aktif lalu lihat tiketnya"
+    },
+    {
+      "id": "05-vendor/05-audit-vendor",
+      "role": "vendor.seed@demo.local",
+      "path": "/audit",
+      "waitFor": ".admin-table",
+      "highlight": [
+        {
+          "selector": ".admin-table",
+          "label": "1"
+        }
+      ],
+      "note": "Audit lintas rumah sakit"
+    }
+  ]
+}
