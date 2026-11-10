@@ -68,6 +68,9 @@ serta lupa password mandiri:
   lintas tenant;
 - pengelolaan tim oleh IT Lead: tambah anggota, ubah role/unit, aktif-nonaktif,
   reset password, dan undangan email berisi password awal;
+- impor massal anggota dari CSV (nama, email, role, unit, tim): validasi per
+  baris, ringkasan berhasil/gagal, duplikat ditolak, unduhan kredensial awal,
+  dan audit `import` — dipakai saat onboarding ratusan staf;
 - email transaksional lewat SMTP (Mailtrap saat development) dengan antrean,
   retry, dan preferensi penerima;
 - komentar publik/internal, lampiran terproteksi, pengaturan unit/kategori/SLA/

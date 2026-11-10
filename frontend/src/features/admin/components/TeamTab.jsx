@@ -11,6 +11,7 @@ import {
   fetchMailStatus,
   fetchTeam,
   getErrorMessage,
+  importTeamCsv,
   resetTeamPassword,
   updateTeamMember,
 } from "../../../lib/api";
@@ -45,6 +46,40 @@ const JOB_TITLE_OPTIONS = [
   "Helpdesk",
   "Staf Akreditasi",
 ];
+
+const IMPORT_TEMPLATE = [
+  "nama,email,role,unit,tim",
+  '"Budi Santoso",budi.santoso@rs.example,Pemohon,IGD,Service Desk',
+  '"Siti Aminah",siti.aminah@rs.example,Staff IT,IT,Service Desk',
+].join("\r\n");
+
+function roleLabelOf(role) {
+  const found = ROLE_OPTIONS.find(([value]) => value === role);
+  return found ? found[1] : role;
+}
+
+function csvCell(value) {
+  const text = String(value == null ? "" : value);
+
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+
+  return text;
+}
+
+function downloadTextFile(filename, text) {
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
 function ActiveLozenge({ active }) {
   return (
@@ -141,6 +176,11 @@ export default function TeamTab({ units, currentUser }) {
   const [copied, setCopied] = useState(false);
   const [confirmReset, setConfirmReset] = useState(null);
   const [mail, setMail] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [importResult, setImportResult] = useState(null);
 
   const load = useCallback(async () => {
     list.reload();
@@ -240,6 +280,82 @@ export default function TeamTab({ units, currentUser }) {
     }
   }
 
+  function openImport() {
+    setImportError("");
+    setImportFile(null);
+    setImportResult(null);
+    setImportOpen(true);
+  }
+
+  function closeImport() {
+    if (importBusy) return;
+    setImportOpen(false);
+    setImportFile(null);
+    setImportResult(null);
+    setImportError("");
+  }
+
+  async function submitImport() {
+    if (!importFile) {
+      setImportError("Pilih berkas CSV lebih dulu.");
+      return;
+    }
+
+    setImportBusy(true);
+    setImportError("");
+
+    try {
+      const result = await importTeamCsv(importFile);
+      setImportResult(result);
+
+      if (result.summary.imported > 0) {
+        setNotice(
+          `${result.summary.imported} anggota diimpor dari ${result.file_name}.`
+        );
+        await load();
+      }
+    } catch (err) {
+      setImportError(getErrorMessage(err));
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  function downloadTemplate() {
+    downloadTextFile(
+      "template-anggota.csv",
+      "\uFEFF" + IMPORT_TEMPLATE + "\r\n"
+    );
+  }
+
+  // Password awal hanya ada di memori setelah impor; unduhan ini satu-satunya
+  // cara menyerahkannya ke banyak staf sekaligus.
+  function downloadCredentials() {
+    if (!importResult) return;
+
+    const lines = ["nama,email,role,unit,tim,password"];
+
+    for (const item of importResult.imported) {
+      lines.push(
+        [
+          item.name,
+          item.email,
+          roleLabelOf(item.role),
+          item.unit_name || "",
+          item.team ? teamLabel(item.team) : "",
+          item.password,
+        ]
+          .map(csvCell)
+          .join(",")
+      );
+    }
+
+    downloadTextFile(
+      `kredensial-import-${new Date().toISOString().slice(0, 10)}.csv`,
+      "\uFEFF" + lines.join("\r\n") + "\r\n"
+    );
+  }
+
   return (
     <>
       <div className="filter-bar">
@@ -257,6 +373,10 @@ export default function TeamTab({ units, currentUser }) {
         <span className="list-count">
           {list.loading ? "Memuat..." : `${list.totalItems} anggota`}
         </span>
+        <button className="btn btn-outline btn-sm" type="button" onClick={openImport}>
+          <i className="bi bi-file-earmark-arrow-up" aria-hidden="true" />
+          Impor CSV
+        </button>
         <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
           <i className="bi bi-person-plus" aria-hidden="true" />
           Tambah anggota
@@ -672,6 +792,201 @@ export default function TeamTab({ units, currentUser }) {
           <p className="hint" style={{ marginTop: 4 }}>
             Anggota wajib mengganti password baru saat login berikutnya.
           </p>
+        </Modal>
+      )}
+
+      {importOpen && !importResult && (
+        <Modal
+          title="Impor anggota dari CSV"
+          description="Buat akun banyak staf sekaligus dari satu berkas. Setiap baris divalidasi sendiri; baris yang gagal tidak dibuat."
+          wide
+          onClose={closeImport}
+          footer={
+            <>
+              <button
+                className="btn btn-subtle"
+                type="button"
+                onClick={closeImport}
+                disabled={importBusy}
+              >
+                Batal
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={submitImport}
+                disabled={importBusy || !importFile}
+              >
+                {importBusy ? (
+                  <>
+                    <span className="spinner" aria-hidden="true" />
+                    Mengimpor...
+                  </>
+                ) : (
+                  "Impor sekarang"
+                )}
+              </button>
+            </>
+          }
+        >
+          {importError && (
+            <div className="alert alert--error" role="alert">
+              <i className="bi bi-exclamation-triangle" aria-hidden="true" />
+              <div>{importError}</div>
+            </div>
+          )}
+
+          <div className="alert alert--info" role="status">
+            <i className="bi bi-info-circle" aria-hidden="true" />
+            <div>
+              Format kolom: <strong>nama, email, role, unit, tim</strong>{" "}
+              (opsional: jabatan). Role boleh ditulis Pemohon, Staff IT,
+              Teknisi, Kepala IT, atau Pengamat. Unit diisi nama atau kode unit;
+              tim boleh kosong. Email yang sudah terdaftar akan ditolak.
+            </div>
+          </div>
+
+          <div className="import-template-bar">
+            <button
+              className="btn btn-subtle btn-sm"
+              type="button"
+              onClick={downloadTemplate}
+            >
+              <i className="bi bi-download" aria-hidden="true" />
+              Unduh template CSV
+            </button>
+            <span className="hint">Maksimal 1.000 baris per berkas (2 MB).</span>
+          </div>
+
+          <label className="file-input" style={{ marginTop: 12 }}>
+            <input
+              id="team-import-file"
+              type="file"
+              className="visually-hidden"
+              accept=".csv,text/csv"
+              onChange={(event) => {
+                setImportError("");
+                setImportFile(event.target.files?.[0] || null);
+              }}
+            />
+            <span className="btn btn-outline btn-sm">
+              <i className="bi bi-file-earmark-arrow-up" aria-hidden="true" />
+              Pilih berkas
+            </span>
+            <span className="file-input-name">
+              {importFile ? importFile.name : "Belum ada berkas dipilih"}
+            </span>
+          </label>
+
+          <p className="hint" style={{ marginTop: 8 }}>
+            Simpan berkas sebagai CSV UTF-8. Setiap akun baru memakai password
+            acak dan wajib mengganti password saat login pertama.
+          </p>
+        </Modal>
+      )}
+
+      {importOpen && importResult && (
+        <Modal
+          title="Hasil impor CSV"
+          description={`${importResult.file_name} · ${importResult.summary.total} baris data`}
+          wide
+          onClose={closeImport}
+          footer={
+            <>
+              {importResult.imported.length > 0 && (
+                <button
+                  className="btn btn-outline"
+                  type="button"
+                  onClick={downloadCredentials}
+                >
+                  <i className="bi bi-download" aria-hidden="true" />
+                  Unduh kredensial
+                </button>
+              )}
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={closeImport}
+              >
+                Selesai
+              </button>
+            </>
+          }
+        >
+          <div
+            className={`alert ${
+              importResult.summary.failed > 0
+                ? "alert--warning"
+                : "alert--success"
+            }`}
+            role="status"
+          >
+            <i
+              className={`bi ${
+                importResult.summary.failed > 0
+                  ? "bi-exclamation-triangle"
+                  : "bi-check-circle"
+              }`}
+              aria-hidden="true"
+            />
+            <div className="import-summary">
+              <strong>
+                {importResult.summary.imported} dari{" "}
+                {importResult.summary.total} baris berhasil diimpor.
+              </strong>
+              {importResult.summary.failed > 0
+                ? ` ${importResult.summary.failed} baris gagal dan tidak dibuat.`
+                : " Semua baris berhasil dibuat."}
+            </div>
+          </div>
+
+          {importResult.imported.length > 0 && (
+            <div className="alert alert--warning" role="alert">
+              <i className="bi bi-key" aria-hidden="true" />
+              <div>
+                Password awal hanya ditampilkan sekali lewat unduhan{" "}
+                <strong>kredensial</strong>. Serahkan lewat kanal aman; setiap
+                anggota wajib mengganti password saat login pertama. Email
+                undangan tidak dikirim pada impor massal.
+              </div>
+            </div>
+          )}
+
+          {importResult.failed.length > 0 && (
+            <>
+              <div className="import-failures">
+                <table className="issue-table admin-table is-compact">
+                  <thead>
+                    <tr>
+                      <th className="col-num">Baris</th>
+                      <th>Nama / email</th>
+                      <th>Kesalahan</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importResult.failed.map((item) => (
+                      <tr key={item.row}>
+                        <td className="col-num">{item.row}</td>
+                        <td>
+                          <span className="admin-name">
+                            {item.name || "—"}
+                          </span>
+                          <div className="admin-sub">{item.email || "—"}</div>
+                        </td>
+                        <td>{item.errors.join("; ")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="hint" style={{ marginTop: 8 }}>
+                Perbaiki baris gagal lalu impor ulang berkas yang sudah
+                dikoreksi. Baris yang sudah berhasil akan ditolak sebagai email
+                duplikat, jadi hapus baris tersebut dari berkas.
+              </p>
+            </>
+          )}
         </Modal>
       )}
 

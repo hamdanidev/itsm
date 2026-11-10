@@ -4871,6 +4871,40 @@ button {
   letter-spacing: 0.06em;
   word-break: break-all;
 }
+
+/* Impor anggota dari CSV: template, ringkasan, dan daftar baris gagal. */
+.import-template-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.import-summary {
+  min-width: 0;
+}
+
+/* Tabel hasil impor di dalam modal: ringkas dan bisa digulir sendiri. */
+.import-failures {
+  max-height: 280px;
+  margin-top: 16px;
+  overflow: auto;
+  border: 1px solid var(--n30);
+  border-radius: 4px;
+}
+
+.import-failures .issue-table {
+  margin: 0;
+}
+
+.import-failures .issue-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
 /* Identitas rumah sakit (logo) */
 .identity-panel {
   display: flex;

@@ -584,6 +584,21 @@ export async function resetTeamPassword(userId) {
   return pb.send(`/api/itsm/team/${userId}/password`, { method: "POST" });
 }
 
+// Impor massal anggota dari CSV. Berkas dikirim apa adanya agar validasi dan
+// pembuatan akun tetap di server.
+export async function importTeamCsv(file) {
+  const formData = new FormData();
+  formData.append("file", file, file.name || "anggota.csv");
+
+  const response = await fetch(`${pb.baseURL}/api/itsm/team/import`, {
+    method: "POST",
+    headers: { Authorization: pb.authStore.token },
+    body: formData,
+  });
+
+  return parseResponse(response);
+}
+
 export async function uploadTenantLogo(file) {
   const formData = new FormData();
   formData.append("logo", file);

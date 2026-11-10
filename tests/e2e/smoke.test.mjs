@@ -703,6 +703,81 @@ test("IT Lead menambah anggota tim dan anggota wajib ganti password", async () =
   await memberContext.close();
 });
 
+test("IT Lead mengimpor anggota tim dari CSV", async () => {
+  const page = await login(state.org.lead.email, "**/dashboard", "lead-impor");
+  const suffix = Date.now().toString(36);
+  const validEmail = `impor.e2e.${suffix}@uji.local`;
+  const invalidEmail = `impor.e2e.rusak.${suffix}@uji.local`;
+
+  try {
+    await page.goto(`${state.web.url}/admin`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("tab", { name: /Tim/ }).click();
+    await page.getByRole("button", { name: "Impor CSV" }).click();
+    await page.waitForSelector("#team-import-file", {
+      state: "attached",
+      timeout: 15_000,
+    });
+
+    const [template] = await Promise.all([
+      page.waitForEvent("download", { timeout: 15_000 }),
+      page.getByRole("button", { name: "Unduh template CSV" }).click(),
+    ]);
+
+    assert.equal(template.suggestedFilename(), "template-anggota.csv");
+
+    const body = [
+      "nama,email,role,unit,tim",
+      `Anggota Impor E2E,${validEmail},Staff IT,IT,Service Desk`,
+      `Baris Rusak,${invalidEmail},Pemohon,Unit Tidak Ada,`,
+    ].join("\r\n");
+
+    await page.locator("#team-import-file").setInputFiles({
+      name: "anggota.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(body, "utf8"),
+    });
+
+    await page.getByRole("button", { name: "Impor sekarang" }).click();
+    await page.waitForSelector(".import-summary", { timeout: 20_000 });
+
+    assert.match(
+      await page.locator(".import-summary").innerText(),
+      /1 dari 2 baris berhasil diimpor/
+    );
+    assert.ok(
+      (await page.locator(".import-failures").innerText()).includes(
+        "Unit tidak ditemukan"
+      ),
+      "baris gagal harus tampil beserta alasannya"
+    );
+
+    const [credentials] = await Promise.all([
+      page.waitForEvent("download", { timeout: 15_000 }),
+      page.getByRole("button", { name: "Unduh kredensial" }).click(),
+    ]);
+
+    assert.match(
+      credentials.suggestedFilename(),
+      /^kredensial-import-\d{4}-\d{2}-\d{2}\.csv$/
+    );
+
+    await page.getByRole("dialog").getByRole("button", { name: "Selesai" }).click();
+
+    // Anggota hasil impor dapat dicari dan tampil di tabel tim.
+    await page.getByLabel("Cari anggota tim").fill("Anggota Impor E2E");
+    await page.waitForSelector('tbody tr:has-text("Anggota Impor E2E")', {
+      timeout: 20_000,
+    });
+
+    assert.ok(
+      (await page.locator("tbody").innerText()).includes(validEmail),
+      "email anggota hasil impor harus tampil"
+    );
+  } finally {
+    await closePage(page);
+  }
+});
+
 test("IT Lead mengunggah logo rumah sakit dan logo tampil di sidebar", async () => {
   const page = await login(state.org.lead.email, "**/dashboard", "lead-logo");
 

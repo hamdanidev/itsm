@@ -121,6 +121,106 @@ routerAdd(
   $apis.requireAuth()
 );
 
+// Impor massal anggota dari berkas CSV. Berkas dibaca di server, divalidasi per
+// baris, dan baris yang lolos langsung dibuatkan akun. Password awal setiap
+// akun dikembalikan sekali agar dapat diunduh IT Lead; email undangan tidak
+// dikirim massal supaya ratusan pesan tidak membanjiri SMTP.
+routerAdd(
+  "POST",
+  "/api/itsm/team/import",
+  (e) => {
+    var guards = require(__hooks + "/lib/guards.js");
+    var team = require(__hooks + "/lib/team.js");
+    var audit = require(__hooks + "/lib/audit.js");
+
+    var auth = guards.requireAuth(e);
+    guards.assertLead(auth);
+
+    var tenantId = String(auth.get("tenant") || "");
+    if (!tenantId) throw new BadRequestError("Akun tidak memiliki tenant");
+
+    var maxBytes = 2 * 1024 * 1024;
+    var files;
+
+    try {
+      files = e.findUploadedFiles("file") || [];
+    } catch (err) {
+      files = [];
+    }
+
+    if (files.length !== 1) {
+      throw new BadRequestError("Pilih satu berkas CSV untuk diimpor");
+    }
+
+    var uploaded = files[0];
+    var size = Number((uploaded && uploaded.size) || 0);
+    var fileName = String(
+      (uploaded && (uploaded.originalName || uploaded.name)) || "anggota.csv"
+    );
+
+    if (size > maxBytes) {
+      throw new BadRequestError("Berkas CSV maksimal 2 MB");
+    }
+
+    var text = "";
+    var reader = null;
+
+    try {
+      // filesystem.File membungkus reader; buka dulu sebelum dibaca sebagai teks.
+      reader = uploaded.reader.open();
+      text = readerToString(reader, maxBytes + 1);
+    } catch (err) {
+      console.log("Team import read failed: " + String(err));
+      throw new BadRequestError("Berkas CSV tidak dapat dibaca");
+    } finally {
+      try {
+        if (reader) reader.close();
+      } catch (err) {
+        // Reader sudah tertutup; tidak perlu menggagalkan impor.
+      }
+    }
+
+    if (!String(text || "").trim()) {
+      throw new BadRequestError("Berkas CSV kosong");
+    }
+
+    var result = team.importCsv(e.app, tenantId, text);
+
+    try {
+      var meta = audit.requestMeta(e);
+      var failedSample = result.failed.slice(0, 50);
+
+      audit.write(e.app, {
+        tenant: tenantId,
+        actor: auth,
+        action: "import",
+        collection_name: "users",
+        changes: {
+          file_name: fileName,
+          total_rows: result.summary.total,
+          imported: result.summary.imported,
+          failed: result.summary.failed,
+          failed_rows: failedSample,
+          // Jangan pernah menyimpan password awal di audit.
+          credentials_returned: result.imported.length,
+        },
+        ip: meta.ip,
+        user_agent: meta.user_agent,
+      });
+    } catch (err) {
+      console.log("Team import audit failed: " + String(err));
+    }
+
+    return e.json(200, {
+      summary: result.summary,
+      file_name: fileName,
+      imported: result.imported,
+      failed: result.failed,
+    });
+  },
+  $apis.requireAuth()
+);
+
 routerAdd(
   "PATCH",
   "/api/itsm/team/{userId}",

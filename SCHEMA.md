@@ -868,6 +868,7 @@ Jeda dan recompute:
 | POST | `/api/itsm/intake-points/{id}/rotate` | Rotasi token titik; hanya IT Lead |
 | GET | `/api/itsm/team` | Daftar anggota tim rumah sakit; hanya IT Lead |
 | POST | `/api/itsm/team` | Tambah anggota (password awal dibuat sistem); hanya IT Lead |
+| POST | `/api/itsm/team/import` | Impor anggota dari CSV (multipart `file`); hanya IT Lead |
 | PATCH | `/api/itsm/team/{userId}` | Ubah nama/role/unit/status anggota; hanya IT Lead |
 | POST | `/api/itsm/team/{userId}/password` | Reset password anggota; hanya IT Lead |
 | GET | `/api/itsm/mail/status` | Status SMTP + hitungan antrean tenant; hanya IT Lead |
@@ -1073,6 +1074,31 @@ memakai `$app.save`, sehingga `users.createRule` tetap `null` (superuser saja).
   perubahan itu dicoba, server menolak 400.
 - Unit yang dipasang harus milik tenant yang sama.
 - Setiap create/update/reset menulis `audit_logs` (`collection_name=users`).
+
+### Impor massal dari CSV
+
+`POST /api/itsm/team/import` menerima satu berkas multipart bernama `file`
+(maks 2 MB, maks 1.000 baris data). Berkas dibaca dan divalidasi di server;
+tidak ada akun yang dibuat untuk baris yang gagal.
+
+- Header wajib: `nama`, `email`, `role`, `unit`, `tim` (alias bahasa Inggris
+  `name`, `team`, dan `jabatan`/`job_title` opsional). Urutan kolom bebas;
+  pemisah koma, titik koma, atau tab dideteksi otomatis; kutip ganda dan BOM
+  UTF-8 didukung.
+- `role` menerima kunci internal (`it_support`) maupun label UI
+  (`Staff IT`). `tim` menerima kunci maupun label (`application` /
+  `Aplikasi / SIMRS`). `unit` dicocokkan lewat kode lebih dulu, lalu nama;
+  nama unit ganda harus memakai kode.
+- Per baris divalidasi nama (2–120), email valid dan unik global, role dikenal,
+  tim dikenal, unit ada dan aktif, serta jabatan maks 80 karakter. Email
+  duplikat di dalam berkas dilaporkan dengan nomor baris asalnya.
+- Respons: `summary {total, imported, failed}`, `imported[]` (termasuk
+  `password` awal, hanya sekali), dan `failed[]` (`row`, `name`, `email`,
+  `errors[]`). Email undangan tidak dikirim massal; UI menyediakan unduhan
+  kredensial CSV.
+- Setiap impor menulis satu audit `action=import`, `collection_name=users`,
+  berisi `file_name`, jumlah baris/berhasil/gagal, dan maksimal 50 baris gagal
+  sebagai contoh. Password awal tidak pernah masuk `audit_logs`.
 
 Halaman `/change-password` dipakai untuk memaksa penggantian password awal:
 selama `must_change_password = true`, `guards.requireAuth` menolak route ITSM

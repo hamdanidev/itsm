@@ -6,6 +6,17 @@
 
 var ROLES = ["requester", "it_support", "resolver", "it_lead", "viewer"];
 
+var ROLE_LABELS = {
+  requester: "Pemohon",
+  it_support: "Staff IT",
+  resolver: "Teknisi",
+  it_lead: "Kepala IT",
+  viewer: "Pengamat",
+};
+
+// Batas aman untuk satu berkas impor; satu RS pilot memiliki 300-800 staf.
+var MAX_IMPORT_ROWS = 1000;
+
 // Tanpa karakter ambigu (0/O, 1/l/I) supaya mudah diserahkan secara lisan.
 var PASSWORD_ALPHABET =
   "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
@@ -151,6 +162,38 @@ function assertEmailFree(app, email) {
   }
 }
 
+// Menyimpan satu akun staf baru dengan password acak. Dipakai route tambah
+// anggota maupun impor CSV; password hanya dikembalikan sekali.
+function insertMember(app, tenantId, input) {
+  var password = generatedPassword();
+  var collection = app.findCollectionByNameOrId("users");
+  var record = new Record(collection);
+
+  record.set("email", input.email);
+  record.set("emailVisibility", true);
+  record.set("verified", true);
+  record.set("name", input.name);
+  record.set("role", input.role);
+  if (input.job_title) record.set("job_title", input.job_title);
+  if (input.team) record.set("team", input.team);
+  record.set("tenant", tenantId);
+  record.set("is_active", true);
+  record.set("is_platform_staff", false);
+  record.set("must_change_password", true);
+  if (input.unit) record.set("unit", input.unit);
+  record.setPassword(password);
+
+  try {
+    app.save(record);
+  } catch (err) {
+    throw new BadRequestError(
+      "Gagal menyimpan pengguna. Periksa email dan coba lagi."
+    );
+  }
+
+  return { record: record, password: password };
+}
+
 // Membuat akun staf dengan password acak. Password hanya dikembalikan sekali
 // lewat respons route, tidak pernah disimpan dalam bentuk terbaca.
 function create(app, tenantId, input) {
@@ -180,33 +223,345 @@ function create(app, tenantId, input) {
   assertUnit(app, tenantId, unit);
   assertEmailFree(app, email);
 
-  var password = generatedPassword();
-  var collection = app.findCollectionByNameOrId("users");
-  var record = new Record(collection);
+  return insertMember(app, tenantId, {
+    name: name,
+    email: email,
+    role: role,
+    job_title: jobTitle,
+    team: team,
+    unit: unit,
+  });
+}
 
-  record.set("email", email);
-  record.set("emailVisibility", true);
-  record.set("verified", true);
-  record.set("name", name);
-  record.set("role", role);
-  if (jobTitle) record.set("job_title", jobTitle);
-  if (team) record.set("team", team);
-  record.set("tenant", tenantId);
-  record.set("is_active", true);
-  record.set("is_platform_staff", false);
-  record.set("must_change_password", true);
-  if (unit) record.set("unit", unit);
-  record.setPassword(password);
+// ---------------------------------------------------------------------------
+// Impor CSV
+// ---------------------------------------------------------------------------
 
-  try {
-    app.save(record);
-  } catch (err) {
+// Kunci longgar untuk mencocokkan role/tim dalam bahasa Indonesia maupun kunci
+// internal: "Staff IT", "it_support", dan "IT Support" dianggap sama.
+function normalizeKey(value) {
+  return String(value == null ? "" : value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizeHeader(value) {
+  return String(value == null ? "" : value)
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function resolveRole(value) {
+  var key = normalizeKey(value);
+  if (!key) return "";
+
+  for (var i = 0; i < ROLES.length; i++) {
+    if (normalizeKey(ROLES[i]) === key) return ROLES[i];
+    if (normalizeKey(ROLE_LABELS[ROLES[i]]) === key) return ROLES[i];
+  }
+
+  return "";
+}
+
+function resolveTeam(value) {
+  var key = normalizeKey(value);
+  if (!key) return "";
+
+  var constants = require(__hooks + "/lib/constants.js");
+
+  for (var i = 0; i < constants.TEAMS.length; i++) {
+    if (normalizeKey(constants.TEAMS[i]) === key) return constants.TEAMS[i];
+    if (normalizeKey(constants.TEAM_LABELS[constants.TEAMS[i]]) === key) {
+      return constants.TEAMS[i];
+    }
+  }
+
+  return "";
+}
+
+// Peta unit per tenant: kode diutamakan, lalu nama. Nama ganda ditandai agar
+// baris impor tidak menebak unit yang salah.
+function unitLookup(app, tenantId) {
+  var records = app.findRecordsByFilter(
+    "units",
+    "tenant = {:tenant}",
+    "",
+    0,
+    0,
+    { tenant: tenantId }
+  );
+  var byCode = {};
+  var byName = {};
+
+  for (var i = 0; i < records.length; i++) {
+    var code = String(records[i].get("code") || "").trim().toLowerCase();
+    var name = String(records[i].get("name") || "").trim().toLowerCase();
+
+    if (code) byCode[code] = records[i];
+    if (name) {
+      if (!byName[name]) byName[name] = [];
+      byName[name].push(records[i]);
+    }
+  }
+
+  return { byCode: byCode, byName: byName };
+}
+
+function resolveUnit(lookup, value) {
+  var key = String(value == null ? "" : value).trim().toLowerCase();
+  if (!key) return { record: null, error: "" };
+
+  if (lookup.byCode[key]) return { record: lookup.byCode[key], error: "" };
+
+  var matches = lookup.byName[key] || [];
+  if (matches.length === 1) return { record: matches[0], error: "" };
+  if (matches.length > 1) {
+    return {
+      record: null,
+      error: "Nama unit ambigu; gunakan kode unit: " + String(value),
+    };
+  }
+
+  return {
+    record: null,
+    error: "Unit tidak ditemukan: " + String(value),
+  };
+}
+
+function existingEmailSet(app) {
+  var records = app.findRecordsByFilter("users", "email != ''", "", 0, 0);
+  var emails = {};
+
+  for (var i = 0; i < records.length; i++) {
+    var email = String(records[i].get("email") || "").trim().toLowerCase();
+    if (email) emails[email] = true;
+  }
+
+  return emails;
+}
+
+var HEADER_ALIASES = {
+  nama: "name",
+  name: "name",
+  "nama lengkap": "name",
+  email: "email",
+  "e-mail": "email",
+  "alamat email": "email",
+  role: "role",
+  peran: "role",
+  unit: "unit",
+  "nama unit": "unit",
+  tim: "team",
+  team: "team",
+  jabatan: "job_title",
+  "job title": "job_title",
+  job_title: "job_title",
+};
+
+// Kolom yang wajib ada di header. Unit dan tim boleh kosong per baris, tetapi
+// kolomnya harus ada supaya pemetaan tidak ditebak.
+var REQUIRED_HEADERS = ["name", "email", "role", "unit", "team"];
+
+function mapHeaders(cells) {
+  var mapping = {};
+
+  for (var i = 0; i < cells.length; i++) {
+    var field = HEADER_ALIASES[normalizeHeader(cells[i])];
+    if (!field) continue;
+    if (mapping[field] !== undefined) {
+      throw new BadRequestError(
+        "Kolom " + field + " muncul lebih dari sekali pada header CSV"
+      );
+    }
+    mapping[field] = i;
+  }
+
+  var missing = [];
+
+  for (var r = 0; r < REQUIRED_HEADERS.length; r++) {
+    var required = REQUIRED_HEADERS[r];
+    if (mapping[required] === undefined) {
+      missing.push(
+        required === "name"
+          ? "nama"
+          : required === "team"
+            ? "tim"
+            : required
+      );
+    }
+  }
+
+  if (missing.length) {
     throw new BadRequestError(
-      "Gagal menyimpan pengguna. Periksa email dan coba lagi."
+      "Header CSV harus memuat kolom: nama, email, role, unit, tim. " +
+        "Kolom tidak ditemukan: " +
+        missing.join(", ")
     );
   }
 
-  return { record: record, password: password };
+  return mapping;
+}
+
+function cellValue(cells, mapping, field) {
+  var index = mapping[field];
+  if (index === undefined) return "";
+  return String(cells[index] == null ? "" : cells[index]).trim();
+}
+
+// Memvalidasi seluruh baris lebih dulu, lalu membuat akun hanya untuk baris
+// yang lolos. Baris gagal tidak membatalkan baris lain; ringkasan per baris
+// dikembalikan ke UI agar Kepala IT dapat memperbaiki berkas dan mengulang.
+function importCsv(app, tenantId, csvText) {
+  var csv = require(__hooks + "/lib/csv.js");
+  var parsed = csv.parse(csvText);
+
+  if (!parsed.length) {
+    throw new BadRequestError("Berkas CSV kosong");
+  }
+
+  var mapping = mapHeaders(parsed[0]);
+  var rows = parsed.slice(1);
+
+  if (!rows.length) {
+    throw new BadRequestError(
+      "Berkas CSV hanya berisi header; tambahkan minimal satu baris anggota"
+    );
+  }
+  if (rows.length > MAX_IMPORT_ROWS) {
+    throw new BadRequestError(
+      "Satu berkas maksimal " + MAX_IMPORT_ROWS + " baris; pecah menjadi beberapa berkas"
+    );
+  }
+
+  var units = unitLookup(app, tenantId);
+  var emails = existingEmailSet(app);
+  var seen = {};
+  var imported = [];
+  var failed = [];
+
+  for (var i = 0; i < rows.length; i++) {
+    var cells = rows[i];
+    var rowNumber = i + 2;
+    var name = cellValue(cells, mapping, "name");
+    var email = cellValue(cells, mapping, "email").toLowerCase();
+    var roleInput = cellValue(cells, mapping, "role");
+    var teamInput = cellValue(cells, mapping, "team");
+    var unitInput = cellValue(cells, mapping, "unit");
+    var jobTitle = cellValue(cells, mapping, "job_title");
+    var errors = [];
+
+    if (name.length < 2) {
+      errors.push("Nama minimal 2 karakter");
+    } else if (name.length > 120) {
+      errors.push("Nama maksimal 120 karakter");
+    }
+
+    if (!email) {
+      errors.push("Email wajib diisi");
+    } else if (email.length > 200) {
+      errors.push("Email maksimal 200 karakter");
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.push("Email tidak valid");
+    } else if (seen[email]) {
+      errors.push("Email duplikat di dalam berkas (baris " + seen[email] + ")");
+    } else if (emails[email]) {
+      errors.push("Email sudah dipakai pengguna lain");
+    }
+
+    var role = resolveRole(roleInput);
+    if (!roleInput) {
+      errors.push("Role wajib diisi");
+    } else if (!role) {
+      errors.push(
+        "Role tidak dikenal: " +
+          roleInput +
+          " (pakai Pemohon, Staff IT, Teknisi, Kepala IT, atau Pengamat)"
+      );
+    }
+
+    var team = "";
+    if (teamInput) {
+      team = resolveTeam(teamInput);
+      if (!team) {
+        errors.push("Tim tidak dikenal: " + teamInput);
+      }
+    }
+
+    var unit = "";
+    var unitName = "";
+    if (unitInput) {
+      var unitMatch = resolveUnit(units, unitInput);
+      if (unitMatch.error) {
+        errors.push(unitMatch.error);
+      } else {
+        unit = unitMatch.record.id;
+        unitName = String(unitMatch.record.get("name") || "");
+
+        if (!unitMatch.record.get("is_active")) {
+          errors.push("Unit nonaktif: " + unitName);
+        }
+      }
+    }
+
+    if (jobTitle.length > 80) {
+      errors.push("Jabatan maksimal 80 karakter");
+    }
+
+    if (errors.length) {
+      failed.push({
+        row: rowNumber,
+        name: name,
+        email: email,
+        errors: errors,
+      });
+      continue;
+    }
+
+    try {
+      var created = insertMember(app, tenantId, {
+        name: name,
+        email: email,
+        role: role,
+        job_title: jobTitle,
+        team: team,
+        unit: unit,
+      });
+
+      seen[email] = rowNumber;
+      emails[email] = true;
+      imported.push({
+        row: rowNumber,
+        id: created.record.id,
+        name: name,
+        email: email,
+        role: role,
+        job_title: jobTitle,
+        team: team,
+        unit: unit,
+        unit_name: unitName,
+        password: created.password,
+      });
+    } catch (err) {
+      failed.push({
+        row: rowNumber,
+        name: name,
+        email: email,
+        errors: [String((err && err.message) || err)],
+      });
+    }
+  }
+
+  return {
+    summary: {
+      total: rows.length,
+      imported: imported.length,
+      failed: failed.length,
+    },
+    imported: imported,
+    failed: failed,
+  };
 }
 
 // `changes` dihitung dari nilai lama untuk audit dan pengembalian.
@@ -367,9 +722,11 @@ function resetPassword(app, tenantId, userId) {
 
 module.exports = {
   ROLES: ROLES,
+  MAX_IMPORT_ROWS: MAX_IMPORT_ROWS,
   serialize: serialize,
   list: list,
   create: create,
+  importCsv: importCsv,
   update: update,
   resetPassword: resetPassword,
   activeLeads: activeLeads,
