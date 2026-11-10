@@ -83,6 +83,15 @@ onRecordAuthRequest((e) => {
   }
 }, "users");
 
+// Pembatasan percobaan login + faktor kedua TOTP. Hook berjalan sebelum
+// PocketBase memverifikasi password, sehingga lockout dan audit dapat mencatat
+// percobaan yang gagal tanpa mengubah respons gagal autentikasi standar.
+onRecordAuthWithPasswordRequest((e) => {
+  var authLib = require(__hooks + "/lib/auth.js");
+  authLib.beforePasswordLogin(e.app, e);
+  e.next();
+}, "users");
+
 // Invariant scope akun: akun platform tidak punya tenant, akun rumah sakit
 // wajib punya tepat satu tenant. Kolom `tenant` dibuat opsional di skema hanya
 // untuk memberi ruang akun platform.

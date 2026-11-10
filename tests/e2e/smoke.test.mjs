@@ -22,9 +22,19 @@ import {
   uniqueLabel,
 } from "../lib/fixtures.mjs";
 import { findChromium } from "../lib/chromium.mjs";
+import { loadHookModule } from "../lib/load-hook.mjs";
+
+const totpLib = loadHookModule("lib/totp.js");
 
 const frontendDir = fileURLToPath(new URL("../../frontend/", import.meta.url));
 const PASSWORD = "RahasiaUji123!";
+
+function currentTotp(secret) {
+  return totpLib.hotp(
+    secret,
+    totpLib.stepFor(Math.floor(Date.now() / 1000))
+  );
+}
 
 const state = {
   pb: null,
@@ -775,6 +785,124 @@ test("IT Lead mengimpor anggota tim dari CSV", async () => {
     );
   } finally {
     await closePage(page);
+  }
+});
+
+test("pengguna mengaktifkan 2FA dan IT Lead meresetnya", async () => {
+  const member = await addMember(state.org.admin, {
+    tenantId: state.org.tenant.id,
+    unitId: state.org.itUnit.id,
+    role: "requester",
+    label: "dua-faktor-e2e",
+    name: "Pengguna 2FA E2E",
+  });
+
+  let secret = "";
+  let recoveryCodes = [];
+
+  const page = await login(member.email, "**/tickets", "2fa-member");
+
+  try {
+    await page.locator(".user-trigger").click();
+    await page.getByRole("menuitem", { name: "Profil saya" }).click();
+    await page.waitForURL("**/profile", { timeout: 20_000 });
+    await page.waitForSelector(".security-block", { timeout: 20_000 });
+
+    await page.getByRole("button", { name: "Aktifkan 2FA" }).click();
+    await page.waitForSelector("#totp-current-password", { timeout: 15_000 });
+    await page.fill("#totp-current-password", PASSWORD);
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Lanjut" })
+      .click();
+
+    await page.waitForSelector("#totp-code", { timeout: 20_000 });
+    secret = (await page.locator(".totp-secret").innerText()).trim();
+    assert.ok(secret.length >= 16, "secret TOTP harus tampil untuk disalin");
+
+    await page.fill("#totp-code", currentTotp(secret));
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Aktifkan 2FA" })
+      .click();
+
+    await page.waitForSelector(".totp-codes code", { timeout: 20_000 });
+    recoveryCodes = await page.locator(".totp-codes code").allInnerTexts();
+    assert.equal(recoveryCodes.length, 10);
+    assert.ok(
+      recoveryCodes.every((item) =>
+        /^[A-Z0-9]{4}(-[A-Z0-9]{4}){2}$/.test(item)
+      )
+    );
+
+    await page.getByRole("dialog").getByRole("button", { name: "Selesai" }).click();
+    await waitFor(
+      async () =>
+        (
+          await page.locator(".security-block .lozenge").innerText()
+        ).toLowerCase() === "aktif",
+      { label: "status 2FA aktif di profil" }
+    );
+  } finally {
+    await closePage(page);
+  }
+
+  // Login berikutnya meminta kode dari aplikasi authenticator.
+  const context = await state.browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const codePage = await context.newPage();
+
+  try {
+    await codePage.goto(`${state.web.url}/login`, {
+      waitUntil: "domcontentloaded",
+    });
+    await codePage.fill("#email", member.email);
+    await codePage.fill("#password", PASSWORD);
+    await codePage.click('button[type="submit"]');
+    await codePage.waitForSelector("#totp", { timeout: 20_000 });
+
+    await codePage.fill("#totp", currentTotp(secret));
+    await codePage.click('button[type="submit"]');
+    await codePage.waitForURL("**/tickets", { timeout: 20_000 });
+  } finally {
+    await context.close().catch(() => {});
+  }
+
+  // IT Lead mereset 2FA dari modal Keamanan di tab Tim.
+  const leadPage = await login(state.org.lead.email, "**/dashboard", "2fa-lead");
+
+  try {
+    await leadPage.goto(`${state.web.url}/admin`, {
+      waitUntil: "domcontentloaded",
+    });
+    await leadPage.getByRole("tab", { name: /Tim/ }).click();
+    await leadPage.getByLabel("Cari anggota tim").fill("Pengguna 2FA E2E");
+    await leadPage.waitForSelector('tbody tr:has-text("Pengguna 2FA E2E")', {
+      timeout: 20_000,
+    });
+
+    const row = leadPage
+      .locator("tr", { hasText: "Pengguna 2FA E2E" })
+      .first();
+    await row.getByRole("button", { name: "Keamanan" }).click();
+
+    const dialog = leadPage.getByRole("dialog");
+    await dialog.getByText("Keamanan akun").waitFor();
+
+    assert.match(await dialog.innerText(), /Aktif/);
+
+    await dialog.getByRole("button", { name: "Reset 2FA" }).click();
+    await leadPage.waitForSelector(".modal .alert--success", {
+      timeout: 20_000,
+    });
+
+    await waitFor(
+      async () => (await dialog.innerText()).includes("Nonaktif"),
+      { label: "status 2FA menjadi nonaktif setelah reset" }
+    );
+  } finally {
+    await closePage(leadPage);
   }
 });
 

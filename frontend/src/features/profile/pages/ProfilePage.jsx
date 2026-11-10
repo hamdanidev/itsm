@@ -14,6 +14,7 @@ import {
 import { roleLabel } from "../../../lib/permissions";
 import { teamLabel } from "../../../lib/teams";
 import { formErrorText, useAppForm } from "../../../lib/formik";
+import TwoFactorSection from "../components/TwoFactorSection";
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const AVATAR_TYPES = ["image/png", "image/jpeg", "image/webp"];
@@ -469,6 +470,14 @@ export default function ProfilePage() {
                     </button>
                   </div>
                 </form>
+
+                <TwoFactorSection
+                  profile={profile}
+                  onChanged={async () => {
+                    const data = await fetchProfile();
+                    setProfile(data);
+                  }}
+                />
               </div>
             </section>
           </div>

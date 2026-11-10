@@ -45,6 +45,9 @@ function serialize(record, unitName) {
     unit_name: String(unitName || ""),
     is_active: Boolean(record.get("is_active")),
     must_change_password: Boolean(record.get("must_change_password")),
+    totp_enabled: Boolean(record.get("totp_enabled")),
+    login_failed_count: Number(record.get("login_failed_count") || 0),
+    login_locked_until: String(record.get("login_locked_until") || ""),
     created: String(record.get("created") || ""),
   };
 }
@@ -694,7 +697,8 @@ function update(app, tenantId, userId, input, actorId) {
   return { record: record, changes: changes };
 }
 
-function resetPassword(app, tenantId, userId) {
+// Mencari anggota tenant sendiri; akun platform dan tenant lain selalu 404.
+function findMember(app, tenantId, userId) {
   var record;
 
   try {
@@ -710,6 +714,11 @@ function resetPassword(app, tenantId, userId) {
     throw new NotFoundError("Pengguna tidak ditemukan");
   }
 
+  return record;
+}
+
+function resetPassword(app, tenantId, userId) {
+  var record = findMember(app, tenantId, userId);
   var password = generatedPassword();
 
   record.setPassword(password);
@@ -729,5 +738,6 @@ module.exports = {
   importCsv: importCsv,
   update: update,
   resetPassword: resetPassword,
+  findMember: findMember,
   activeLeads: activeLeads,
 };

@@ -71,6 +71,10 @@ serta lupa password mandiri:
 - impor massal anggota dari CSV (nama, email, role, unit, tim): validasi per
   baris, ringkasan berhasil/gagal, duplikat ditolak, unduhan kredensial awal,
   dan audit `import` — dipakai saat onboarding ratusan staf;
+- keamanan akun: **2FA TOTP** (QR + kunci manual, 10 kode pemulihan sekali
+  pakai, reset oleh IT Lead dari tab Tim), pembatasan percobaan login dengan
+  lockout sementara, buka kunci oleh IT Lead, dan audit `login_failed` tanpa
+  menyimpan password/kode;
 - email transaksional lewat SMTP (Mailtrap saat development) dengan antrean,
   retry, dan preferensi penerima;
 - komentar publik/internal, lampiran terproteksi, pengaturan unit/kategori/SLA/

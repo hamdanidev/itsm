@@ -222,6 +222,128 @@ routerAdd(
 );
 
 routerAdd(
+  "POST",
+  "/api/itsm/team/{userId}/2fa-reset",
+  (e) => {
+    var guards = require(__hooks + "/lib/guards.js");
+    var team = require(__hooks + "/lib/team.js");
+    var audit = require(__hooks + "/lib/audit.js");
+    var authLib = require(__hooks + "/lib/auth.js");
+
+    var auth = guards.requireAuth(e);
+    guards.assertLead(auth);
+
+    var tenantId = String(auth.get("tenant") || "");
+    if (!tenantId) throw new BadRequestError("Akun tidak memiliki tenant");
+
+    var record = team.findMember(e.app, tenantId, e.request.pathValue("userId"));
+
+    if (record.id === auth.id) {
+      throw new BadRequestError(
+        "Tidak dapat mereset 2FA akun sendiri; gunakan halaman Profil"
+      );
+    }
+    if (!record.get("totp_enabled")) {
+      throw new BadRequestError("Autentikasi dua faktor anggota ini belum aktif");
+    }
+
+    authLib.resetSecondFactor(record);
+    // Reset oleh IT Lead adalah tindakan keamanan: akhiri semua sesi aktif.
+    record.refreshTokenKey();
+    e.app.save(record);
+
+    try {
+      var meta = audit.requestMeta(e);
+      audit.write(e.app, {
+        tenant: tenantId,
+        actor: auth,
+        action: "mfa_reset",
+        collection_name: "users",
+        record_id: record.id,
+        changes: { method: "totp", sessions_revoked: true },
+        ip: meta.ip,
+        user_agent: meta.user_agent,
+      });
+    } catch (err) {
+      console.log("2FA reset audit failed: " + String(err));
+    }
+
+    var unitName = "";
+
+    try {
+      unitName = String(
+        e.app.findRecordById("units", String(record.get("unit") || "")).get("name") || ""
+      );
+    } catch (err) {
+      unitName = "";
+    }
+
+    return e.json(200, { user: team.serialize(record, unitName) });
+  },
+  $apis.requireAuth()
+);
+
+routerAdd(
+  "POST",
+  "/api/itsm/team/{userId}/unlock",
+  (e) => {
+    var guards = require(__hooks + "/lib/guards.js");
+    var team = require(__hooks + "/lib/team.js");
+    var audit = require(__hooks + "/lib/audit.js");
+    var authLib = require(__hooks + "/lib/auth.js");
+
+    var auth = guards.requireAuth(e);
+    guards.assertLead(auth);
+
+    var tenantId = String(auth.get("tenant") || "");
+    if (!tenantId) throw new BadRequestError("Akun tidak memiliki tenant");
+
+    var record = team.findMember(e.app, tenantId, e.request.pathValue("userId"));
+    var info = authLib.lockInfo(record);
+
+    if (!info.locked && info.attempts === 0) {
+      throw new BadRequestError("Akun ini tidak sedang terkunci");
+    }
+
+    authLib.unlock(record);
+    e.app.save(record);
+
+    try {
+      var meta = audit.requestMeta(e);
+      audit.write(e.app, {
+        tenant: tenantId,
+        actor: auth,
+        action: "update",
+        collection_name: "users",
+        record_id: record.id,
+        changes: {
+          field: "login_lock",
+          attempts_before: info.attempts,
+          locked_until_before: info.until,
+        },
+        ip: meta.ip,
+        user_agent: meta.user_agent,
+      });
+    } catch (err) {
+      console.log("Login unlock audit failed: " + String(err));
+    }
+
+    var unitName = "";
+
+    try {
+      unitName = String(
+        e.app.findRecordById("units", String(record.get("unit") || "")).get("name") || ""
+      );
+    } catch (err) {
+      unitName = "";
+    }
+
+    return e.json(200, { user: team.serialize(record, unitName) });
+  },
+  $apis.requireAuth()
+);
+
+routerAdd(
   "PATCH",
   "/api/itsm/team/{userId}",
   (e) => {

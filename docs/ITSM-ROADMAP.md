@@ -619,10 +619,17 @@ fitur ITIL.
 | S0-5 | **Paket dokumen jual** | Penawaran terlihat amatir tanpa ini | One-pager, skrip demo 20 menit, proposal pilot, daftar harga, security & data pack, SLA support, template NDA/DPA |
 | S0-6 | **Monitoring & alert dasar** | Uptime tidak terpantau selama pilot | Healthcheck eksternal, alert down/disk penuh, rotasi dan retensi log terdokumentasi |
 
-**Status per 2026-11-10:** S0-1 selesai — `POST /api/itsm/team/import`
-(multipart CSV), modal "Impor CSV" di Pengaturan → Tim, validasi per baris,
-ringkasan berhasil/gagal, duplikat ditolak, audit `import`, serta test API,
-unit parser, dan e2e. Butir lain belum dikerjakan.
+**Status per 2026-11-10:** S0-1 dan S0-2 selesai.
+
+- S0-1: `POST /api/itsm/team/import` (multipart CSV), modal "Impor CSV" di
+  Pengaturan → Tim, validasi per baris, ringkasan berhasil/gagal, duplikat
+  ditolak, audit `import`, serta test API, unit parser, dan e2e.
+- S0-2: 2FA TOTP (aktivasi QR/kunci manual, 10 kode pemulihan sekali pakai,
+  nonaktifkan dengan password + kode), reset 2FA dan buka kunci oleh IT Lead
+  dari tab Tim, lockout setelah 5 percobaan (15 menit), audit `login_failed`
+  tanpa menyimpan password/kode, serta test unit TOTP, API, dan e2e.
+
+Butir Sprint 0 lain belum dikerjakan.
 
 **Definisi selesai Sprint 0:** satu RS bisa di-onboard tanpa menyentuh database,
 satu demo berjalan dari data bersih dalam < 5 menit, dan semua pertanyaan standar
@@ -682,8 +689,8 @@ capacity, availability, financial). Alasan dan urutannya ada di
 1. ~~**S0-1 bulk import pengguna** — satu route + modal di tab Tim + test
    API/e2e.~~ *(selesai 2026-11-10; lihat status di 10.1)* Ini item dengan
    rasio "membuka deal / usaha" tertinggi.
-2. **S0-2 2FA + pembatasan login** — migrasi kolom, route enroll/verifikasi,
-   layar keamanan di profil.
+2. ~~**S0-2 2FA + pembatasan login** — migrasi kolom, route enroll/verifikasi,
+   layar keamanan di profil.~~ *(selesai 2026-11-10; lihat status di 10.1)*
 3. **S0-3 runbook + S0-6 monitoring** — dokumen dan konfigurasi, tanpa UI.
 4. **S0-4 tenant demo + `npm run demo:reset`** — skrip di `scripts/`, memakai
    seed dev yang sudah ada.

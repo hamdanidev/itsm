@@ -432,6 +432,28 @@ export async function changePassword(payload) {
   return pb.send("/api/itsm/profile/password", { method: "POST", body: payload });
 }
 
+// Autentikasi dua faktor (TOTP) untuk akun sendiri.
+export async function startTwoFactor(currentPassword) {
+  return pb.send("/api/itsm/profile/2fa/start", {
+    method: "POST",
+    body: { current_password: currentPassword },
+  });
+}
+
+export async function confirmTwoFactor(code) {
+  return pb.send("/api/itsm/profile/2fa/confirm", {
+    method: "POST",
+    body: { code },
+  });
+}
+
+export async function disableTwoFactor(password, code) {
+  return pb.send("/api/itsm/profile/2fa/disable", {
+    method: "POST",
+    body: { password, code },
+  });
+}
+
 export async function requestPasswordReset(email) {
   return pb.send("/api/itsm/auth/forgot-password", {
     method: "POST",
@@ -582,6 +604,14 @@ export async function updateTeamMember(userId, payload) {
 
 export async function resetTeamPassword(userId) {
   return pb.send(`/api/itsm/team/${userId}/password`, { method: "POST" });
+}
+
+export async function resetTeamTwoFactor(userId) {
+  return pb.send(`/api/itsm/team/${userId}/2fa-reset`, { method: "POST" });
+}
+
+export async function unlockTeamMember(userId) {
+  return pb.send(`/api/itsm/team/${userId}/unlock`, { method: "POST" });
 }
 
 // Impor massal anggota dari CSV. Berkas dikirim apa adanya agar validasi dan

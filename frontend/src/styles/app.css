@@ -4905,6 +4905,175 @@ button {
   z-index: 1;
   background: var(--surface);
 }
+
+/* Status keamanan tim: badge 2FA dan akun terkunci di kolom status. */
+.status-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.lozenge--2fa {
+  background: var(--blue-subtle);
+  color: var(--blue-pressed);
+  font-size: 11px;
+}
+
+.lozenge--locked {
+  background: var(--yellow-bg);
+  color: var(--orange);
+  font-size: 11px;
+}
+
+/* Pengaturan 2FA di panel Keamanan profil. */
+.security-block {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--n30);
+}
+
+.security-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.security-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.security-title i {
+  color: var(--blue);
+}
+
+.security-head .hint {
+  max-width: 520px;
+}
+
+.security-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.security-status {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: var(--n10);
+  border: 1px solid var(--n30);
+  border-radius: 6px;
+}
+
+.security-status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.security-status-row span {
+  color: var(--muted);
+}
+
+.security-action-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--n30);
+  border-radius: 6px;
+}
+
+.security-action-box .hint {
+  margin: 2px 0 0;
+}
+
+/* Pendaftaran TOTP: QR di kiri, kunci manual di kanan. */
+.totp-enroll {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+
+.totp-qr {
+  width: 220px;
+  height: 220px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid var(--n30);
+  border-radius: 6px;
+}
+
+.totp-qr--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 42px;
+}
+
+.totp-secret-box {
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.totp-secret {
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  word-break: break-all;
+}
+
+.totp-uri {
+  margin-top: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.totp-code-input {
+  max-width: 180px;
+  font-size: 18px;
+  letter-spacing: 0.18em;
+}
+
+.totp-codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.totp-codes code {
+  padding: 8px 10px;
+  background: var(--n10);
+  border: 1px solid var(--n30);
+  border-radius: 4px;
+  color: var(--ink-strong);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .totp-enroll {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 /* Identitas rumah sakit (logo) */
 .identity-panel {
   display: flex;

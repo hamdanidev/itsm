@@ -14,33 +14,54 @@ export default function LoginPage() {
   const location = useLocation();
 
   const [showPassword, setShowPassword] = useState(false);
+  const [needsTotp, setNeedsTotp] = useState(false);
 
   const formik = useAppForm({
-    initialValues: { email: "", password: "" },
+    initialValues: { email: "", password: "", totp: "" },
     validate: (values) => {
       const errors = {};
       if (!values.email.trim()) errors.email = "Email wajib diisi.";
       if (!values.password) errors.password = "Password wajib diisi.";
+      if (needsTotp && !values.totp.trim()) {
+        errors.totp = "Kode autentikasi dua faktor wajib diisi.";
+      }
       return errors;
     },
     onSubmit: async (values, helpers) => {
       helpers.setStatus("");
 
       try {
-        await login(values.email, values.password);
+        await login(values.email, values.password, values.totp.trim());
         navigate(from, { replace: true });
       } catch (err) {
-        const message = getErrorMessage(err);
-        helpers.setStatus(
-          /failed to authenticate/i.test(message)
-            ? "Email atau password salah. Periksa kembali lalu coba lagi."
-            : message
-        );
+        // PocketBase menaruh pesan utama di `response.message`; helper generik
+        // bisa mengambil pesan field validasi "Invalid value." dari `data`.
+        const message =
+          err?.response?.message || err?.message || getErrorMessage(err);
+
+        // Akun dengan 2FA menolak login password saja; tampilkan kolom kode
+        // lalu kirim ulang password + kode dalam satu request.
+        if (Number(err?.status) === 403 && /dua faktor|2fa/i.test(message)) {
+          setNeedsTotp(true);
+          helpers.setStatus(
+            "Masukkan kode 6 digit dari aplikasi authenticator, atau kode pemulihan bila perangkat hilang."
+          );
+        } else if (/failed to authenticate/i.test(message)) {
+          helpers.setStatus(
+            "Email atau password salah. Periksa kembali lalu coba lagi."
+          );
+        } else {
+          helpers.setStatus(message);
+        }
       } finally {
         helpers.setSubmitting(false);
       }
     },
   });
+
+  useEffect(() => {
+    if (needsTotp) document.getElementById("totp")?.focus();
+  }, [needsTotp]);
 
   const error = formErrorText(formik);
 
@@ -137,6 +158,28 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+
+            {needsTotp && (
+              <div className="login-field">
+                <label className="form-label" htmlFor="totp">
+                  Kode autentikasi dua faktor
+                </label>
+                <input
+                  id="totp"
+                  className="input"
+                  placeholder="Contoh: 123456"
+                  inputMode="text"
+                  autoComplete="one-time-code"
+                  spellCheck={false}
+                  {...formik.getFieldProps("totp")}
+                  required
+                />
+                <div className="hint">
+                  Buka aplikasi authenticator, atau masukkan salah satu kode
+                  pemulihan Anda.
+                </div>
+              </div>
+            )}
 
             <div className="login-assist">
               <Link to="/forgot-password">Lupa password?</Link>

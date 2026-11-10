@@ -229,7 +229,13 @@ Rules:
 Field sistem + `tenant`, `unit`, `name`, `role`, `job_title`, `team`, `phone`,
 `employee_no`, `avatar`, `is_active`, `is_platform_staff`,
 `must_change_password`, `email_opt_out`, `external_id`, `external_issuer`,
-`external_groups`, `created`, `updated`.
+`external_groups`, `totp_enabled`, `created`, `updated`.
+
+Field keamanan tambahan (disembunyikan dari serialisasi record `users`):
+`totp_secret`, `totp_confirmed_at`, `totp_last_step`, `totp_recovery_hashes`,
+`login_failed_count`, `login_locked_until`. `totp_enabled` tetap terlihat agar
+halaman Profil dan tab Tim dapat menampilkan status 2FA; route tim dapat
+membaca field keamanan lain langsung dari server untuk modal Keamanan.
 
 `job_title` adalah jabatan (mis. Programmer, Teknisi Jaringan, DBA, Admin
 SIMRS) dan **tidak** mengubah hak akses. Role akses tetap ditentukan `role`.
@@ -283,6 +289,35 @@ Provisioning akun hanya superuser (Admin UI) atau route Konsol Vendor.
 selain diri sendiri/IT Lead. Cabang `is_platform_staff = true` membuat staf
 vendor dapat di-expand sebagai assignee/approver di tiket rumah sakit; tanpa
 cabang itu nama mereka tampil kosong bagi pengguna tenant.
+
+#### Autentikasi dua faktor (TOTP) dan pembatasan login
+
+- `totp_secret` menyimpan secret Base32 (160 bit) milik pengguna. Field ini,
+  `totp_recovery_hashes`, `totp_last_step`, dan `totp_confirmed_at` tidak pernah
+  diserialisasi; hanya route 2FA yang membaca/menulisnya di server.
+- Saat `totp_enabled = true`, `POST /api/collections/users/auth-with-password`
+  menolak login dengan password saja (403). Klien mengirim ulang password +
+  `totp` (kode 6 digit **atau** kode pemulihan) dalam satu request. Hook
+  `onRecordAuthWithPasswordRequest` memvalidasi password, kode, dan replay
+  sebelum PocketBase membuat token.
+- Kode TOTP: SHA-1, 6 digit, periode 30 detik, toleransi ±1 langkah. Langkah
+  terakhir yang diterima disimpan agar kode tidak dapat dipakai dua kali.
+- 10 kode pemulihan dibuat saat aktivasi dan hanya ditampilkan sekali; yang
+  disimpan adalah hash SHA-256. Setiap kode sekali pakai.
+- Percobaan password/kode yang salah dihitung per akun. Setelah
+  `LOGIN_MAX_ATTEMPTS` (default 5) akun dikunci selama `LOGIN_LOCK_MINUTES`
+  (default 15 menit) dan login berikutnya ditolak 429. Kunci kedaluwarsa
+  dibersihkan otomatis; IT Lead dapat membukanya lewat route tim.
+- Setiap kegagalan menulis `audit_logs` `action=login_failed` dengan
+  `changes.reason` (`password`/`totp`/`locked`), jumlah percobaan, dan waktu
+  kunci. Password/kode yang dicoba tidak pernah disimpan. Login berhasil tetap
+  menulis `action=login` lewat hook yang sudah ada.
+- Aktivasi/menonaktifkan 2FA menulis `mfa_enroll`/`mfa_disable`. Reset oleh IT
+  Lead menulis `mfa_reset`, menghapus secret + kode pemulihan, dan
+  `refreshTokenKey()` sehingga semua sesi pengguna berakhir.
+- Pengguna tidak dapat mereset 2FA akunnya sendiri lewat konsol tim; gunakan
+  panel Keamanan di Profil. IT Lead juga tidak dapat mereset 2FA akun sendiri
+  lewat route tim.
 
 ### `units`
 
@@ -738,6 +773,12 @@ tiket sebagai perubahan triage.
 Setup awal instalasi menulis `action=setup` (aktor akun pertama; `tenant` kosong
 untuk mode vendor) dengan `collection_name=tenants` atau `users`.
 
+Autentikasi menulis `action=login` saat berhasil, `login_failed` saat password
+atau kode 2FA salah / akun terkunci, `mfa_enroll` + `mfa_disable` saat pengguna
+mengubah 2FA, dan `mfa_reset` saat IT Lead mereset 2FA anggota. Semua baris
+memakai `collection_name=users`; `changes` tidak pernah memuat password, secret
+TOTP, atau kode pemulihan.
+
 Penautan problem dan artikel menulis `action=problem_link` /
 `action=knowledge_link` pada tiket terkait. Perubahan problem dan artikel
 menulis `action=create/update` dengan `collection_name=problems` atau
@@ -852,6 +893,9 @@ Jeda dan recompute:
 | GET/PATCH | `/api/itsm/profile` | Baca/ubah profil sendiri (nama, telepon, nomor pegawai) |
 | POST/DELETE | `/api/itsm/profile/avatar` | Unggah/hapus avatar |
 | POST | `/api/itsm/profile/password` | Ganti password dengan verifikasi password lama |
+| POST | `/api/itsm/profile/2fa/start` | Mulai aktivasi TOTP (verifikasi password, kembalikan secret + URI) |
+| POST | `/api/itsm/profile/2fa/confirm` | Konfirmasi kode 6 digit, aktifkan 2FA, kembalikan 10 kode pemulihan |
+| POST | `/api/itsm/profile/2fa/disable` | Nonaktifkan 2FA (password + kode TOTP/pemulihan) |
 | POST | `/api/itsm/auth/forgot-password` | Minta tautan reset password (guest; respons generik) |
 | POST/DELETE | `/api/itsm/tenant/logo` | Unggah/hapus logo rumah sakit; hanya IT Lead |
 | PATCH | `/api/itsm/tenant` | Ubah `timezone` rumah sakit; hanya IT Lead, hanya mode standalone |
@@ -871,6 +915,8 @@ Jeda dan recompute:
 | POST | `/api/itsm/team/import` | Impor anggota dari CSV (multipart `file`); hanya IT Lead |
 | PATCH | `/api/itsm/team/{userId}` | Ubah nama/role/unit/status anggota; hanya IT Lead |
 | POST | `/api/itsm/team/{userId}/password` | Reset password anggota; hanya IT Lead |
+| POST | `/api/itsm/team/{userId}/2fa-reset` | Hapus 2FA + kode pemulihan anggota, akhiri sesi; hanya IT Lead |
+| POST | `/api/itsm/team/{userId}/unlock` | Buka kunci login akibat percobaan gagal; hanya IT Lead |
 | GET | `/api/itsm/mail/status` | Status SMTP + hitungan antrean tenant; hanya IT Lead |
 | POST | `/api/itsm/mail/dispatch` | Kirim antrean email sekarang; hanya superuser |
 | GET | `/api/itsm/app-meta` | Mode tenancy aktif + `setup_required` (publik, tanpa auth) |
@@ -998,6 +1044,16 @@ pengguna tidak bisa mengubah profil orang lain.
   `new_password_confirm`. Password lama diverifikasi dengan
   `record.validatePassword()`, minimal 8 karakter, lalu `refreshTokenKey()`
   membuat semua sesi lama tidak berlaku.
+- `POST /api/itsm/profile/2fa/start` — body `current_password`; membuat secret
+  baru (aktivasi belum berlaku sampai dikonfirmasi) dan mengembalikan
+  `secret`, `otpauth_uri`, `issuer`, dan `account`. Secret lama ditimpa bila
+  pengguna mengulang.
+- `POST /api/itsm/profile/2fa/confirm` — body `code` 6 digit; memverifikasi
+  dengan toleransi ±1 langkah, menaikkan `totp_enabled`, dan mengembalikan 10
+  `recovery_codes` sekali pakai. Tidak mengubah langkah TOTP terakhir sehingga
+  kode yang baru dipakai untuk aktivasi masih boleh dipakai sekali saat login.
+- `POST /api/itsm/profile/2fa/disable` — body `password` + `code` (TOTP atau
+  kode pemulihan). Menghapus secret, hash pemulihan, dan langkah terakhir.
 
 Setiap perubahan menulis `audit_logs` dengan `action=update`,
 `collection_name=users`, `record_id` pengguna, dan `changes` tanpa nilai
@@ -1074,6 +1130,16 @@ memakai `$app.save`, sehingga `users.createRule` tetap `null` (superuser saja).
   perubahan itu dicoba, server menolak 400.
 - Unit yang dipasang harus milik tenant yang sama.
 - Setiap create/update/reset menulis `audit_logs` (`collection_name=users`).
+- `POST /api/itsm/team/{userId}/2fa-reset` menghapus secret, hash kode
+  pemulihan, dan status 2FA anggota, lalu memanggil `refreshTokenKey()` agar
+  semua sesinya berakhir. IT Lead tidak dapat mereset 2FA akun sendiri lewat
+  route ini (gunakan Profil). Audit `mfa_reset`.
+- `POST /api/itsm/team/{userId}/unlock` menghapus `login_failed_count` dan
+  `login_locked_until`; audit `update` dengan `changes.field=login_lock`.
+  Ditolak 400 bila akun tidak sedang terkunci dan tidak punya percobaan gagal.
+- Serialisasi tim memuat `totp_enabled`, `login_failed_count`, dan
+  `login_locked_until` agar UI menampilkan badge 2FA/terkunci dan tombol aksi
+  yang relevan.
 
 ### Impor massal dari CSV
 

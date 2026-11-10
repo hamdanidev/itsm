@@ -57,10 +57,18 @@ export function AuthProvider({ children }) {
     return unsubscribe;
   }, []);
 
-  const login = useCallback(async (email, password) => {
+  const login = useCallback(async (email, password, totp = "") => {
+    const identity = email.trim();
+    // Body eksplisit agar kode TOTP ikut terkirim ke endpoint auth; SDK hanya
+    // mengirim identity+password bila body tidak diberikan.
+    const body = { identity, password };
+
+    if (totp) body.totp = totp;
+
     const auth = await pb
       .collection("users")
-      .authWithPassword(email.trim(), password);
+      .authWithPassword(identity, password, { body });
+
     setUser(auth.record);
     return auth.record;
   }, []);

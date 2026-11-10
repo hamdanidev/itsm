@@ -3,7 +3,7 @@ import EmptyState from "../../../components/ui/EmptyState";
 import Modal from "../../../components/ui/Modal";
 import Pagination from "../../../components/ui/Pagination";
 import { TableSkeleton } from "../../../components/ui/Skeleton";
-import { formatDate } from "../../../lib/format";
+import { formatDateTime } from "../../../lib/format";
 import { roleLabel } from "../../../lib/permissions";
 import { TEAM_OPTIONS, teamLabel } from "../../../lib/teams";
 import {
@@ -13,6 +13,8 @@ import {
   getErrorMessage,
   importTeamCsv,
   resetTeamPassword,
+  resetTeamTwoFactor,
+  unlockTeamMember,
   updateTeamMember,
 } from "../../../lib/api";
 import { usePagedEndpoint, useDebouncedValue } from "../../../lib/pagedList";
@@ -79,6 +81,18 @@ function downloadTextFile(filename, text) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+// PocketBase mengirim tanggal dengan spasi; Safari menolak format itu.
+function parseLockDate(value) {
+  if (!value) return null;
+  const date = new Date(String(value).replace(" ", "T"));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isLockedRecord(record) {
+  const until = parseLockDate(record?.login_locked_until);
+  return Boolean(until && until.getTime() > Date.now());
 }
 
 function ActiveLozenge({ active }) {
@@ -181,6 +195,10 @@ export default function TeamTab({ units, currentUser }) {
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState("");
   const [importResult, setImportResult] = useState(null);
+  const [security, setSecurity] = useState(null);
+  const [securityBusy, setSecurityBusy] = useState("");
+  const [securityError, setSecurityError] = useState("");
+  const [securityNotice, setSecurityNotice] = useState("");
 
   const load = useCallback(async () => {
     list.reload();
@@ -328,6 +346,61 @@ export default function TeamTab({ units, currentUser }) {
     );
   }
 
+  function openSecurity(record) {
+    setSecurity(record);
+    setSecurityError("");
+    setSecurityNotice("");
+  }
+
+  function closeSecurity() {
+    if (securityBusy) return;
+    setSecurity(null);
+    setSecurityError("");
+    setSecurityNotice("");
+  }
+
+  async function handleResetTwoFactor() {
+    if (!security) return;
+
+    setSecurityBusy("2fa");
+    setSecurityError("");
+    setSecurityNotice("");
+
+    try {
+      const data = await resetTeamTwoFactor(security.id);
+      setSecurity(data.user);
+      setSecurityNotice(
+        "2FA direset. Kode pemulihan lama tidak berlaku dan sesi pengguna berakhir."
+      );
+      setNotice(`2FA ${data.user.name} direset.`);
+      await load();
+    } catch (err) {
+      setSecurityError(getErrorMessage(err));
+    } finally {
+      setSecurityBusy("");
+    }
+  }
+
+  async function handleUnlock() {
+    if (!security) return;
+
+    setSecurityBusy("unlock");
+    setSecurityError("");
+    setSecurityNotice("");
+
+    try {
+      const data = await unlockTeamMember(security.id);
+      setSecurity(data.user);
+      setSecurityNotice("Kunci akun dibuka. Pengguna dapat mencoba masuk lagi.");
+      setNotice(`Akun ${data.user.name} dibuka.`);
+      await load();
+    } catch (err) {
+      setSecurityError(getErrorMessage(err));
+    } finally {
+      setSecurityBusy("");
+    }
+  }
+
   // Password awal hanya ada di memori setelah impor; unduhan ini satu-satunya
   // cara menyerahkannya ke banyak staf sekaligus.
   function downloadCredentials() {
@@ -355,6 +428,11 @@ export default function TeamTab({ units, currentUser }) {
       "\uFEFF" + lines.join("\r\n") + "\r\n"
     );
   }
+
+  const securityLocked = isLockedRecord(security);
+  const securityCanReset = Boolean(
+    security && security.totp_enabled && security.id !== currentUser?.id
+  );
 
   return (
     <>
@@ -485,6 +563,28 @@ export default function TeamTab({ units, currentUser }) {
                       </td>
                       <td className="col-status">
                         <ActiveLozenge active={record.is_active} />
+                        <div className="status-badges">
+                          {record.totp_enabled && (
+                            <span className="lozenge lozenge--2fa" title="2FA aktif">
+                              <i
+                                className="bi bi-shield-check"
+                                aria-hidden="true"
+                              />
+                              2FA
+                            </span>
+                          )}
+                          {isLockedRecord(record) && (
+                            <span
+                              className="lozenge lozenge--locked"
+                              title={`Terkunci sampai ${formatDateTime(
+                                record.login_locked_until
+                              )}`}
+                            >
+                              <i className="bi bi-lock" aria-hidden="true" />
+                              Terkunci
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="col-actions">
                         <div className="admin-actions">
@@ -504,6 +604,14 @@ export default function TeamTab({ units, currentUser }) {
                           >
                             <i className="bi bi-key" aria-hidden="true" />
                             Reset password
+                          </button>
+                          <button
+                            className="btn btn-subtle btn-sm"
+                            type="button"
+                            onClick={() => openSecurity(record)}
+                          >
+                            <i className="bi bi-shield-lock" aria-hidden="true" />
+                            Keamanan
                           </button>
                           <button
                             className="btn btn-subtle btn-sm"
@@ -742,6 +850,132 @@ export default function TeamTab({ units, currentUser }) {
               </div>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {security && (
+        <Modal
+          title="Keamanan akun"
+          description={`${security.name} · ${security.email}`}
+          onClose={closeSecurity}
+          footer={
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={closeSecurity}
+              disabled={Boolean(securityBusy)}
+            >
+              Selesai
+            </button>
+          }
+        >
+          {securityError && (
+            <div className="alert alert--error" role="alert">
+              <i className="bi bi-exclamation-triangle" aria-hidden="true" />
+              <div>{securityError}</div>
+            </div>
+          )}
+
+          {securityNotice && (
+            <div className="alert alert--success" role="status">
+              <i className="bi bi-check-circle" aria-hidden="true" />
+              <div>{securityNotice}</div>
+            </div>
+          )}
+
+          <div className="security-status">
+            <div className="security-status-row">
+              <span>Autentikasi dua faktor</span>
+              <strong>{security.totp_enabled ? "Aktif" : "Nonaktif"}</strong>
+            </div>
+            <div className="security-status-row">
+              <span>Status login</span>
+              <strong>
+                {securityLocked
+                  ? `Terkunci sampai ${formatDateTime(
+                      security.login_locked_until
+                    )}`
+                  : Number(security.login_failed_count || 0) > 0
+                    ? `${security.login_failed_count} percobaan gagal`
+                    : "Normal"}
+              </strong>
+            </div>
+          </div>
+
+          {securityCanReset && (
+            <div className="security-action-box">
+              <div>
+                <strong>Reset 2FA</strong>
+                <p className="hint">
+                  Menghapus secret dan kode pemulihan, lalu mengakhiri semua sesi
+                  pengguna. Pengguna harus mendaftar ulang 2FA setelah masuk.
+                </p>
+              </div>
+              <button
+                className="btn btn-outline-danger btn-sm"
+                type="button"
+                disabled={Boolean(securityBusy)}
+                onClick={handleResetTwoFactor}
+              >
+                {securityBusy === "2fa" ? (
+                  <>
+                    <span className="spinner" aria-hidden="true" />
+                    Mereset...
+                  </>
+                ) : (
+                  <>
+                    <i className="bi bi-shield-slash" aria-hidden="true" />
+                    Reset 2FA
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {security.id === currentUser?.id && security.totp_enabled && (
+            <p className="hint">
+              Anda tidak dapat mereset 2FA akun sendiri dari sini. Gunakan panel
+              Keamanan di halaman Profil saya.
+            </p>
+          )}
+
+          {securityLocked && (
+            <div className="security-action-box">
+              <div>
+                <strong>Buka kunci akun</strong>
+                <p className="hint">
+                  Menghapus hitungan percobaan gagal agar pengguna dapat masuk
+                  lagi tanpa menunggu masa kunci berakhir.
+                </p>
+              </div>
+              <button
+                className="btn btn-outline btn-sm"
+                type="button"
+                disabled={Boolean(securityBusy)}
+                onClick={handleUnlock}
+              >
+                {securityBusy === "unlock" ? (
+                  <>
+                    <span className="spinner" aria-hidden="true" />
+                    Membuka...
+                  </>
+                ) : (
+                  <>
+                    <i className="bi bi-unlock" aria-hidden="true" />
+                    Buka kunci
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {!securityCanReset &&
+            !securityLocked &&
+            !(security.id === currentUser?.id && security.totp_enabled) && (
+              <p className="hint">
+                Tidak ada tindakan keamanan yang diperlukan untuk akun ini.
+              </p>
+            )}
         </Modal>
       )}
 
