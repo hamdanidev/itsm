@@ -619,7 +619,8 @@ fitur ITIL.
 | S0-5 | **Paket dokumen jual** | Penawaran terlihat amatir tanpa ini | One-pager, skrip demo 20 menit, proposal pilot, daftar harga, security & data pack, SLA support, template NDA/DPA |
 | S0-6 | **Monitoring & alert dasar** | Uptime tidak terpantau selama pilot | Healthcheck eksternal, alert down/disk penuh, rotasi dan retensi log terdokumentasi |
 
-**Status per 2026-11-10:** S0-1, S0-2, dan S0-3 selesai.
+**Status per 2026-11-10:** S0-1, S0-2, dan S0-3 selesai; S0-6 siap
+menunggu aktivasi alat/uji alert.
 
 - S0-1: `POST /api/itsm/team/import` (multipart CSV), modal "Impor CSV" di
   Pengaturan → Tim, validasi per baris, ringkasan berhasil/gagal, duplikat
@@ -633,6 +634,9 @@ fitur ITIL.
   catatan drill lokal bertanggal, `npm run ops:check`, dan
   `npm run ops:restore-drill`. Drill staging dengan backup produksi dan backup
   off-host tetap wajib sebelum pilot (lihat GAP D2).
+- S0-6: sisi repo siap — `docs/MONITORING.md`, `ops:check --push-url` untuk
+  heartbeat Uptime Kuma, dan template systemd di `scripts/ops/systemd/`.
+  **Menunggu** instance Uptime Kuma, notifikasi, dan uji alert oleh operator.
 
 Butir Sprint 0 lain belum dikerjakan.
 
@@ -697,7 +701,8 @@ capacity, availability, financial). Alasan dan urutannya ada di
 2. ~~**S0-2 2FA + pembatasan login** — migrasi kolom, route enroll/verifikasi,
    layar keamanan di profil.~~ *(selesai 2026-11-10; lihat status di 10.1)*
 3. ~~**S0-3 runbook + S0-6 monitoring** — dokumen dan konfigurasi, tanpa UI.~~
-   *(S0-3 selesai 2026-11-10; S0-6 belum)*
+   *(S0-3 selesai 2026-11-10; S0-6 repo-side selesai, menunggu Uptime Kuma +
+   uji alert)*
 4. **S0-4 tenant demo + `npm run demo:reset`** — skrip di `scripts/`, memakai
    seed dev yang sudah ada.
 5. **S0-5 dokumen jual** — berkas di `docs/` (one-pager, skrip demo, proposal

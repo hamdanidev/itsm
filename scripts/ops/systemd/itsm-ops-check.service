@@ -1,0 +1,15 @@
+[Unit]
+Description=Healthcare ITSM ops check (health, backup, disk)
+Documentation=file:/opt/healthcare-itsm/docs/MONITORING.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Root diperlukan untuk membaca volume Docker dan direktori backup.
+# Batasi akses host; alternatifnya user khusus dengan izin baca yang setara.
+User=root
+WorkingDirectory=/opt/healthcare-itsm
+EnvironmentFile=-/etc/healthcare-itsm/ops.env
+ExecStart=/usr/bin/node scripts/ops/check.mjs
+TimeoutStartSec=60

@@ -1159,8 +1159,9 @@ Aturan tab **Tim**:
 ## Production
 
 > Runbook operasi lengkap (install, upgrade, backup, restore, insiden,
-> monitoring) ada di [`docs/OPERATIONS.md`](docs/OPERATIONS.md). Bagian di bawah
-> adalah ringkasan cepat.
+> monitoring) ada di [`docs/OPERATIONS.md`](docs/OPERATIONS.md). Setup
+> monitoring/alert ada di [`docs/MONITORING.md`](docs/MONITORING.md). Bagian di
+> bawah adalah ringkasan cepat.
 
 Docker **hanya** dipakai untuk production / verifikasi tingkat production.
 Development tidak memerlukan Docker.
@@ -1624,7 +1625,9 @@ kesiapan jual (bulk import pengguna, 2FA + pembatasan login, runbook operasi,
 tenant demo, dokumen jual) → pilot RS swasta → P0 adopsi (email-in, formulir
 dinamis, auto-assignment, SSO, WhatsApp, AI).
 
-- Alerting uptime eksternal, disk, dan kesegaran backup (S0-6).
+- Aktivasi Uptime Kuma eksternal, notifikasi, dan uji alert (probe
+  `ops:check --push-url` + template systemd sudah ada; lihat
+  [`docs/MONITORING.md`](docs/MONITORING.md)).
 - Backup off-host terenkripsi + drill restore staging (runbook dan drill lokal
   dasar sudah ada di `docs/OPERATIONS.md`).
 - Tenant demo + `npm run demo:reset` untuk demo dan pilot.

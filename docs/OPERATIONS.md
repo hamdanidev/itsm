@@ -398,10 +398,15 @@ insiden, kirim update status berkala sampai pulih.
 - Log Docker `json-file` dibatasi:
   - PocketBase/web: 10 MB × 3 file;
   - backup: 5 MB × 2 file.
-- `npm run ops:check` memeriksa health, kesegaran backup, dan disk (cocok untuk
-  cron atau probe).
+- `npm run ops:check` memeriksa health, kesegaran backup, dan disk; dengan
+  `--push-url`/`OPS_PUSH_URL` hasilnya dikirim sebagai heartbeat ke Uptime Kuma
+  (status `down` bila gagal).
+- Template systemd timer di `scripts/ops/systemd/`.
 
-### 9.2 Yang wajib ditambahkan sebelum pilot (S0-6)
+### 9.2 Yang wajib diaktifkan sebelum pilot (S0-6)
+
+Setup lengkap monitor, ambang, notifikasi, dan uji alert ada di
+[MONITORING.md](./MONITORING.md). Ringkasnya:
 
 | Sinyal | Ambang awal | Aksi |
 |---|---|---|
@@ -409,6 +414,7 @@ insiden, kirim update status berkala sampai pulih.
 | Disk | warning 80%, critical 90% | Bersihkan/off-host/tambah disk |
 | Backup terbaru | > 26 jam atau 0 byte | Periksa cron/sidecar, buat backup manual |
 | TLS | < 14 hari | Renew/perbaiki DNS |
+| Heartbeat `ops:check` | hilang > 15 menit | Cek timer/cron dan host |
 | Memori | mendekati `GOMEMLIMIT`/OOM restart | Restart/analisis |
 | 5xx / error rate | lonjakan 5 menit | Lihat log, rollback bila perlu |
 | Antrean email | gagal > 10 atau tertua > 15 menit | Perbaiki SMTP, dispatch |
@@ -429,7 +435,9 @@ UptimeRobot). Healthcheck Docker tidak akan memberi tahu bila host mati.
 ```
 
 Sesuaikan path Node/volume. Bila host tidak punya Node, jalankan lewat container
-kecil atau gunakan probe HTTP + shell `find` untuk backup.
+kecil atau gunakan probe HTTP + shell `find` untuk backup. Tambahkan
+`--push-url` (atau `OPS_PUSH_URL`) agar kegagalan juga dikirim ke Uptime Kuma;
+detailnya ada di [MONITORING.md](./MONITORING.md).
 
 ### 9.4 Retensi log
 

@@ -23,6 +23,7 @@ function parseArgs(argv) {
     maxBackupAgeHours: Number(process.env.OPS_MAX_BACKUP_AGE_HOURS || 26),
     diskWarn: Number(process.env.OPS_DISK_WARN || 80),
     diskCritical: Number(process.env.OPS_DISK_CRITICAL || 90),
+    pushUrl: process.env.OPS_PUSH_URL || "",
     timeoutMs: 5000,
     json: false,
   };
@@ -37,6 +38,7 @@ function parseArgs(argv) {
     else if (flag === "--max-backup-age-hours") args.maxBackupAgeHours = Number(next());
     else if (flag === "--disk-warn") args.diskWarn = Number(next());
     else if (flag === "--disk-critical") args.diskCritical = Number(next());
+    else if (flag === "--push-url") args.pushUrl = next();
     else if (flag === "--timeout") args.timeoutMs = Number(next());
     else if (flag === "--json") args.json = true;
     else if (flag === "--help") args.help = true;
@@ -225,6 +227,88 @@ async function checkDisk(args) {
   }
 }
 
+// URL heartbeat untuk Uptime Kuma "Push" monitor. Token ada di path dan tidak
+// boleh dicetak ke log.
+export function buildPushUrl(baseUrl, { status, message, ping }) {
+  const url = new URL(baseUrl);
+
+  url.searchParams.set(
+    "status",
+    status === "down" || status === "fail" ? "down" : "up"
+  );
+  url.searchParams.set("msg", String(message || "").slice(0, 500));
+  if (Number.isFinite(Number(ping))) {
+    url.searchParams.set("ping", String(Math.max(0, Math.round(Number(ping)))));
+  }
+
+  return url.toString();
+}
+
+export async function pushHeartbeat(baseUrl, report, timeoutMs = 5000) {
+  if (!baseUrl) {
+    return { ok: true, level: "ok", skipped: true, message: "Push URL tidak diatur" };
+  }
+
+  const parts = [];
+  for (const [name, result] of Object.entries({
+    health: report.health,
+    backup: report.backup,
+    disk: report.disk,
+  })) {
+    if (!result || result.level === "ok") continue;
+    parts.push(`${name}: ${result.message}`);
+  }
+
+  const message =
+    parts.length > 0
+      ? parts.join(" | ")
+      : "health, backup, dan disk normal";
+  const status = report.status === "fail" ? "down" : "up";
+  let url;
+
+  try {
+    url = buildPushUrl(baseUrl, {
+      status,
+      message,
+      ping: report.health?.latencyMs,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      level: "fail",
+      message: `Push URL tidak valid: ${error.message}`,
+      status,
+    };
+  }
+
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        level: "fail",
+        message: `Push heartbeat gagal (${response.status})`,
+        status,
+      };
+    }
+
+    return {
+      ok: true,
+      level: "ok",
+      message: `Push heartbeat terkirim (${status})`,
+      status,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      level: "fail",
+      message: `Push heartbeat gagal: ${error.message}`,
+      status,
+    };
+  }
+}
+
 function printResult(name, result, useJson) {
   if (useJson) return;
 
@@ -240,7 +324,7 @@ async function run() {
     console.log(
       "Usage: node scripts/ops/check.mjs [--url URL] [--backup-dir DIR] " +
         "[--data-dir DIR] [--max-backup-age-hours N] [--disk-warn PCT] " +
-        "[--disk-critical PCT] [--json]"
+        "[--disk-critical PCT] [--push-url URL] [--json]"
     );
     return;
   }
@@ -248,8 +332,7 @@ async function run() {
   const health = await checkHealth(args);
   const backup = await checkBackup(args);
   const disk = await checkDisk(args);
-
-  const failed = [health, backup, disk].some(
+  const checksFailed = [health, backup, disk].some(
     (result) => result.level === "fail"
   );
   const warned = [health, backup, disk].some(
@@ -260,11 +343,15 @@ async function run() {
     url: args.url,
     backup_dir: args.backupDir,
     data_dir: args.dataDir,
-    status: failed ? "fail" : warned ? "warn" : "ok",
+    status: checksFailed ? "fail" : warned ? "warn" : "ok",
     health,
     backup,
     disk,
   };
+
+  report.push = await pushHeartbeat(args.pushUrl, report);
+  const failed = checksFailed || report.push.level === "fail";
+  report.status = failed ? "fail" : warned ? "warn" : "ok";
 
   if (args.json) {
     console.log(JSON.stringify(report, null, 2));
@@ -272,6 +359,7 @@ async function run() {
     printResult("health", health, false);
     printResult("backup", backup, false);
     printResult("disk", disk, false);
+    if (!report.push.skipped) printResult("push", report.push, false);
   }
 
   if (failed) process.exitCode = 1;
