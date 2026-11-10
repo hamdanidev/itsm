@@ -23,6 +23,8 @@
     "seed:medium": "node scripts/seed.mjs --profile medium",
     "seed:busy": "node scripts/seed.mjs --profile busy",
     "seed:reset": "node scripts/seed.mjs --reset",
+    "ops:check": "node scripts/ops/check.mjs",
+    "ops:restore-drill": "node scripts/ops/restore-drill.mjs",
     "build": "npm --prefix frontend run build",
     "preview": "npm --prefix frontend run preview",
     "test": "npm run test:unit && npm run test:api",

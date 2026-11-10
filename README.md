@@ -119,7 +119,10 @@ healthcare-itsm/
 │   ├── pocketbase.mjs         # CLI download/serve/superuser/migrate
 │   ├── zoneinfo.mjs           # segarkan backend/zoneinfo.zip dari toolchain Go
 │   ├── seed.mjs               # seed data manual untuk testing
-│   └── lib/pocketbase.mjs     # resolver binary, checksum, args serve
+│   ├── lib/pocketbase.mjs     # resolver binary, checksum, args serve
+│   └── ops/                   # ops:check + ops:restore-drill
+├── docs/                      # roadmap, analisis, runbook operasi, catatan restore
+├── tests/                     # unit, API, dan e2e
 ├── docker/
 │   ├── Caddyfile
 │   ├── entrypoint.sh
@@ -1155,6 +1158,10 @@ Aturan tab **Tim**:
 
 ## Production
 
+> Runbook operasi lengkap (install, upgrade, backup, restore, insiden,
+> monitoring) ada di [`docs/OPERATIONS.md`](docs/OPERATIONS.md). Bagian di bawah
+> adalah ringkasan cepat.
+
 Docker **hanya** dipakai untuk production / verifikasi tingkat production.
 Development tidak memerlukan Docker.
 
@@ -1257,6 +1264,17 @@ Restore:
 
 Jangan menyalin `data.db` dengan `cp` saat PocketBase hidup. Gunakan backup ZIP
 bawaan atau `sqlite3 .backup`.
+
+Pemeriksaan operasional (health, kesegaran backup, disk):
+
+```bash
+npm run ops:check -- --url https://$APP_DOMAIN --backup-dir ./backups
+npm run ops:restore-drill   # drill lokal: backup -> restore -> verifikasi
+```
+
+Catatan uji restore disimpan di [`docs/restore-tests/`](docs/restore-tests/).
+Off-host/enkripsi dan drill staging wajib diselesaikan sebelum pilot — lihat
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 ## Migrations
 
@@ -1606,9 +1624,9 @@ kesiapan jual (bulk import pengguna, 2FA + pembatasan login, runbook operasi,
 tenant demo, dokumen jual) → pilot RS swasta → P0 adopsi (email-in, formulir
 dinamis, auto-assignment, SSO, WhatsApp, AI).
 
-- Bulk import pengguna (CSV) di Pengaturan → Tim.
-- 2FA (TOTP), pembatasan percobaan login, dan alerting uptime.
-- Runbook operasi + uji restore terdokumentasi; backup off-host terenkripsi.
+- Alerting uptime eksternal, disk, dan kesegaran backup (S0-6).
+- Backup off-host terenkripsi + drill restore staging (runbook dan drill lokal
+  dasar sudah ada di `docs/OPERATIONS.md`).
 - Tenant demo + `npm run demo:reset` untuk demo dan pilot.
 - Email-in (IMAP) dan formulir dinamis per item layanan.
 - Laporan problem aging, repeat incident rate, KB usage/deflection, dan PIR
